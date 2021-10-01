@@ -6,8 +6,8 @@ title: Finite Volume: Advection
 
 <img src="images/fvadvec2d.png" alt="fvadvec2d" width="400">
 
-The Julia script: <a href="https://github.com/paralab/finch/blob/master/finch/examples/example-advection1d-fv.jl">example-advection1d-fv.jl</a>
-<br><a href="https://github.com/paralab/finch/blob/master/finch/examples/example-advection2d-fv.jl">example-advection2d-fv.jl</a>
+The Julia script: <a href="https://github.com/paralab/Finch/blob/master/Finch/examples/example-advection1d-fv.jl">example-advection1d-fv.jl</a>
+<br><a href="https://github.com/paralab/Finch/blob/master/Finch/examples/example-advection2d-fv.jl">example-advection2d-fv.jl</a>
 
 The finite volume method can also be used for some problems. One key difference is that the PDE will be input in the form of a conservation equation rather than the weak form. Also, variables used with FV should be defined as averages on cells rather than nodal values, though there is some ability to interpolate between them as needed. 
 

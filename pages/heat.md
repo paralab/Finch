@@ -6,7 +6,7 @@ title: Heat
 
 <img src="images/heat.png" alt="heat" width="400">
 
-The Julia script: <a href="https://github.com/paralab/finch/blob/master/finch/examples/example-heat2d.jl">example-heat2d.jl</a>
+The Julia script: <a href="https://github.com/paralab/Finch/blob/master/Finch/examples/example-heat2d.jl">example-heat2d.jl</a>
 
 A 2D heat equation demonstrates support for time dependent problems.
 

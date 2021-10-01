@@ -6,7 +6,7 @@ title: Poisson 1D
 
 <img src="images/poisson1d.png" alt="poisson1d" width="400">
 
-The Julia script: <a href="https://github.com/paralab/finch/blob/master/src/examples/example-poisson1d.jl">example-poisson1d.jl</a>
+The Julia script: <a href="https://github.com/paralab/Finch/blob/master/src/examples/example-poisson1d.jl">example-poisson1d.jl</a>
 
 The 1D Poisson equation with Dirichlet boundary and smooth functions is about as simple as it gets. This example demonstrates the basics of setting up a problem in Finch. A uniform discretization of the unit domain is used with p=4 polynomial basis function space.
 

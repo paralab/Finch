@@ -6,7 +6,7 @@ title: Indexed variables
 
 <img src="images/addiff1dindexed.png" alt="addiff1dindexed" width="400">
 
-The Julia script: <a href="https://github.com/paralab/finch/blob/master/src/examples/example-addiff1d-indexed.jl">example-addiff1d-indexed.jl</a>
+The Julia script: <a href="https://github.com/paralab/Finch/blob/master/src/examples/example-addiff1d-indexed.jl">example-addiff1d-indexed.jl</a>
 
 When solving a large number of equations with the same form, but different values, this feature greatly simplifies the input process and generated code. It also presents the possibility of arranging the assembly loops in different ways. The example shown here may not be the most meaningful case, but is easy to understand. It is an advection diffusion equation with a range of advection speeds and diffusion rates. It is solved using the finite volume method with upwinding for the advective flux. Since the equations are the same for each set of values, the variables are indexed in a single expression.
 

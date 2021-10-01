@@ -6,7 +6,7 @@ title: Navier Stokes
 
 <img src="images/nsplot.png" alt="NS" width="400">
 
-The Julia script: <a href="https://github.com/paralab/finch/blob/master/finch/examples/example-NS.jl">example-NS.jl</a>
+The Julia script: <a href="https://github.com/paralab/Finch/blob/master/Finch/examples/example-NS.jl">example-NS.jl</a>
 
 A 2D Navier Stokes simulation of a driven lid problem. This demonstrates the nonlinear solver capability, multiple variables, and parameter entities.
 

@@ -6,7 +6,7 @@ title: Linear Elasticity
 
 <img src="images/elasticity.png" alt="elasticity" width="400">
 
-The Julia script: <a href="https://github.com/paralab/finch/blob/master/src/examples/example-elasticity.jl">example-elasticity.jl</a>
+The Julia script: <a href="https://github.com/paralab/Finch/blob/master/src/examples/example-elasticity.jl">example-elasticity.jl</a>
 
 A 3D linear elasticity equation that models the gravity induced deflection of a beam that is fixed at one end. This example demonstrates the use of vector valued variables, coefficients, and function spaces. It also introduces mixed Dirichlet and Neumann boundary conditions.
 
