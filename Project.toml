@@ -1,0 +1,24 @@
+name = "Finch"
+uuid = "56b7914d-7f6f-4007-a571-cf4304878953"
+authors = ["Eric Heisler, Hari Sundar"]
+version = "0.1.0"
+
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
+PkgBenchmark = "32113eaa-f34f-5b0d-bd6c-c81e245fc73d"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+SymEngine = "123dc426-2d89-5057-bbad-38513e3affd8"
+WriteVTK = "64499a7a-5c06-52f2-abe2-ccb03c286192"
+
+[compat]
+SymEngine = "0.8"
+julia = "1"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
