@@ -1,13 +1,13 @@
 <img src="https://github.com/paralab/Finch/blob/master/logo.png" height="258">
 
-[![Build Status](https://github.com/paralab/finch/workflows/CI/badge.svg)](https://github.com/paralab/finch/actions)
-[![Coverage](http://codecov.io/github/paralab/finch/coverage.svg?branch=master)](http://codecov.io/github/paralab/finch?branch=master)
+[![Build Status](https://github.com/paralab/Finch/workflows/CI/badge.svg)](https://github.com/paralab/Finch/actions)
+[![Coverage](http://codecov.io/github/paralab/Finch/coverage.svg?branch=master)](http://codecov.io/github/paralab/Finch?branch=master)
 
 
 ## Installation
 To install finch, launch Julia and run:
 ```julia
-]add "https://github.com/paralab/finch.git"
+]add "https://github.com/paralab/Finch.git"
 ```
 finch requires Julia version 1.3 or greater.
 
@@ -23,5 +23,5 @@ finch requires Julia version 1.3 or greater.
 
 ## Learn more
 
-* See [the finch wiki](https://github.com/paralab/finch/wiki) to learn what it does and how to use it.
-* Explore [examples](https://paralab.github.io/finch/pages/examples.html).
+* See [the finch wiki](https://github.com/paralab/Finch/wiki) to learn what it does and how to use it.
+* Explore [examples](https://paralab.github.io/Finch/pages/examples.html).
