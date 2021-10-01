@@ -1,4 +1,4 @@
-<img src="https://github.com/paralab/Finch/blob/master/logo.png" width="294">
+<img src="https://github.com/paralab/Finch/blob/master/logo.png" height="258">
 
 [![Build Status](https://github.com/paralab/finch/workflows/CI/badge.svg)](https://github.com/paralab/finch/actions)
 [![Coverage](http://codecov.io/github/paralab/finch/coverage.svg?branch=master)](http://codecov.io/github/paralab/finch?branch=master)
