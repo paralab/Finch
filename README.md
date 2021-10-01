@@ -11,9 +11,9 @@ To install finch, launch Julia and run:
 ```
 finch requires Julia version 1.3 or greater.
 
-## Welcome to FEMSHOP
+## Welcome to FINCH
 
- Finch is a community-oriented  framework  that  is *lightweight, portable, robust, extensible*, and *scalable* and that adapts to the complexity and heterogeneity of modern computing architectures. Our focus in this proposal is to establish a high-productivity framework for advanced high-order discretizations that effectively use small to large-scale computing systems. 
+ Finch is a Domain Specific Language and code generation framework that is *extensible, scalable, portable*, and adapts to the computing resources and needs of small to large-scale numerical simulations. The goal is to be as modular and accessible as possible while acheiving a high level of performance and customizability.
 
 ### Team
 
