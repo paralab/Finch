@@ -1,6 +1,6 @@
 name = "Finch"
-uuid = "56b7914d-7f6f-4007-a571-cf4304878953"
-authors = ["Eric Heisler, Hari Sundar"]
+uuid = "25dbc9c3-d6a9-4084-a72b-41a6bed6a421"
+authors = ["Eric Heisler", "Aadesh Deshmukh", "Hari Sundar"]
 version = "0.1.0"
 
 [deps]
