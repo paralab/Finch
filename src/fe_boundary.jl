@@ -379,18 +379,24 @@ function zero_rhs_bdry_vals(rhs, dofs)
     return rhs;
 end
 
-function evaluate_at_nodes(val, nodes, t=0)
+# This evaluates the BC at a specific node.
+# That could mean:
+# - the value of constant BCs
+# - evaluate a genfunction.func for BCs defined by strings->genfunctions
+# - evaluate a function for BCs defined by callback functions
+function evaluate_at_nodes(val, nodes, face, t)
     N = length(nodes);
+    dim = config.dimension;
     if typeof(val) <: Number
         result = fill(val, N);
         
     elseif typeof(val) == Coefficient && typeof(val.value[1]) == GenFunction
         result = zeros(N);
-        if config.dimension == 1
+        if dim == 1
             for i=1:N
                 result[i]=val.value[1].func(grid_data.allnodes[1,nodes[i]],0,0,t,nodes[i]);
             end
-        elseif config.dimension == 2
+        elseif dim == 2
             for i=1:N
                 result[i]=val.value[1].func(grid_data.allnodes[1,nodes[i]],grid_data.allnodes[2,nodes[i]],0,t,nodes[i]);
             end
@@ -402,11 +408,11 @@ function evaluate_at_nodes(val, nodes, t=0)
         
     elseif typeof(val) == GenFunction
         result = zeros(N);
-        if config.dimension == 1
+        if dim == 1
             for i=1:N
                 result[i]=val.func(grid_data.allnodes[1,nodes[i]],0,0,t,nodes[i]);
             end
-        elseif config.dimension == 2
+        elseif dim == 2
             for i=1:N
                 result[i]=val.func(grid_data.allnodes[1,nodes[i]],grid_data.allnodes[2,nodes[i]],0,t,nodes[i]);
             end
@@ -415,6 +421,76 @@ function evaluate_at_nodes(val, nodes, t=0)
                 result[i]=val.func(grid_data.allnodes[1,nodes[i]],grid_data.allnodes[2,nodes[i]],grid_data.allnodes[3,nodes[i]],t,nodes[i]);
             end
         end
+        
+    elseif typeof(val) == CallbackFunction
+        result = zeros(N);
+        for i=1:N
+            #form a dict for the arguments. x,y,z,t are always included
+            arg_list = [];
+            append!(arg_list, [("x", grid_data.allnodes[1,nodes[i]]),
+                        ("y", dim>1 ? grid_data.allnodes[2,nodes[i]] : 0),
+                        ("z", dim>2 ? grid_data.allnodes[3,nodes[i]] : 0),
+                        ("t", t)]);
+            # Add in the requires list
+            for r in val.args
+                foundit = false;
+                # is it an entity?
+                if typeof(r) == Variable
+                    foundit = true;
+                    if size(r.values,1) == 1
+                        push!(arg_list, (string(r.symbol), r.values[1,nodes[i]]));
+                    else
+                        push!(arg_list, (string(r.symbol), r.values[:,nodes[i]]));
+                    end
+                elseif typeof(r) == Coefficient
+                    # TODO: evaluate coefficient at node
+                    foundit = true;
+                    push!(arg_list, (string(r.symbol), evaluate_at_nodes(r, nodes[i], face, t)));
+                elseif typeof(r) == String
+                    # This could also be a variable, coefficient, or special thing like normal, 
+                    if r in ["x","y","z","t"]
+                        foundit = true;
+                        # These are already included
+                    elseif r == "normal"
+                        foundit = true;
+                        push!(arg_list, ("normal", grid_data.facenormals[:,face]));
+                    else
+                        for v in variables
+                            if string(v.symbol) == r
+                                foundit = true;
+                                if size(v.values,1) == 1
+                                    push!(arg_list, (r, v.values[1,nodes[i]]));
+                                else
+                                    push!(arg_list, (r, v.values[:,nodes[i]]));
+                                end
+                                break;
+                            end
+                        end
+                        for c in coefficients
+                            if string(c.symbol) == r
+                                foundit = true;
+                                push!(arg_list, (r, evaluate_at_nodes(c, nodes[i], face, t)));
+                                break;
+                            end
+                        end
+                    end
+                else
+                    # What else could it be?
+                end
+
+                if !foundit
+                    # Didn't figure this thing out.
+                    printerr("Unknown requirement for callback function "*string(fun)*" : "*string(requires[i]));
+                end
+            end
+            
+            # Build the dict
+            args = Dict(arg_list);
+            
+            # call the function
+            result[i] = val.func(args);
+        end
+        
     end
     return result;
 end
@@ -443,7 +519,7 @@ function dirichlet_bc(b, val, bdryface, t=0, dofind = 1, totaldofs = 1; rhs_only
             bdry_rows[((fi-1)*nodes_per_face+1):(fi*nodes_per_face)] = offsetglb;
         end
         
-        b[offsetglb] = evaluate_at_nodes(val, face_nodes, t);
+        b[offsetglb] = evaluate_at_nodes(val, face_nodes, bdryface[fi], t);
         
     end
     
@@ -622,7 +698,7 @@ function neumann_bc(b, val, bdryface, bid, t=0, dofind = 1, totaldofs = 1)
         end
         
         # Do the rhs vector
-        b[offsetface] = evaluate_at_nodes(val, face_nodes, t);
+        b[offsetface] = evaluate_at_nodes(val, face_nodes, bdryface[fi], t);
         
         # Increase S index
         next_S_ind += node_count * nodes_per_element;

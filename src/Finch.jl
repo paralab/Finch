@@ -537,22 +537,28 @@ function add_boundary_condition(var, bid, type, ex, nfuns)
         prob.bc_func = tmp2;
         prob.bid = tmp3;
     end
+    
+    # Add this boundary condition to the struct
     if typeof(ex) <: Array
         vals = [];
         ind = length(genfunctions) - nfuns + 1;
         for i=1:length(ex)
-            if typeof(ex[i]) == String
+            if typeof(ex[i]) <: Number
+                push!(vals, ex[i]);
+            elseif typeof(ex[i]) == String
                 push!(vals, genfunctions[ind]);
                 ind += 1;
-            else
+            else # callback
                 push!(vals, ex[i]);
             end
         end
         prob.bc_func[var.index, bid] = vals;
     else
-        if typeof(ex) == String
+        if typeof(ex) <: Number
+            prob.bc_func[var.index, bid] = [ex];
+        elseif typeof(ex) == String
             prob.bc_func[var.index, bid] = [genfunctions[end]];
-        else
+        else # callback
             prob.bc_func[var.index, bid] = [ex];
         end
     end

@@ -20,7 +20,7 @@ import ..Finch: JULIA, CPP, MATLAB, DENDRO, HOMG, CUSTOM_GEN_TARGET,
             LINEMESH, QUADMESH, HEXMESH
 import ..Finch: log_entry, printerr
 import ..Finch: config, prob, variables, mesh_data, grid_data, refel, time_stepper, elemental_order
-import ..Finch: Variable, Coefficient, GenFunction, Jacobian
+import ..Finch: Variable, Coefficient, GenFunction, Jacobian, CallbackFunction
 import ..Finch: GeometricFactors, geo_factors, geometric_factors, geometric_factors_face, build_deriv_matrix, build_face_deriv_matrix, build_refel
 
 using LinearAlgebra, SparseArrays

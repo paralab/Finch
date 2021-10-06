@@ -28,16 +28,22 @@ function generateFor(lang; filename=project_name, header="", params=nothing)
         include(lang);
         set_custom_gen_target(get_external_language_elements, generate_external_code_layer, generate_external_files, outputDirPath, filename, head=header);
     else
+        # Use an included target
+        target_dir = @__DIR__
         if lang == DENDRO
             framew = DENDRO;
             lang = CPP;
-        elseif lang == HOMG
-            framew = HOMG;
+            target_file = "/targets/target_dendro_cg.jl";
+        elseif lang == MATLAB
+            framew = MATLAB;
             lang = MATLAB;
+            target_file = "/targets/target_matlab_cg.jl";
         else
             framew = 0;
+            target_file = "/targets/target_matlab_cg.jl";
         end
-        set_included_gen_target(lang, framew, outputDirPath, filename, head=header);
+        include(target_dir * target_file);
+        set_custom_gen_target(get_external_language_elements, generate_external_code_layer, generate_external_files, outputDirPath, filename, head=header);
     end
     if !(params === nothing)
         set_codegen_parameters(params);
@@ -208,25 +214,35 @@ function index(name; range=[1])
     return idx;
 end
 
-function boundary(var, bid, bc_type, bc_exp=0)
+function boundary(var, bid, bc_type, bc_exp=0; requires=[])
     # The expression may contain variable symbols.
     # Parse it, replace variable symbols with the appropriate parts
     if typeof(bc_exp) <: Array
+        nfuns = 0;
         for i=1:length(bc_exp)
             if typeof(bc_exp[i]) == String
                 ex = Meta.parse(bc_exp[i]);
                 ex = replace_var_symbols_with_values(ex);
                 bc_exp[i] = string(ex);
+                nfuns += makeFunctions(bc_exp[i]);
+            elseif typeof(bc_exp[i]) <: Number
+                # do nothing
+            else # a callback function 
+                bc_exp[i] = CallbackFunction(string(bc_exp[i]), requires, bc_exp[i]);
             end
         end
-    else
-        if typeof(bc_exp) == String
-            ex = Meta.parse(bc_exp);
-            ex = replace_var_symbols_with_values(ex);
-            bc_exp = string(ex);
-        end
+    elseif typeof(bc_exp) == String
+        ex = Meta.parse(bc_exp);
+        ex = replace_var_symbols_with_values(ex);
+        bc_exp = string(ex);
+        nfuns = makeFunctions(bc_exp);
+    elseif typeof(bc_exp) <: Number
+        nfuns = 0;
+    else # a callback function 
+        bc_exp = CallbackFunction(string(bc_exp), requires, bc_exp);
+        nfuns = 0;
     end
-    nfuns = makeFunctions(bc_exp);
+    
     add_boundary_condition(var, bid, bc_type, bc_exp, nfuns);
 end
 
