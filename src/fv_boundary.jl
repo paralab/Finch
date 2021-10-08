@@ -37,7 +37,7 @@ function apply_boundary_conditions_to_face_rhs(var, fid, facefluxvec, t)
                         # Qvec = Qvec ./ geo_factors.area[fid];
                         # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* geo_factors.area[fid];
                         
-                        bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], facex, t) .* geo_factors.area[fid];
+                        bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fid, t) .* geo_factors.area[fid];
                         
                         fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ geo_factors.volume[eid];
                         facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
@@ -56,7 +56,7 @@ function apply_boundary_conditions_to_face_rhs(var, fid, facefluxvec, t)
                     # Qvec = (refel.surf_wg[grid_data.faceRefelInd[1,fid]] .* geo_factors.face_detJ[fid])' * (refel.surf_Q[grid_data.faceRefelInd[1,fid]])[:, refel.face2local[grid_data.faceRefelInd[1,fid]]]
                     # Qvec = Qvec ./ geo_factors.area[fid];
                     # bflux = FV_flux_bc_rhs_only(prob.bc_func[var.index, fbid][d], facex, Qvec, t, dofind, dofs_per_node) .* geo_factors.area[fid];
-                    bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], facex, t) .* geo_factors.area[fid];
+                    bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t) .* geo_factors.area[fid];
                     
                     fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ geo_factors.volume[eid];
                     facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
@@ -115,28 +115,129 @@ function FV_flux_bc_rhs_only(val, facex, Qvec, t=0, dofind = 1, totaldofs = 1)
     return b[1];
 end
 
-function FV_flux_bc_rhs_only_simple(val, bctype, facex, t=0)
+function FV_flux_bc_rhs_only_simple(val, fid, t=0)
+    # if typeof(val) <: Number
+    #     return val;
+        
+    # elseif typeof(val) == Coefficient && typeof(val.value[1]) == GenFunction
+    #     if config.dimension == 1
+    #         bval = val.value[1].func(facex[1],0,0,t);
+    #     elseif config.dimension == 2
+    #         bval = val.value[1].func(facex[1],facex[2],0,t);
+    #     else
+    #         bval = val.value[1].func(facex[1],facex[2],facex[3],t);
+    #     end
+        
+    # elseif typeof(val) == GenFunction
+    #     if config.dimension == 1
+    #         bval = val.func(facex[1],0,0,t);
+    #     elseif config.dimension == 2
+    #         bval = val.func(facex[1],facex[2],0,t);
+    #     else
+    #         bval = val.func(facex[1],facex[2],facex[3],t);
+    #     end
+    # end
+    eid = grid_data.face2element[1,fid];
+    
+    return evaluate_bc(val, eid, fid, t);
+end
+
+# This evaluates the BC at a specific node.
+# That could mean:
+# - the value of constant BCs
+# - evaluate a genfunction.func for BCs defined by strings->genfunctions
+# - evaluate a function for BCs defined by callback functions
+function evaluate_bc(val, eid, fid, t)
+    dim = config.dimension;
     if typeof(val) <: Number
-        return val;
+        result = val;
         
     elseif typeof(val) == Coefficient && typeof(val.value[1]) == GenFunction
-        if config.dimension == 1
-            bval = val.value[1].func(facex[1],0,0,t);
-        elseif config.dimension == 2
-            bval = val.value[1].func(facex[1],facex[2],0,t);
+        facex = fv_info.faceCenters[:,fid];
+        if dim == 1
+            result=val.value[1].func(facex[1],0,0,t,eid);
+        elseif dim == 2
+            result=val.value[1].func(facex[1],facex[2],0,t,eid);
         else
-            bval = val.value[1].func(facex[1],facex[2],facex[3],t);
+            result=val.value[1].func(facex[1],facex[2],facex[3],t,eid);
         end
         
     elseif typeof(val) == GenFunction
-        if config.dimension == 1
-            bval = val.func(facex[1],0,0,t);
-        elseif config.dimension == 2
-            bval = val.func(facex[1],facex[2],0,t);
+        facex = fv_info.faceCenters[:,fid];
+        if dim == 1
+            result=val.func(facex[1],0,0,t,eid);
+        elseif dim == 2
+            result=val.func(facex[1],facex[2],0,t,eid);
         else
-            bval = val.func(facex[1],facex[2],facex[3],t);
+            result=val.func(facex[1],facex[2],facex[3],t,eid);
         end
+        
+    elseif typeof(val) == CallbackFunction
+        facex = fv_info.faceCenters[:,fid];
+        #form a dict for the arguments. x,y,z,t are always included
+        arg_list = [];
+        append!(arg_list, [("x", facex[1]),
+                    ("y", dim>1 ? facex[2] : 0),
+                    ("z", dim>2 ? facex[3] : 0),
+                    ("t", t)]);
+        # Add in the requires list
+        for r in val.args
+            foundit = false;
+            # is it an entity?
+            if typeof(r) == Variable
+                foundit = true;
+                if size(r.values,1) == 1
+                    push!(arg_list, (string(r.symbol), r.values[1,eid]));
+                else
+                    push!(arg_list, (string(r.symbol), r.values[:,eid]));
+                end
+            elseif typeof(r) == Coefficient
+                foundit = true;
+                push!(arg_list, (string(r.symbol), evaluate_bc(r, eid, fid, t)));
+            elseif typeof(r) == String
+                # This could also be a variable, coefficient, or special thing like normal, 
+                if r in ["x","y","z","t"]
+                    foundit = true;
+                    # These are already included
+                elseif r == "normal"
+                    foundit = true;
+                    push!(arg_list, ("normal", grid_data.facenormals[:,fid]));
+                else
+                    for v in variables
+                        if string(v.symbol) == r
+                            foundit = true;
+                            if size(v.values,1) == 1
+                                push!(arg_list, (r, v.values[1,eid]));
+                            else
+                                push!(arg_list, (r, v.values[:,eid]));
+                            end
+                            break;
+                        end
+                    end
+                    for c in coefficients
+                        if string(c.symbol) == r
+                            foundit = true;
+                            push!(arg_list, (r, evaluate_bc(c, eid, fid, t)));
+                            break;
+                        end
+                    end
+                end
+            else
+                # What else could it be?
+            end
+
+            if !foundit
+                # Didn't figure this thing out.
+                printerr("Unknown requirement for callback function "*string(fun)*" : "*string(requires[i]));
+            end
+        end
+        
+        # Build the dict
+        args = Dict(arg_list);
+        
+        # call the function
+        result = val.func(args);
+        
     end
-    
-    return bval;
+    return result;
 end

@@ -15,7 +15,7 @@ end
 
 struct CallbackFunction
     name::String    # myFunction
-    args            # ["x",u,c]
+    args            # ["x",u,c] string, variable, coefficient, etc.
     func            # The function
 end
 

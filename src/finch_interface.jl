@@ -217,33 +217,36 @@ end
 function boundary(var, bid, bc_type, bc_exp=0; requires=[])
     # The expression may contain variable symbols.
     # Parse it, replace variable symbols with the appropriate parts
+    # Type may change in bc_exp, so convert it to an array of Any
+    newbc_exp = [];
+    append!(newbc_exp, bc_exp);
     if typeof(bc_exp) <: Array
         nfuns = 0;
         for i=1:length(bc_exp)
             if typeof(bc_exp[i]) == String
                 ex = Meta.parse(bc_exp[i]);
                 ex = replace_var_symbols_with_values(ex);
-                bc_exp[i] = string(ex);
-                nfuns += makeFunctions(bc_exp[i]);
+                newbc_exp[i] = string(ex);
+                nfuns += makeFunctions(newbc_exp[i]);
             elseif typeof(bc_exp[i]) <: Number
                 # do nothing
             else # a callback function 
-                bc_exp[i] = CallbackFunction(string(bc_exp[i]), requires, bc_exp[i]);
+                newbc_exp[i] = CallbackFunction(string(bc_exp[i]), requires, bc_exp[i]);
             end
         end
     elseif typeof(bc_exp) == String
         ex = Meta.parse(bc_exp);
         ex = replace_var_symbols_with_values(ex);
-        bc_exp = string(ex);
+        newbc_exp = string(ex);
         nfuns = makeFunctions(bc_exp);
     elseif typeof(bc_exp) <: Number
         nfuns = 0;
     else # a callback function 
-        bc_exp = CallbackFunction(string(bc_exp), requires, bc_exp);
+        newbc_exp = CallbackFunction(string(bc_exp), requires, bc_exp);
         nfuns = 0;
     end
     
-    add_boundary_condition(var, bid, bc_type, bc_exp, nfuns);
+    add_boundary_condition(var, bid, bc_type, newbc_exp, nfuns);
 end
 
 function addBoundaryID(bid, trueOnBdry)
