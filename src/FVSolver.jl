@@ -20,8 +20,8 @@ import ..Finch: JULIA, CPP, MATLAB, DENDRO, HOMG, CUSTOM_GEN_TARGET,
                 LINEMESH, QUADMESH, HEXMESH
 import ..Finch: log_entry, printerr
 import ..Finch: config, prob, variables, mesh_data, grid_data, refel, time_stepper, elemental_order, genfunctions, indexers
-import ..Finch: Variable, Coefficient, GenFunction, CallbackFunction
-import ..Finch: GeometricFactors, geo_factors, geometric_factors, geometric_factors_face, build_deriv_matrix
+import ..Finch: Variable, Coefficient, GenFunction, CallbackFunction, Indexer
+import ..Finch: GeometricFactors, geo_factors, geometric_factors, geometric_factors_face, build_deriv_matrix, evaluate_coefficient
 # specific to FV
 import ..Finch: FVInfo, fv_info, FV_cell_to_node, FV_node_to_cell
 import ..Finch: ParentMaps, parent_maps, fv_grid, fv_refel, fv_geo_factors, build_local_patch

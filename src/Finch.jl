@@ -408,7 +408,12 @@ end
 # Adds a coefficient with either constant value or some generated function of (x,y,z,t)
 function add_coefficient(c, type, location, val, nfuns)
     global coefficients;
-    vals = [];
+    # The values of c will have the same array structure as val
+    if typeof(val) <: Array
+        vals = Array{Any}(undef,size(val));
+    else
+        vals = [];
+    end
     if nfuns == 0 # constant values
         vals = val;
         if length(vals) == 1 && !(typeof(vals) <: Array)
@@ -420,10 +425,10 @@ function add_coefficient(c, type, location, val, nfuns)
             ind = length(genfunctions) - nfuns + 1;
             for i=1:length(val)
                 if typeof(val[i]) == String
-                    push!(vals, genfunctions[ind]);
+                    vals[i] = genfunctions[ind];
                     ind += 1;
                 else
-                    push!(vals, val[i]);
+                    vals[i] = val[i];
                 end
             end
         else
@@ -434,7 +439,7 @@ function add_coefficient(c, type, location, val, nfuns)
     
     symvar = sym_var(string(c), type, components);
 
-    index = length(coefficients);
+    index = length(coefficients) + 1;
     push!(coefficients, Coefficient(c, symvar, index, type, location, vals));
 
     log_entry("Added coefficient "*string(c)*" : "*string(val), 2);
@@ -539,33 +544,45 @@ function add_boundary_condition(var, bid, type, ex, nfuns)
     end
     
     # Add this boundary condition to the struct
+    valstr = "";
     if typeof(ex) <: Array
         vals = [];
+        valstr = "[";
         ind = length(genfunctions) - nfuns + 1;
         for i=1:length(ex)
             if typeof(ex[i]) <: Number
                 push!(vals, ex[i]);
+                valstr *= string(ex[i]);
             elseif typeof(ex[i]) == String
                 push!(vals, genfunctions[ind]);
+                valstr *= genfunctions[ind].name;
                 ind += 1;
             else # callback
                 push!(vals, ex[i]);
+                valstr *= ex[i].name;
+            end
+            if i < length(ex)
+                valstr *= ", ";
             end
         end
+        valstr *= "]";
         prob.bc_func[var.index, bid] = vals;
     else
         if typeof(ex) <: Number
             prob.bc_func[var.index, bid] = [ex];
+            valstr = string(ex);
         elseif typeof(ex) == String
             prob.bc_func[var.index, bid] = [genfunctions[end]];
+            valstr = genfunctions[end].name;
         else # callback
             prob.bc_func[var.index, bid] = [ex];
+            valstr = ex.name;
         end
     end
     prob.bc_type[var.index, bid] = type;
     prob.bid[var.index, bid] = bid;
 
-    log_entry("Boundary condition: var="*string(var.symbol)*" bid="*string(bid)*" type="*type*" val="*string(ex), 2);
+    log_entry("Boundary condition: var="*string(var.symbol)*" bid="*string(bid)*" type="*type*" val="*valstr, 2);
 end
 
 # A reference point is a single point with a defined value.

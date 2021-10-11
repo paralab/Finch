@@ -152,15 +152,9 @@ function evaluate_bc(val, eid, fid, t)
     if typeof(val) <: Number
         result = val;
         
-    elseif typeof(val) == Coefficient && typeof(val.value[1]) == GenFunction
+    elseif typeof(val) == Coefficient 
         facex = fv_info.faceCenters[:,fid];
-        if dim == 1
-            result=val.value[1].func(facex[1],0,0,t,eid);
-        elseif dim == 2
-            result=val.value[1].func(facex[1],facex[2],0,t,eid);
-        else
-            result=val.value[1].func(facex[1],facex[2],facex[3],t,eid);
-        end
+        result = evaluate_coefficient(val, 1, facex, t, eid, fid);
         
     elseif typeof(val) == GenFunction
         facex = fv_info.faceCenters[:,fid];
@@ -193,7 +187,15 @@ function evaluate_bc(val, eid, fid, t)
                 end
             elseif typeof(r) == Coefficient
                 foundit = true;
-                push!(arg_list, (string(r.symbol), evaluate_bc(r, eid, fid, t)));
+                cvals = zeros(size(r.value));
+                facex = fv_info.faceCenters[:,fid];
+                for i=1:length(cvals)
+                    cvals[i] = evaluate_coefficient(r, i, facex, t, eid, fid);
+                end
+                push!(arg_list, (string(r.symbol), cvals));
+            elseif typeof(r) == Indexer
+                foundit = true;
+                push!(arg_list, (string(r.symbol), r.value));
             elseif typeof(r) == String
                 # This could also be a variable, coefficient, or special thing like normal, 
                 if r in ["x","y","z","t"]

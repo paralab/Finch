@@ -85,15 +85,19 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                     nodesymbol = "nodex"
                     piece_needed[2] = true;
                 end
-                cargs = "("*nodesymbol*"[coefi], 0, 0, time)";
-                if config.dimension == 2
-                    cargs = "("*nodesymbol*"[1, coefi], "*nodesymbol*"[2, coefi], 0, time)";
-                elseif config.dimension == 3
-                    cargs = "("*nodesymbol*"[1, coefi], "*nodesymbol*"[2, coefi], "*nodesymbol*"[3, coefi], time)";
-                end
+                # cargs = "("*nodesymbol*"[coefi], 0, 0, time)";
+                # if config.dimension == 2
+                #     cargs = "("*nodesymbol*"[1, coefi], "*nodesymbol*"[2, coefi], 0, time)";
+                # elseif config.dimension == 3
+                #     cargs = "("*nodesymbol*"[1, coefi], "*nodesymbol*"[2, coefi], "*nodesymbol*"[3, coefi], time)";
+                # end
+                cargs = "("*nodesymbol*"[:,coefi], time, eid, fid)";
+                coef_index = get_coef_index(entities[i]);
+                
                 if vors == "volume"
                     code *= cname * " = zeros(refel.Np);\n";
-                    code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs * " end\n";
+                    # code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs * " end\n";
+                    code *= "for coefi = 1:refel.Np " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(coef_index)*"], "*string(entities[i].index)*", "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
                     # Apply any needed derivative operators. Interpolate at quadrature points.
                     if length(entities[i].derivs) > 0
                         xyzchar = ["x","y","z"];
@@ -112,7 +116,8 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                     # Apply any needed derivative operators. Interpolate at quadrature points.
                     if length(entities[i].derivs) > 0
                         code *= cname * " = zeros(refel.Np);\n";
-                        code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs * " end\n";
+                        # code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs * " end\n";
+                        code *= "for coefi = 1:refel.Np " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(coef_index)*"], "*string(entities[i].index)*", "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
                         xyzchar = ["x","y","z"];
                         for di=1:length(entities[i].derivs)
                             code *= cname * " = RD"*string(entities[i].derivs[di])*" * " * cname * 
@@ -124,7 +129,8 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                         
                     else # no derivatives, only need surface nodes
                         code *= cname * " = zeros(refel.Nfp[frefelind[1]]);\n";
-                        code *= "for coefi = 1:refel.Nfp[frefelind[1]] " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs * " end\n";
+                        # code *= "for coefi = 1:refel.Nfp[frefelind[1]] " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs * " end\n";
+                        code *= "for coefi = 1:refel.Nfp[frefelind[1]] " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(coef_index)*"], "*string(entities[i].index)*", "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
                         piece_needed[5] = true;
                     end
                     # integrate over face
@@ -220,12 +226,12 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                     nodesymbol = "nodex"
                     piece_needed[2] = true;
                 end
-                cargs = "("*nodesymbol*"[coefi], 0, 0, time)";
-                if config.dimension == 2
-                    cargs = "("*nodesymbol*"[1, coefi], "*nodesymbol*"[2, coefi], 0, time)";
-                elseif config.dimension == 3
-                    cargs = "("*nodesymbol*"[1, coefi], "*nodesymbol*"[2, coefi], "*nodesymbol*"[3, coefi], time)";
-                end
+                # cargs = "("*nodesymbol*"[coefi], 0, 0, time)";
+                # if config.dimension == 2
+                #     cargs = "("*nodesymbol*"[1, coefi], "*nodesymbol*"[2, coefi], 0, time)";
+                # elseif config.dimension == 3
+                #     cargs = "("*nodesymbol*"[1, coefi], "*nodesymbol*"[2, coefi], "*nodesymbol*"[3, coefi], time)";
+                # end
                 
                 indstr = "";
                 for indi=1:length(entities[i].index)
@@ -237,7 +243,8 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                 
                 if vors == "volume"
                     code *= cname * " = zeros(refel.Np);\n";
-                    code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.coefficients["*string(cval)*"]).value["*indstr*"].func" * cargs * " end\n";
+                    # code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.coefficients["*string(cval)*"]).value["*indstr*"].func" * cargs * " end\n";
+                    code *= "for coefi = 1:refel.Np " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(cval)*"], ["*indstr*"], "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
                     # Apply any needed derivative operators. Interpolate at quadrature points.
                     if length(entities[i].derivs) > 0
                         xyzchar = ["x","y","z"];
@@ -256,7 +263,8 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                     # Apply any needed derivative operators. Interpolate at quadrature points.
                     if length(entities[i].derivs) > 0
                         code *= cname * " = zeros(refel.Np);\n";
-                        code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.coefficients["*string(cval)*"]).value["*indstr*"].func" * cargs * " end\n";
+                        # code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.coefficients["*string(cval)*"]).value["*indstr*"].func" * cargs * " end\n";
+                        code *= "for coefi = 1:refel.Np " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(cval)*"], ["*indstr*"], "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
                         xyzchar = ["x","y","z"];
                         for di=1:length(entities[i].derivs)
                             code *= cname * " = RD"*string(entities[i].derivs[di])*" * " * cname * 
@@ -268,7 +276,8 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                         
                     else # no derivatives, only need surface nodes
                         code *= cname * " = zeros(refel.Nfp[frefelind[1]]);\n";
-                        code *= "for coefi = 1:refel.Nfp[frefelind[1]] " * cname * "[coefi] = (Finch.coefficients["*string(cval)*"]).value["*indstr*"].func" * cargs * " end\n";
+                        # code *= "for coefi = 1:refel.Nfp[frefelind[1]] " * cname * "[coefi] = (Finch.coefficients["*string(cval)*"]).value["*indstr*"].func" * cargs * " end\n";
+                        code *= "for coefi = 1:refel.Nfp[frefelind[1]] " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(cval)*"], ["*indstr*"], "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
                         piece_needed[5] = true;
                     end
                     # integrate over face
@@ -684,7 +693,7 @@ face_done = allocated_vecs[4];
             if typeof(var) <: Array
                 dofind = 0;
                 for vi=1:length(var)
-                    compo = indexing_variable_speed #1:var[vi].total_components
+                    compo = "*ind_offset*";
                     dofind = dofind + 1;
                     if prob.bc_type[var[vi].index, fbid] == NO_BC
                         # do nothing
@@ -694,7 +703,7 @@ face_done = allocated_vecs[4];
                         # Qvec = Qvec ./ geo_factors.area[fid];
                         # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* geo_factors.area[fid];
                         
-                        bflux = FVSolver.FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fv_info.faceCenters[:,fid], t);
+                        bflux = FVSolver.FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fid, t);
                         
                         fluxvec[index_offset + dofind-1] += (bflux - facefluxvec[face_index_offset + dofind-1]) ./ geo_factors.volume[eid];
                         facefluxvec[face_index_offset + dofind-1] = bflux;
@@ -704,7 +713,7 @@ face_done = allocated_vecs[4];
                 end
                 
             else # one variable
-                d=indexing_variable_speed;
+                d="*ind_offset*";
                 if prob.bc_type[var.index, fbid] == NO_BC
                     # do nothing
                 elseif prob.bc_type[var.index, fbid] == FLUX
@@ -713,7 +722,7 @@ face_done = allocated_vecs[4];
                     # Qvec = Qvec ./ geo_factors.area[fid];
                     # bflux = FV_flux_bc_rhs_only(prob.bc_func[var.index, fbid][d], facex, Qvec, t, dofind, dofs_per_node) .* geo_factors.area[fid];
                     
-                    bflux = FVSolver.FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fv_info.faceCenters[:,fid], t);
+                    bflux = FVSolver.FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t);
                     
                     
                     fluxvec[index_offset] += (bflux - facefluxvec[face_index_offset]) ./ geo_factors.volume[eid];
