@@ -11,7 +11,7 @@ init_finch("dendrotest");
 useLog("dendrotestlog", level=3)
 
 # default values (max_depth=6, wavelet_tol = 0.1, partition_tol = 0.3, solve_tol = 1e-6, max_iters = 100)
-generateFor("target_dendro_cg.jl", params=(8, 0.001, 0.3, 0.000001, 500))
+generateFor(DENDRO, params=(8, 0.001, 0.3, 0.000001, 500))
 
 domain(3)
 functionSpace(order=2)

@@ -587,13 +587,25 @@ end
 # It requires code that was generated for this target.
 function matlab_linear_file(code, var)
     file = add_generated_file("Linear.m", dir="src");
+    
+    multivar = typeof(var) <:Array;
+    dofsper = 0;
+    if multivar
+        dofsper = length(var[1].symvar);
+        for i=2:length(var)
+            dofsper = dofsper + length(var[i].symvar);
+        end
+    else
+        dofsper = length(var.symvar);
+    end
+    
     # insert the code part into this skeleton
     content = 
 "
 nnodes= size(grid_data.allnodes,2);
 ne  = mesh_data.nel;
 Np = refel.Np;
-dofspernode = 3;
+dofspernode = "*string(dofsper)*";
 RHS = zeros(nnodes*dofspernode,1);
 glbdof = zeros(Np*dofspernode,1);
 

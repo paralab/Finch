@@ -11,7 +11,7 @@ init_finch("poissondendro");
 useLog("poissondendrolog", level=3)
 
 # default values (max_depth=6, wavelet_tol = 0.1, partition_tol = 0.3, solve_tol = 1e-6, max_iters = 100)
-generateFor("target_dendro_cg.jl", params=(7, 0.01, 0.3, 0.000001, 1000))
+generateFor(DENDRO, params=(7, 0.01, 0.3, 0.000001, 1000))
 
 domain(3)
 functionSpace(order=4)

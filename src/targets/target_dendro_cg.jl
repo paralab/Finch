@@ -736,19 +736,8 @@ for(int ti=0; ti<Nsteps; ti++){
     rhsVec.computeVec(rhs,rhs,1.0);
     lhsMat.cgSolve("*varvec_next*",rhs,solve_max_iters,solve_tol,0);
     
-    // Exchange ghosts and copy u_next to u
-    double* _tmpvec=NULL;
-    
-    octDA->nodalVecToGhostedNodal(uSolVecPtr,_tmpvec,false,DOF);
-    
-    octDA->readFromGhostBegin(_tmpvec, DOF);
-    octDA->readFromGhostEnd(_tmpvec, DOF);
-    
-    octDA->ghostedNodalToNodalVec(_tmpvec, uSolVecPtr,false,DOF);
-    
-    octDA->destroyVector(_tmpvec);
-    
-    octDA->copyVectors("*varvec*", "*varvec_next*", false, false, 1);
+    // not sure of the best way to do this. Does this work for now?
+    swap("*varvec*", "*varvec_next*");
     
     currentT += dt;
 }";

@@ -10,7 +10,7 @@ function polyharmonic_phi4(r) return r>1e-16 ? r^4 * log(r) : r^3; end
 # c is d x nc
 # u is nc
 # (optional) ord determines the type of basis function. default is 3. 1,2,3,4 are available
-function polyharmonic_interp(x, c, u, ord=3)
+function polyharmonic_interp(x, c, u; ord=3, limiter=0, neighbor_vals=[])
     dim = size(x,1);
     nx = size(x,2); # number of places to evaluate
     
@@ -63,6 +63,22 @@ function polyharmonic_interp(x, c, u, ord=3)
         end
         for j=1:nc
             sol[i] += wv[j]*phi(norm(c[:,j] - x[:,i]));
+        end
+    end
+    
+    # If a limiting is desired, limit the extrapolated values to the range of the neighboring cell values
+    if limiter > 0 && length(neighbor_vals) == 2
+        maxv = max(neighbor_vals[1], neighbor_vals[2]);
+        minv = min(neighbor_vals[1], neighbor_vals[2]);
+        
+        for i=1:nx
+            #sol[i] = max(sol[i], minv);
+            #sol[i] = min(sol[i], maxv);
+            if sol[i] < minv
+                sol[i] = limiter * minv + (1-limiter) * sol[i];
+            elseif sol[i] > maxv
+                sol[i] = limiter * maxv + (1-limiter) * sol[i];
+            end
         end
     end
     

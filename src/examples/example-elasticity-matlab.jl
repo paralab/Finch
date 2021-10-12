@@ -16,7 +16,7 @@ init_finch("elasticitynew");
 
 # Optionally generate a log
 useLog("elasticitymatlablog", level=3)
-generateFor("target_matlab_cg.jl")
+generateFor(MATLAB)
 
 n = [30,6,6]; # number of elements in x,y,z
 interval = [0,1,0,0.2,0,0.2]; # domain bounds
