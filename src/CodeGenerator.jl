@@ -10,26 +10,9 @@ export init_code_generator, finalize_code_generator, set_generation_target,
         generate_code_layer, generate_assembly_loops
         #, generate_code_layer_surface, generate_code_layer_fv
 
-import ..Finch: JULIA, CPP, MATLAB, DENDRO, HOMG, CUSTOM_GEN_TARGET,
-            SQUARE, IRREGULAR, UNIFORM_GRID, TREE, UNSTRUCTURED, 
-            CG, DG, HDG, FV,
-            NODAL, MODAL, CELL, LEGENDRE, UNIFORM, GAUSS, LOBATTO, 
-            NONLINEAR_NEWTON, NONLINEAR_SOMETHING, 
-            EULER_EXPLICIT, EULER_IMPLICIT, CRANK_NICHOLSON, RK4, LSRK4, ABM4, 
-            DEFAULT_SOLVER, PETSC, 
-            VTK, RAW_OUTPUT, CUSTOM_OUTPUT, 
-            DIRICHLET, NEUMANN, ROBIN, NO_BC, FLUX,
-            MSH_V2, MSH_V4,
-            SCALAR, VECTOR, TENSOR, SYM_TENSOR, VAR_ARRAY,
-            LHS, RHS,
-            LINEMESH, QUADMESH, HEXMESH
-import ..Finch: Finch_config, Finch_prob, GenFunction, Variable, Coefficient
-import ..Finch: log_entry, printerr
-import ..Finch: config, prob, refel, mesh_data, grid_data, genfunctions, variables, coefficients, 
-        test_functions, linears, bilinears, indexers, time_stepper, language, gen_framework
-import ..Finch: SymExpression, SymEntity
-import ..Finch: CachesimOut, use_cachesim
-import ..Finch: custom_gen_funcs
+# See finch_import_symbols.jl for a list of all imported symbols.
+import ..Finch: @import_finch_symbols
+@import_finch_symbols()
 
 genDir = "";
 genFileName = "";

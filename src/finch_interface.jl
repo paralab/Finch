@@ -5,7 +5,8 @@ Many of them simply call corresponding functions in jl.
 export generateFor, useLog, domain, solverType, functionSpace, trialSpace, testSpace, finiteVolumeOrder,
         nodeType, timeStepper, setSteps, matrixFree, customOperator, customOperatorFile,
         mesh, exportMesh, variable, coefficient, parameter, testSymbol, index, boundary, addBoundaryID,
-        referencePoint, timeInterval, initial, weakForm, fluxAndSource, flux, source, assemblyLoops,
+        referencePoint, timeInterval, initial, preStepFunction, postStepFunction, callbackFunction,
+        weakForm, fluxAndSource, flux, source, assemblyLoops,
         exportCode, importCode, printLatex,
         solve, cachesimSolve, finalize_finch, cachesim, output_values,
         morton_nodes, hilbert_nodes, tiled_nodes, morton_elements, hilbert_elements, 
@@ -272,6 +273,17 @@ end
 function initial(var, ics)
     nfuns = makeFunctions(ics);
     add_initial_condition(var.index, ics, nfuns);
+end
+
+function preStepFunction(fun)
+    solver.set_pre_step(fun);
+end
+function postStepFunction(fun)
+    solver.set_post_step(fun);
+end
+
+function callbackFunction(fun; args=[])
+    add_callback_function(CallbackFunction(string(fun), [], fun));
 end
 
 function weakForm(var, wf)
@@ -1142,7 +1154,7 @@ function solve(var, nlvar=nothing; nonlinear=false)
                 	printerr("Nonlinear solver not ready for FV");
                     return;
 				else
-                	t = @elapsed(result = FVSolver.linear_solve(var, slhs, srhs, flhs, frhs, time_stepper, loop_func));
+                	t = @elapsed(result = solver.linear_solve(var, slhs, srhs, flhs, frhs, time_stepper, loop_func));
 				end
                 # result is already stored in variables
                 log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);

@@ -5,30 +5,24 @@ module FVSolver
 
 export solve, nonlinear_solve
 
-import ..Finch: JULIA, CPP, MATLAB, DENDRO, HOMG, CUSTOM_GEN_TARGET,
-                SQUARE, IRREGULAR, UNIFORM_GRID, TREE, UNSTRUCTURED, 
-                CG, DG, HDG, FV,
-                NODAL, MODAL, CELL, LEGENDRE, UNIFORM, GAUSS, LOBATTO, 
-                NONLINEAR_NEWTON, NONLINEAR_SOMETHING, 
-                EULER_EXPLICIT, EULER_IMPLICIT, CRANK_NICHOLSON, RK4, LSRK4, ABM4, 
-                DEFAULT_SOLVER, PETSC, 
-                VTK, RAW_OUTPUT, CUSTOM_OUTPUT, 
-                DIRICHLET, NEUMANN, ROBIN, NO_BC, FLUX,
-                MSH_V2, MSH_V4,
-                SCALAR, VECTOR, TENSOR, SYM_TENSOR, VAR_ARRAY,
-                LHS, RHS,
-                LINEMESH, QUADMESH, HEXMESH
-import ..Finch: log_entry, printerr
-import ..Finch: config, prob, variables, mesh_data, grid_data, refel, time_stepper, elemental_order, genfunctions, indexers
-import ..Finch: Variable, Coefficient, GenFunction, CallbackFunction, Indexer
-import ..Finch: GeometricFactors, geo_factors, geometric_factors, geometric_factors_face, build_deriv_matrix, evaluate_coefficient
-# specific to FV
-import ..Finch: FVInfo, fv_info, FV_cell_to_node, FV_node_to_cell
-import ..Finch: ParentMaps, parent_maps, fv_grid, fv_refel, fv_geo_factors, build_local_patch
+# See finch_import_symbols.jl for a list of all imported symbols.
+import ..Finch: @import_finch_symbols
+@import_finch_symbols()
 
 using LinearAlgebra, SparseArrays
 
 include("fv_boundary.jl");
+
+# Things to do before and after each step(or stage) ########
+function default_pre_step() end
+function default_post_step() end
+
+pre_step_function = default_pre_step;
+post_step_function = default_post_step;
+
+function set_pre_step(fun) global pre_step_function = fun; end
+function set_post_step(fun) global post_step_function = fun; end
+############################################################
 
 function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=nothing, assemble_func=nothing)
     # If more than one variable
@@ -98,6 +92,8 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
                         rktime = t + stepper.c[rki]*stepper.dt;
                         # p(i-1) is currently in u
                         
+                        pre_step_function();
+                        
                         sol = assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, stime, stepper.dt, assemble_loops=assemble_func);
                         
                         
@@ -109,6 +105,8 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
                         tmppi = tmppi + stepper.b[rki].*tmpki
                         
                         place_sol_in_vars(var, tmppi, stepper);
+                        
+                        post_step_function();
                     end
                     
                 else
@@ -123,6 +121,8 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
                     for stage=1:stepper.stages
                         stime = t + stepper.c[stage]*stepper.dt;
                         
+                        pre_step_function();
+                        
                         tmpki[:,stage] = assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, stime, stepper.dt, assemble_loops=assemble_func);
                         
                         tmpvals = sol;
@@ -133,17 +133,25 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
                         end
                         
                         place_sol_in_vars(var, tmpvals, stepper);
+                        
+                        post_step_function();
                     end
                     for stage=1:stepper.stages
                         sol += stepper.dt * stepper.b[stage] .* tmpki[:, stage];
                     end
                     place_sol_in_vars(var, sol, stepper);
+                    
+                    post_step_function();
                 end
                 
             elseif stepper.type == EULER_EXPLICIT
+                pre_step_function();
+                
                 sol = sol .+ stepper.dt .* assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func);
                 
                 place_sol_in_vars(var, sol, stepper);
+                
+                post_step_function();
                 
             else
                 printerr("Only explicit time steppers for FV are ready. TODO")

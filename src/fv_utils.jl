@@ -140,3 +140,64 @@ function FV_node_to_cell(node_values, cell_values = nothing)
     
     return cell_values;
 end
+
+# reconstructs u at x based on left and right cell sets
+function FV_reconstruct_value_left_right(leftx, rightx, leftu, rightu, x; limiter="none")
+    left = 0.0;
+    right = 0.0;
+    leftslope = 0.0;
+    rightslope = 0.0;
+    centerslope = 0.0;
+    
+    # if only one cell on either side, just return those values
+    # If more, extrapolate
+    if length(leftu) == 1
+        left = leftu[1];
+        
+    elseif length(leftu) > 1
+        leftslope = (leftu[1]-leftu[2]) / norm(leftx[:,1] - leftx[:,2]);
+        left = polyharmonic_interp(x, leftx, leftu)[1];
+    end
+    
+    if length(rightu) == 1
+        right = rightu[1];
+        
+    elseif length(rightu) > 1
+        rightslope = (rightu[2]-rightu[1]) / norm(rightx[:,1] - rightx[:,2]);
+        right = polyharmonic_interp(x, rightx, rightu)[1];
+    end
+    
+    # if one side is empty(boundary?), just make them equal
+    if length(leftu) == 0 && length(rightu) > 0
+        left = right;
+    elseif length(rightu) == 0 && length(leftu) > 0
+        right = left;
+        
+    else
+        centerslope = (rightu[1] - leftu[1]) / norm(rightx[1] - leftx[1]);
+    end
+    
+    # If a limiter is specified, limit the slope
+    if !(limiter == "none")
+        left_r = leftslope > 1e-6 ? centerslope / leftslope : 1;
+        right_r = rightslope > 1e-6 ? centerslope / rightslope : 1;
+        
+        left_phi = 2;
+        right_phi = 2;
+        if limiter == "vanleer"
+            left_phi = (left_r + abs(left_r)) / (1+left_r);
+            right_phi = (right_r + abs(right_r)) / (1+right_r);
+        end
+        
+        if length(leftu) > 1
+            left = (1-left_phi*0.5)*leftu[1] + (left_phi*0.5)*left;
+            left = (1-left_phi*0.5)*leftu[1] + (left_phi*0.5)*left;
+        end
+        if length(rightu) > 1
+            right = (1-right_phi*0.5)*rightu[1] + (right_phi*0.5)*right;
+            right = (1-right_phi*0.5)*rightu[1] + (right_phi*0.5)*right;
+        end
+    end
+    
+    return (left, right);
+end

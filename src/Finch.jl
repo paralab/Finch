@@ -58,6 +58,7 @@ indexers = [];
 #generated functions
 genfunc_count = 0;
 genfunctions = [];
+callback_functions = [];
 #rhs
 linears = [];
 face_linears = [];
@@ -120,6 +121,7 @@ function init_finch(name="unnamedProject")
     global indexers = [];
     global genfunc_count = 0;
     global genfunctions = [];
+    global callback_functions = [];
     global linears = [];
     global bilinears = [];
     global face_linears = [];
@@ -631,6 +633,11 @@ function add_reference_point(var, pos, val)
     prob.ref_point[var.index, 3] = val;
     
     log_entry("Reference point: var="*string(var.symbol)*" position="*string(pos)*" value="*string(val), 2);
+end
+
+# adds a callback function to the 
+function add_callback_function(f)
+    push!(callback_functions, f);
 end
 
 # Sets the RHS(linear) function for the given variable(s).

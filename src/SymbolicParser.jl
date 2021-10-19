@@ -4,22 +4,9 @@
 module SymbolicParser
 export sp_parse, add_custom_op, add_custom_op_file, sym_var
 
-import ..Finch: JULIA, CPP, MATLAB, DENDRO, HOMG, CUSTOM_GEN_TARGET,
-            SQUARE, IRREGULAR, UNIFORM_GRID, TREE, UNSTRUCTURED, 
-            CG, DG, HDG, FV,
-            NODAL, MODAL, CELL, LEGENDRE, UNIFORM, GAUSS, LOBATTO, 
-            NONLINEAR_NEWTON, NONLINEAR_SOMETHING, 
-            EULER_EXPLICIT, EULER_IMPLICIT, CRANK_NICHOLSON, RK4, LSRK4, ABM4, 
-            DEFAULT_SOLVER, PETSC, 
-            VTK, RAW_OUTPUT, CUSTOM_OUTPUT, 
-            DIRICHLET, NEUMANN, ROBIN, NO_BC, FLUX,
-            MSH_V2, MSH_V4,
-            SCALAR, VECTOR, TENSOR, SYM_TENSOR, VAR_ARRAY,
-            LHS, RHS,
-            LINEMESH, QUADMESH, HEXMESH
-import ..Finch: Finch_config, Finch_prob, Variable, Coefficient
-import ..Finch: log_entry, printerr
-import ..Finch: config, prob, variables, coefficients, parameters, test_functions, indexers
+# See finch_import_symbols.jl for a list of all imported symbols.
+import ..Finch: @import_finch_symbols
+@import_finch_symbols()
 
 using SymEngine, LinearAlgebra
 

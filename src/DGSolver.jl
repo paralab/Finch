@@ -5,23 +5,9 @@ module DGSolver
 
 export solve, nonlinear_solve
 
-import ..Finch: JULIA, CPP, MATLAB, DENDRO, HOMG, CUSTOM_GEN_TARGET,
-            SQUARE, IRREGULAR, UNIFORM_GRID, TREE, UNSTRUCTURED, 
-            CG, DG, HDG, FV,
-            NODAL, MODAL, CELL, LEGENDRE, UNIFORM, GAUSS, LOBATTO, 
-            NONLINEAR_NEWTON, NONLINEAR_SOMETHING, 
-            EULER_EXPLICIT, EULER_IMPLICIT, CRANK_NICHOLSON, RK4, LSRK4, ABM4, 
-            DEFAULT_SOLVER, PETSC, 
-            VTK, RAW_OUTPUT, CUSTOM_OUTPUT, 
-            DIRICHLET, NEUMANN, ROBIN, NO_BC, FLUX,
-            MSH_V2, MSH_V4,
-            SCALAR, VECTOR, TENSOR, SYM_TENSOR, VAR_ARRAY,
-            LHS, RHS,
-            LINEMESH, QUADMESH, HEXMESH
-import ..Finch: log_entry, printerr
-import ..Finch: config, prob, variables, mesh_data, grid_data, refel, time_stepper, elemental_order
-import ..Finch: Variable, Coefficient, GenFunction, Jacobian, CallbackFunction
-import ..Finch: GeometricFactors, geo_factors, geometric_factors, geometric_factors_face, build_deriv_matrix, build_face_deriv_matrix, build_refel
+# See finch_import_symbols.jl for a list of all imported symbols.
+import ..Finch: @import_finch_symbols
+@import_finch_symbols()
 
 using LinearAlgebra, SparseArrays
 

@@ -37,6 +37,7 @@ end
 include("finch_constants.jl");
 include("finch_config.jl");
 include("finch_prob.jl");
+include("finch_import_symbols.jl");
 
 # include these next
 include("logging.jl");
@@ -82,4 +83,3 @@ include("CGSolver.jl");
 using .CGSolver
 include("FVSolver.jl");
 using .FVSolver
-
