@@ -29,6 +29,7 @@ function divide_parent_grid(grid, order)
     
     if order < 2
         #nothing needs to happen to the grid, but we should make the maps anyway
+        nchildren = 1;
         c2p = ones(2, Nparent);
         c2p[1,:] = 1:Nparent;
         p2c = Array(1:Nparent)';
@@ -45,7 +46,14 @@ function divide_parent_grid(grid, order)
             end
         end
         
-        parent_maps = ParentMaps(c2p, p2c, p2f, p2n);
+        tmp_parent_maps = ParentMaps(c2p, p2c, p2f, p2n, zeros(Int,0,0)); # no patches built yet
+        # build patches
+        ncells_in_patch = (nneighbor+1)*nchildren;
+        patches = zeros(Int, ncells_in_patch, Nparent);
+        for ei=1:Nparent
+            patches[:, ei] = build_local_patch(tmp_parent_maps, grid, ei);
+        end
+        parent_maps = ParentMaps(c2p, p2c, p2f, p2n, patches);
         return (parent_maps, grid);
     end
     

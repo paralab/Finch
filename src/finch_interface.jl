@@ -6,6 +6,7 @@ export generateFor, useLog, domain, solverType, functionSpace, trialSpace, testS
         nodeType, timeStepper, setSteps, matrixFree, customOperator, customOperatorFile,
         mesh, exportMesh, variable, coefficient, parameter, testSymbol, index, boundary, addBoundaryID,
         referencePoint, timeInterval, initial, preStepFunction, postStepFunction, callbackFunction,
+        variableTransform, transformVariable,
         weakForm, fluxAndSource, flux, source, assemblyLoops,
         exportCode, importCode, printLatex,
         solve, cachesimSolve, finalize_finch, cachesim, output_values,
@@ -213,6 +214,39 @@ function index(name; range=[1])
     idx = Indexer(Symbol(name), range, range[1])
     add_indexer(idx);
     return idx;
+end
+
+function variableTransform(var1, var2, func)
+    # Make sure things are valid
+    if typeof(var1) <: Array
+        if !(typeof(var2) <: Array)
+            return add_variable_transform(var1, [var2], func);
+        else
+            return add_variable_transform(var1, var2, func);
+        end
+    else
+        if typeof(var2) <: Array
+            return add_variable_transform([var1], var2, func);
+        else
+            return add_variable_transform(var1, var2, func);
+        end
+    end
+end
+
+function transformVariable(xform::VariableTransform)
+    transform_variable_values(xform);
+end
+function transformVariable(var1, var2)
+    # Look for a matching xform
+    found = false;
+    for i=1:length(variable_transforms)
+        if var1 == variable_transforms[i].from || [var1] == variable_transforms[i].from
+            if var2 == variable_transforms[i].to || [var2] == variable_transforms[i].to
+                found = true;
+                transform_variable_values(variable_transforms[i]);
+            end
+        end
+    end
 end
 
 function boundary(var, bid, bc_type, bc_exp=0; requires=[])
@@ -618,7 +652,7 @@ function assemblyLoops(var, indices)
             args = "var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; rhs_only=false";
         end
         makeFunction(args, string(loop_code));
-        set_assembly_loops(var);
+        set_assembly_loops(var, loop_string);
     else
         set_assembly_loops(var, loop_code);
     end
@@ -637,6 +671,7 @@ function exportCode(filename)
                 codevol = code_strings[2];
                 codesurf = code_strings[4];
             end
+            codeassemble = code_strings[5];
             for i=1:length(variables)
                 var = string(variables[i].symbol);
                 if !(codevol[i] === "")
@@ -658,10 +693,10 @@ function exportCode(filename)
                 end
                 
                 if LorR == RHS
-                    if !(assembly_loops[i] == "" || assembly_loops[i] === nothing)
+                    if !(codeassemble[i] == "" || assembly_loops[i] === nothing)
                         func_name = "assembly_function_for_"*var;
                         println(file, "function "*func_name*"(args; kwargs...)");
-                        println(file, assembly_loops[i]);
+                        println(file, codeassemble[i]);
                         println(file, "end #"*func_name*"\n");
                     else
                         println(file, "# No assembly function set for "*var*"\n");

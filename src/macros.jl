@@ -3,6 +3,32 @@ Macros for the interface.
 Many of these will eventually be removed.
 Try to use the regular function interface in finch_interface.jl
 =#
+export @generateFor, @domain, @mesh, @solver, @stepper, @setSteps, @functionSpace, @trialFunction, @matrixFree,
+        @testFunction, @nodes, @order, @boundary, @addBoundaryID, @referencePoint, @variable, @coefficient, 
+        @parameter, @testSymbol, @initial, @preStepFunction, @postStepFunction,
+        @timeInterval, @weakForm, @fluxAndSource, @LHS, @RHS, @exportCode, @importCode,
+        @customOperator, @customOperatorFile,
+        @outputMesh, @useLog, @finalize
+
+###############################################################################
+# These will be kept.
+macro preStepFunction(f)
+    return esc(quote
+        function PRE_STEP_FUNCTION()
+            $f
+        end
+        preStepFunction(PRE_STEP_FUNCTION);
+    end)
+end
+
+macro postStepFunction(f)
+    return esc(quote
+        function POST_STEP_FUNCTION()
+            $f
+        end
+        postStepFunction(POST_STEP_FUNCTION);
+    end)
+end
 
 ###############################################################################
 # These three could be kept for a minor convenience, but may be removed eventually.

@@ -19,7 +19,7 @@ finch_symbols_to_import = [
     :LINEMESH, :QUADMESH, :HEXMESH,
     
     #Structs
-    :Variable, :Coefficient, :GenFunction, :CallbackFunction, :Indexer, :GeometricFactors,
+    :Variable, :Coefficient, :GenFunction, :CallbackFunction, :Indexer, :GeometricFactors, :VariableTransform,
     :SymExpression, :SymEntity, :CachesimOut,
     
     #Functions
@@ -29,9 +29,9 @@ finch_symbols_to_import = [
     :log_entry, :printerr,
     
     #Data
-    :config, :prob, :variables, :coefficients, :parameters, :test_functions, :indexers,
+    :config, :prob, :variables, :coefficients, :parameters, :test_functions, :indexers, :variable_transforms,
     :mesh_data, :grid_data, :refel, :time_stepper, :language, :gen_framework,
-    :elemental_order, :genfunctions, :geo_factors, :use_cachesim, :custom_gen_funcs,
+    :elemental_order, :genfunctions, :callback_functions, :geo_factors, :use_cachesim, :custom_gen_funcs,
     
     #Specific to FV
     :FVInfo, :fv_info, :FV_cell_to_node, :FV_node_to_cell, :FV_reconstruct_value_left_right,

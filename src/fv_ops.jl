@@ -1,5 +1,43 @@
 # The finite volume operators that are included automatically if FV is used.
 
+function sym_left_op(f)
+    # Input will be an array of Basic. Output should be in a similar array.
+    if typeof(f) <: Array
+        result = copy(f);
+        for i=1:length(result)
+            result[i] = sym_left_op(f[i]);
+        end
+        
+    elseif typeof(f) == Basic
+        # Apply a CELL1 tag to signal to the code generator which side of the face the value is from.
+        result = apply_flag_to_all_symbols("CELL1", f);
+        
+    elseif typeof(f) <: Number
+        # If the input was just a constant, the result will just be that constant.
+        result = Basic(f);
+    end
+    return result;
+end
+
+function sym_right_op(f)
+    # Input will be an array of Basic. Output should be in a similar array.
+    if typeof(f) <: Array
+        result = copy(f);
+        for i=1:length(result)
+            result[i] = sym_right_op(f[i]);
+        end
+        
+    elseif typeof(f) == Basic
+        # Apply a CELL2 tag to signal to the code generator which side of the face the value is from.
+        result = apply_flag_to_all_symbols("CELL2", f);
+        
+    elseif typeof(f) <: Number
+        # If the input was just a constant, the result will just be that constant.
+        result = Basic(f);
+    end
+    return result;
+end
+
 function sym_central_op(f)
     # Input will be an array of Basic. Output should be in a similar array.
     if typeof(f) <: Array
@@ -78,5 +116,5 @@ function sym_burgerGodunov_op(u, f)
     return result;
 end
 
-_names = [:upwind, :burgerGodunov, :central];
-_handles = [sym_upwind_op, sym_burgerGodunov_op, sym_central_op];
+_names = [:left, :right, :upwind, :burgerGodunov, :central];
+_handles = [sym_left_op, sym_right_op, sym_upwind_op, sym_burgerGodunov_op, sym_central_op];

@@ -437,6 +437,14 @@ function replace_special_ops(ex)
         replacements = Dict([(:symbolmin, :min), (:symbolmax, :max), (:isgreaterthan, :>), (:islessthan, :<), (:conditional, :conditional_function)]);
         if ex in specials
             newex = replacements[ex];
+        elseif occursin("CALLBACK_", string(ex))
+            # It's a callback function. Figure out the index in callback_functions
+            fun_name = string(ex)[10:end];
+            for i=1:length(callback_functions)
+                if callback_functions[i].name == fun_name
+                    newex = :(Finch.callback_functions[$i].func);
+                end
+            end
         else
             newex = ex;
         end

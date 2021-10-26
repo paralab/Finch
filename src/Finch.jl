@@ -3,12 +3,6 @@ The main module for Finch.
 =#
 module Finch
 
-# Public macros and functions
-export @generateFor, @domain, @mesh, @solver, @stepper, @setSteps, @functionSpace, @trialFunction, @matrixFree,
-        @testFunction, @nodes, @order, @boundary, @addBoundaryID, @referencePoint, @variable, @coefficient, @parameter, @testSymbol, @initial,
-        @timeInterval, @weakForm, @fluxAndSource, @LHS, @RHS, @exportCode, @importCode,
-        @customOperator, @customOperatorFile,
-        @outputMesh, @useLog, @finalize
 export init_finch, set_language, set_custom_gen_target, dendro, set_solver, set_stepper, set_specified_steps, set_matrix_free,
         reformat_for_stepper, reformat_for_stepper_fv,
         add_mesh, output_mesh, add_boundary_ID, add_test_function, 
@@ -55,6 +49,7 @@ coefficients = [];
 parameters = [];
 test_functions = [];
 indexers = [];
+variable_transforms = [];
 #generated functions
 genfunc_count = 0;
 genfunctions = [];
@@ -70,7 +65,7 @@ assembly_loops = [];
 #symbolic layer
 symexpressions = [[],[],[],[]];
 # string versions of generated code for printing
-code_strings = [[],[],[],[]];
+code_strings = [[],[],[],[],[]];
 #time stepper
 time_stepper = nothing;
 specified_dt = 0;
@@ -119,6 +114,7 @@ function init_finch(name="unnamedProject")
     global parameters = [];
     global test_functions = [];
     global indexers = [];
+    global variable_transforms = [];
     global genfunc_count = 0;
     global genfunctions = [];
     global callback_functions = [];
@@ -128,7 +124,7 @@ function init_finch(name="unnamedProject")
     global face_bilinears = [];
     global assembly_loops = [];
     global symexpressions = [[],[],[],[]];
-    global code_strings = [[],[],[],[]];
+    global code_strings = [[],[],[],[],[]];
     global time_stepper = nothing;
     global specified_dt = 0;
     global specified_Nsteps = 0;
@@ -403,6 +399,7 @@ function add_variable(var)
     global code_strings[2] = [code_strings[2]; ""];
     global code_strings[3] = [code_strings[3]; ""];
     global code_strings[4] = [code_strings[4]; ""];
+    global code_strings[5] = [code_strings[5]; ""];
 
     log_entry("Added variable: "*string(var.symbol)*" of type: "*var.type*", location: "*var.location, 2);
 end
@@ -468,6 +465,13 @@ function add_indexer(indexer)
         log_entry("Added indexer "*string(indexer.symbol)*" : ["*string(indexer.range[1])*", ... "*string(indexer.range[end])*"]");
     end
     
+end
+
+# Defines a variable transform
+function add_variable_transform(var1, var2, func)
+    push!(variable_transforms, VariableTransform(var1, var2, func));
+    log_entry("Added transform "*string(func)*": "*string(var1)*" -> "*string(var2));
+    return variable_transforms[end];
 end
 
 # Needed to insert parameter expressions into the weak form expressions.
@@ -776,9 +780,11 @@ function set_assembly_loops(var, code="")
         if typeof(var) <:Array
             for i=1:length(var)
                 assembly_loops[var[i].index] = genfunctions[end];
+                code_strings[5][var[i].index] = code;
             end
         else
             assembly_loops[var.index] = genfunctions[end];
+            code_strings[5][var.index] = code;
         end
         
     else # external generation

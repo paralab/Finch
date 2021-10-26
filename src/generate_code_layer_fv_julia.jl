@@ -345,27 +345,32 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
         
     else # surface
         needed_pieces = 
-"if grid.face2element[1, fid] == eid # The normal points out of e"*(piece_needed[8] ? "\n\tnormal = grid.facenormals[:, fid];" : "")*"
-    neighbor = grid.face2element[2, fid];"*(piece_needed[5] ? "\n\tfrefelind = [grid.faceRefelInd[1,fid], grid.faceRefelInd[2,fid]]; # refel based index of face in both elements" : "")*"
-else # The normal points into e"*(piece_needed[8] ? "\n\tnormal = -grid.facenormals[:, fid];" : "")*"
-    neighbor = grid.face2element[1, fid];"*(piece_needed[5] ? "\n\tfrefelind = [grid.faceRefelInd[2,fid], grid.faceRefelInd[1,fid]]; # refel based index of face in both elements" : "")*"
+"if grid.face2element[1, fid] == eid # The normal points out of e
+    neighbor = grid.face2element[2, fid];
+    "*(piece_needed[1] ? "els = (eid, neighbor);" : "")*"
+    "*(piece_needed[5] ? "frefelind = [grid.faceRefelInd[1,fid], grid.faceRefelInd[2,fid]]; # refel based index of face in both elements" : "")*"
+else # The normal points into e
+    neighbor = grid.face2element[1, fid];
+    "*(piece_needed[1] ? "els = (neighbor, eid);" : "")*"
+    "*(piece_needed[5] ? "frefelind = [grid.faceRefelInd[2,fid], grid.faceRefelInd[1,fid]]; # refel based index of face in both elements" : "")*"
 end
 if neighbor == 0 # This is a boundary face. For now, just compute as if neighbor is identical. BCs handled later.
     neighbor = eid;
+    els = (eid, neighbor);
 end\n
 ";
         # els, nodex, loc2glb, cellx, frefelind, facex, face2glb, normal, face_detJ, area, vol_J
-        if piece_needed[1]
-            needed_pieces *= "els = (eid, neighbor); # indices of elements on both sides\n"
+        if piece_needed[8]
+            needed_pieces *= "normal = grid.facenormals[:, fid];\n"
         end
         if piece_needed[2] || piece_needed[3]
-            needed_pieces *= "loc2glb = (grid.loc2glb[:,eid], grid.loc2glb[:, neighbor]); # volume local to global\n"
+            needed_pieces *= "loc2glb = (grid.loc2glb[:,els[1]], grid.loc2glb[:, els[2]]); # volume local to global\n"
         end
         if piece_needed[2]
             needed_pieces *= "nodex = (grid.allnodes[:,loc2glb[1][:]], grid.allnodes[:,loc2glb[2][:]]); # volume node coordinates\n"
         end
         if piece_needed[4]
-            needed_pieces *= "cellx = (fv_data.cellCenters[:, eid], fv_data.cellCenters[:, neighbor]); # cell center coordinates\n"
+            needed_pieces *= "cellx = (fv_data.cellCenters[:, els[1]], fv_data.cellCenters[:, els[2]]); # cell center coordinates\n"
         end
         if piece_needed[5] || piece_needed[6]
             needed_pieces *= "face2glb = grid.face2glb[:,:,fid];         # global index for face nodes for each side of each face\n"
@@ -380,7 +385,7 @@ end\n
             needed_pieces *= "area = geo_facs.area[fid];                 # area of face\n"
         end
         if piece_needed[11]
-            needed_pieces *= "vol_J = (geo_facs.J[eid], geo_facs.J[neighbor]);\n"
+            needed_pieces *= "vol_J = (geo_facs.J[els[1]], geo_facs.J[els[2]]);\n"
         end
         
         if need_deriv_matrix
@@ -410,7 +415,7 @@ function make_elemental_computation_fv_julia(terms, var, dofsper, offset_ind, lo
     # Allocate the vector or matrix to be returned if needed
     if dofsper > 1
         if lorr == RHS
-            code *= "cell_average = zeros("*string(dofsper)*"); # Allocate for returned values.\n"
+            code *= "result = zeros("*string(dofsper)*"); # Allocate for returned values.\n"
         else
             if vors == "volume"
                 code *= "cell_matrix = zeros(refel.Np * "*string(dofsper)*", "*string(dofsper)*"); # Allocate for returned matrix.\n"
@@ -483,7 +488,7 @@ function make_elemental_computation_fv_julia(terms, var, dofsper, offset_ind, lo
             
         end
         
-        # Put the subvector together into cell_average or cell_matrix
+        # Put the subvector together into result or cell_matrix
         if lorr == LHS
             for emi=1:dofsper
                 for emj=1:dofsper
@@ -503,10 +508,15 @@ function make_elemental_computation_fv_julia(terms, var, dofsper, offset_ind, lo
         else # RHS
             for emi=1:dofsper
                 if length(subvector[emi]) > 1
-                    code *= "cell_average["*string(emi)*"] = " * subvector[emi] * "\n";
+                    code *= "result["*string(emi)*"] = " * subvector[emi] * "\n";
                 end
             end
-            code *= "return cell_average;\n"
+            code *= "
+if els[2] == eid && els[1] != els[2]
+    result = -result; # Since this flux is applied to element eid, make sure it's going in the right direction.
+end
+return result;
+"
         end
         
         
@@ -537,8 +547,13 @@ function make_elemental_computation_fv_julia(terms, var, dofsper, offset_ind, lo
                 end
             end
         end
-        code *= "cell_average = [" * result * "];\n";
-        code *= "return cell_average;\n"
+        code *= "result = [" * result * "];\n";
+        code *= "
+if els[2] == eid && els[1] != els[2]
+    result = -result; # Since this flux is applied to element eid, make sure it's going in the right direction.
+end
+return result;
+"
     end
     
     return code;

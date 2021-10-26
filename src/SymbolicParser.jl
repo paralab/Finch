@@ -120,12 +120,10 @@ function sp_parse(ex, var)
     
     # Insert parameters
     symex = insert_parameters(symex);
-    # if debug println("insert parameters -> "*string(symex)); end
     log_entry("SP insert parameters -> "*string(symex), 3);
     
     # Replace symbols for variables, coefficients, test functions, and special operators
     symex = replace_symbols(symex);
-    # if debug println("replace symbols -> "*string(symex)); end
     log_entry("SP replace symbols -> "*string(symex), 3);
     
     # Look for indexes like [i] where i is an indexer
@@ -134,18 +132,34 @@ function sp_parse(ex, var)
         log_entry("SP symbolic indicies -> "*string(symex), 3);
     end
     
+    # Look for callbacks like CALLBACK_f(a,b,c) and pass to handler handle_callbacks(CALLBACK_f, [a, b, c])
+    symex = handle_callbacks(symex);
+    log_entry("SP handle callbacks -> "*string(symex), 3);
+    
     # change some operators like ^ and / to broadcast versions .^ ./
     symex = broadcast_ops(symex);
     
     # Evaluate the expression to apply symbolic operators
     symex = apply_ops(symex);
-    # if debug println("apply ops -> "*string(symex)); end
     log_entry("SP apply ops -> "*string(symex), 3);
     
-    # If the result of this is not in an array, put it in an array
-    if !(typeof(symex) <: Array)
-        symex = [symex];
+    # If the result of this is not in the proper array structure, fix it
+    if typeof(var) <: Array
+        if !(typeof(symex) <: Array)
+            symex = [[symex]];
+        else
+            for i=1:length(symex)
+                if !(typeof(symex[i]) <: Array)
+                    symex[i] = [symex[i]];
+                end
+            end
+        end
+    else
+        if !(typeof(symex) <: Array)
+            symex = [symex];
+        end
     end
+    
     
     # Expand the expression and separate terms
     sterms = get_sym_terms(symex);
@@ -210,26 +224,14 @@ function sp_parse(ex, var)
         end
     end
     
-    # if debug println("volLHS = "*string(lhs)); end
-    # if debug println("volRHS = "*string(rhs)); end
     log_entry("SP volLHS = "*string(lhs), 3);
     log_entry("SP volRHS = "*string(rhs), 3);
-    #log_entry("SP volLHS = \n"*latexify(lhs), 3);
-    #log_entry("SP volRHS = \n"*latexify(rhs), 3);
     if timederiv
-        # if debug println("dtLHS = "*string(dtlhs)); end
-        # if debug println("dtRHS = "*string(dtrhs)); end
         log_entry("SP dtLHS = "*string(dtlhs), 3);
         log_entry("SP dtRHS = "*string(dtrhs), 3);
-        #log_entry("SP dtLHS = \n"*latexify(dtlhs), 3);
-        #log_entry("SP dtRHS = \n"*latexify(dtrhs), 3);
         if has_surface
-            # if debug println("surfLHS = "*string(surflhs)); end
-            # if debug println("surfRHS = "*string(surfrhs)); end
             log_entry("SP surfLHS = "*string(surflhs), 3);
             log_entry("SP surfRHS = "*string(surfrhs), 3);
-            #log_entry("SP surfLHS = \n"*latexify(surflhs), 3);
-            #log_entry("SP surfRHS = \n"*latexify(surfrhs), 3);
             return ((dtlhs,lhs), rhs, surflhs, surfrhs);
         else
             return ((dtlhs,lhs), rhs);
@@ -237,12 +239,8 @@ function sp_parse(ex, var)
         
     else
         if has_surface
-            # if debug println("surfLHS = "*string(surflhs)); end
-            # if debug println("surfRHS = "*string(surfrhs)); end
             log_entry("SP surfLHS = "*string(surflhs), 3);
             log_entry("SP surfRHS = "*string(surfrhs), 3);
-            #log_entry("SP surfLHS = \n"*latexify(surflhs), 3);
-            #log_entry("SP surfRHS = \n"*latexify(surfrhs), 3);
             return (lhs, rhs, surflhs, surfrhs);
         else
             return (lhs, rhs);
@@ -285,7 +283,7 @@ end
 # Replaces variable, coefficient and operator symbols in the expression
 function replace_symbols(ex)
     if typeof(ex) <: Number
-        return ex;
+        return Basic(ex);
     elseif typeof(ex) == Symbol
         # variable?
         for v in variables
@@ -322,12 +320,43 @@ function replace_symbols(ex)
                 return c.symvar;
             end
         end
+        # callback functions
+        for c in callback_functions
+            if string(ex) == c.name
+                # Make a special SymEngine function for this and process it later
+                cname = Symbol("CALLBACK_" * c.name);
+                cstr = string(cname);
+                glop = Expr(:global, Expr(:(=), cname, Expr(:call, :(SymEngine.SymFunction), cstr)));
+                eval(glop);
+                return cname;
+            end
+        end
         # none of them?
         return ex;
     elseif typeof(ex) == Expr && length(ex.args) > 0
+        # # handle function calls separately to check for callbacks
+        # if ex.head === :call
+        #     fun_part = replace_symbols(ex.args[1]);
+        #     for i=2:length(ex.args)
+        #         ex.args[i] = replace_symbols(ex.args[i]);
+        #     end
+        #     if occursin("CALLBACK_", string(fun_part))
+        #         arg_part = ex.args[2:end];
+        #         newex = Expr(:call, :(handle_callback), fun_part, arg_part);
+        #         ex = newex;
+        #     else
+        #         ex.args[1] = fun_part;
+        #     end
+            
+        # else
+        #     for i=1:length(ex.args)
+        #         ex.args[i] = replace_symbols(ex.args[i]); # recursively replace on args if ex
+        #     end
+        # end
         for i=1:length(ex.args)
             ex.args[i] = replace_symbols(ex.args[i]); # recursively replace on args if ex
         end
+        
         return ex;
     elseif typeof(ex) <:Array
         result = copy(ex);
@@ -398,11 +427,96 @@ function handle_indexers(ex)
     return ex;
 end
 
+# Turns callbackfun([a],[b],2) into noarray_callback(callbackfun, [[a],[b],2])
+function handle_callbacks(ex)
+    # Traverse the Expr looking for :call with "CALLBACK_"
+    if typeof(ex) <:Array
+        result = copy(ex);
+        for i=1:length(ex)
+            result[i] = handle_callbacks(ex[i]);
+        end
+        return result;
+        
+    elseif typeof(ex) == Expr
+        if ex.head === :call && occursin("CALLBACK_", string(ex.args[1]))
+            newex = Expr(:call, :noarray_callback);
+            for i=2:length(ex.args)
+                ex.args[i] = handle_callbacks(ex.args[i]);
+            end
+            append!(newex.args, ex.args);
+            ex = newex;
+        else
+            for i=1:length(ex.args)
+                ex.args[i] = handle_callbacks(ex.args[i]);
+            end
+        end
+    end
+    
+    return ex;
+    
+end
+
+# Turns callbackfun([a],[b],2) into [callbackfun(a,b,2)]
+# This will be called when evaluating.
+# fun should be a SymEngine.SymFunction.
+# arg should be an array of arguments for fun.
+function noarray_callback(fun, arg...)
+    arg_len = zeros(Int, length(arg));
+    for i=1:length(arg)
+        arg_len[i] = length(arg[i]);
+    end
+    max_len = maximum(arg_len);
+    needs_array = false;
+    # ([a,b,c],[d],2) -> [[a,d,2],[b,d,2],[c,d,2]]
+    # ([a],[b],[3]) -> [[a,b,3]]
+    arg_sets = [];
+    for j=1:max_len
+        tmp = [];
+        for i=1:length(arg)
+            if typeof(arg[i]) <: Array
+                needs_array = true;
+                if length(arg[i]) == 1
+                    push!(tmp, arg[i][1]);
+                elseif length(arg[i]) == max_len
+                    push!(tmp, arg[i][j]);
+                else
+                    printerr("Unexpected arg set for callback function: "* string(fun)*"("*string(arg)*")")
+                    return nothing;
+                end
+            else
+                push!(tmp, arg[i]);
+            end
+        end
+        push!(arg_sets, tmp);
+    end
+    
+    if needs_array
+        if max_len == 1
+            tmp = Expr(:call, fun);
+            append!(tmp.args, arg_sets[1]);
+            result = [eval(tmp)];
+        else
+            result = [];
+            for i=1:max_len
+                tmp = Expr(:call, fun);
+                append!(tmp.args, arg_sets[i]);
+                push!(result, eval(tmp));
+            end
+        end
+    else
+        tmp = Expr(:call, fun);
+        append!(tmp.args, arg);
+        result = eval(tmp);
+    end
+    
+    return result;
+end
+
 function broadcast_ops(ex)
     if typeof(ex) <:Array
-        result = [];
+        result = copy(ex);
         for i=1:length(ex)
-            push!(result, broadcast_ops(ex[i]));
+            result[i] = broadcast_ops(ex[i]);
         end
         return result;
     elseif typeof(ex) == Expr
@@ -415,8 +529,8 @@ function broadcast_ops(ex)
         if ex === :^ ex = :.^
         elseif ex === :/ ex = :./
         elseif ex === :* ex = :.*
-        elseif ex === :+ ex = :.+
-        elseif ex === :- ex = :.-
+        #elseif ex === :+ ex = :.+
+        #elseif ex === :- ex = :.-
         end
     end
     return ex;
@@ -424,20 +538,31 @@ end
 
 # Eval to apply the sym_*_op ops to create a SymEngine expression
 function apply_ops(ex)
-    try
-        if typeof(ex) <:Array
-            result = [];
-            for i=1:length(ex)
-                push!(result, eval(ex[i]));
-            end
-            return result;
-        else
-            return eval(ex);
+    # try
+    #     if typeof(ex) <:Array
+    #         result = [];
+    #         for i=1:length(ex)
+    #             #println("evaluating: "*string(ex[i]));
+    #             push!(result, eval(ex[i]));
+    #         end
+    #         return result;
+    #     else
+    #         return eval(ex);
+    #     end
+    # catch e
+    #     printerr("Problem evaluating the symbolic expression: "*string(ex));
+    #     println(string(e));
+    #     return 0;
+    # end
+    if typeof(ex) <:Array
+        result = [];
+        for i=1:length(ex)
+            #println("evaluating: "*string(ex[i]));
+            push!(result, eval(ex[i]));
         end
-    catch e
-        printerr("Problem evaluating the symbolic expression: "*string(ex));
-        println(string(e));
-        return 0;
+        return result;
+    else
+        return eval(ex);
     end
 end
 

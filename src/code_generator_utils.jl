@@ -254,7 +254,8 @@ function process_terms(symex)
         #println(string(newex) * " : " * string(typeof(newex)))
         
         if typeof(newex) == Expr && newex.head === :call
-            if (newex.args[1] === :+ || newex.args[1] === :.+ || newex.args[1] === :- || newex.args[1] === :.-)
+            if (newex.args[1] === :+ || newex.args[1] === :.+ || 
+                (newex.args[1] === :- || newex.args[1] === :.-) && length(newex.args) > 2 )
                 println("unexpected term in process terms: "*string(newex));
             else
                 if newex.args[1] === :/ || newex.args[1] === :./
