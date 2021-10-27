@@ -157,7 +157,7 @@ end
 function finiteVolumeOrder(order)
     # Not sure where to put these yet. Let's hand them over to FVSolver.
     (parent, child) = divide_parent_grid(grid_data, order);
-    set_parent_and_child(parent, child);
+    set_parent_and_child(parent, child, order);
 end
 
 function variable(name, type=SCALAR, location=NODAL; index=nothing)

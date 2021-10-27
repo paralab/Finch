@@ -264,8 +264,16 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                 if face_done[fid] == 0
                     face_done[fid] = 1; # Possible race condition, but in the worst case it will be computed twice.
                     
+                    # Only one element on either side is available here. For more use parent/child version.
+                    (leftel, rightel) = grid_data.face2element[:,fid];
+                    if rightel == 0
+                        neighborhood = [[leftel],[]];
+                    else
+                        neighborhood = [[leftel],[rightel]];
+                    end
+                    
                     #fluxargs = prepare_args(var, eid, fid, RHS, "surface", t, dt); #(var, (e, neighbor), refel, vol_loc2glb, nodex, cellx, frefelind, facex, face2glb, normal, fdetj, face_area, (J, vol_J_neighbor), t, dt);
-                    fluxargs = (var, eid, fid, grid_data, geo_factors, fv_info, refel, t, dt);
+                    fluxargs = (var, eid, fid, neighborhood, grid_data, geo_factors, fv_info, refel, t, dt);
                     flux = flux_rhs.func(fluxargs) .* geo_factors.area[fid];
                     # Add to global flux vector for faces
                     facefluxvec[((fid-1)*dofs_per_node + 1):(fid*dofs_per_node)] = flux;
@@ -415,10 +423,11 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
                     # remove zero values
                     left_cells = remove_zero_cells(left_cells);
                     right_cells = remove_zero_cells(right_cells);
+                    neighborhood = [left_cells, right_cells];
                     
                     #fluxargs = prepare_args(var, eid, fid, RHS, "surface", t, dt); #(var, (e, neighbor), refel, vol_loc2glb, nodex, cellx, frefelind, facex, face2glb, normal, fdetj, face_area, (J, vol_J_neighbor), t, dt);
-                    fluxargs = (var, eid, fid, fv_grid, fv_geo_factors, fv_info, fv_refel, t, dt);
-                    flux = flux_rhs.func(fluxargs; left_cells=left_cells, right_cells=right_cells) .* fv_geo_factors.area[fid];
+                    fluxargs = (var, eid, fid, neighborhood, fv_grid, fv_geo_factors, fv_info, fv_refel, t, dt);
+                    flux = flux_rhs.func(fluxargs) .* fv_geo_factors.area[fid];
                     
                     # Add to global flux vector for faces
                     facefluxvec[((fid-1)*dofs_per_node + 1):(fid*dofs_per_node)] = flux;

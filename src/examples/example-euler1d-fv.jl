@@ -1,20 +1,35 @@
-if !@isdefined(Finch)
-    include("../Finch.jl");
-    using .Finch
-end
+#=
+1D Euler equations
+=#
+
+### If the Finch package has already been added, use this line #########
+using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+
+### If not, use these four lines (working from the examples directory) ###
+# if !@isdefined(Finch)
+#     include("../Finch.jl");
+#     using .Finch
+# end
+##########################################################################
+
 init_finch("FVeuler1d");
 
 useLog("FVeuler1dlog", level=3)
 
 # Configuration setup
-domain(1)
+domain(1) # 1D
 solverType(FV)
 timeStepper(RK4)
 timeInterval(0.2)
 
 # Mesh
-n = 150 # number of elements
-mesh(LINEMESH, elsperdim=n)
+ord = 1 # order used for flux
+n = Int(ceil(150/ord)) # number of elements scaled for subdividing for higher orders
+mesh(LINEMESH, elsperdim=n) # A uniform 1D mesh of the unit interval.
+
+if ord > 1
+    finiteVolumeOrder(ord)
+end
 
 # Primitive variables
 r = variable("r", SCALAR, CELL)
@@ -28,6 +43,7 @@ q2 = variable("q2", SCALAR, CELL)
 q3 = variable("q3", SCALAR, CELL)
 Q = [q1, q2, q3];
 
+# Transformations between the variable sets
 U2Q = variableTransform(U, Q, 
 (U) -> (
     gamma = 1.4;
@@ -53,14 +69,46 @@ Finch.eval_initial_conditions(); # set U initial conditions
 transformVariable(U2Q); # set Q initial conditions
 
 # Boundary conditions
-boundary(q1, 1, NO_BC)
+boundary(q1, 1, NO_BC) # equivalent to transmissive bdry
 boundary(q2, 1, NO_BC)
 boundary(q3, 1, NO_BC)
 
-gamma = coefficient("gamma", 1.4)
-
-function flux_u2(r1,u1,p1, r2,u2,p2, comp, normal)
+# The commented function is a compact version for inspection.
+# The longer function below that is similar, but arranged to work 
+# as a callback in the flux function.
+#=
+function flux_u(U)
+    local r = U[1];
+    local u = U[2];
+    local p = U[3];
     local gamma = 1.4;
+    
+    FU = [ r * u, 
+           p + r * u*u, 
+           u * (p + p/(gamma-1) + r*u*u*0.5)];
+    
+    # Steger-Warming splitting
+    c = sqrt(gamma*p/r)
+    M = u/c
+    if M < -1
+        Fm = FU;
+        Fp = zeros(3);
+    elseif M > 1
+        Fm = zeros(3);
+        Fp = FU;
+    elseif M >= -1 && M < 0
+        Fp = r*(u+c)/(2*gamma) .* [1, (u+c), (u+c)^2/2+(3-gamma)/(gamma-1)*c^2/2];
+        Fm = FU - Fp;
+    else # 0 < M < 1
+        Fm = r*(u-c)/(2*gamma) .* [1, (u-c), (u-c)^2/2+(3-gamma)/(gamma-1)*c^2/2];
+        Fp = FU - Fm;
+    end
+    
+    return (Fm, Fp);
+end
+=#
+function flux_u2(r1,u1,p1, r2,u2,p2, comp, normal)
+    gamma = 1.4;
     # The normal points from cell 1 to cell 2
     # So "left" is currently cell 1
     if normal < 0
@@ -74,7 +122,7 @@ function flux_u2(r1,u1,p1, r2,u2,p2, comp, normal)
     c2 = sqrt(gamma*p2/r2);
     M2 = u2/c2;
     
-    if comp == 1
+    if comp == 1 # rho
         if M1 < -1
             Fp = 0;
         elseif M1 > 1
@@ -95,7 +143,7 @@ function flux_u2(r1,u1,p1, r2,u2,p2, comp, normal)
             Fm = r2*(u2-c2)/(2*gamma);
         end
         
-    elseif comp == 2
+    elseif comp == 2 # u
         if M1 < -1
             Fp = 0;
         elseif M1 > 1
@@ -116,7 +164,7 @@ function flux_u2(r1,u1,p1, r2,u2,p2, comp, normal)
             Fm = r2*(u2-c2)/(2*gamma) * (u2-c2);
         end
         
-    elseif comp == 3
+    elseif comp == 3 # p
         if M1 < -1
             Fp = 0;
         elseif M1 > 1
@@ -143,21 +191,44 @@ end
 callbackFunction(flux_u2);
 
 flux(Q, ["flux_u2(left(r),left(u),left(p), right(r),right(u),right(p), $i, normal())" for i in 1:3])
+#=
+The line above is in a compact form. A verbose form would be:
+flux([q1,q2,q3], ["flux_u2(left(r),left(u),left(p), right(r),right(u),right(p), 1, normal())"
+                  "flux_u2(left(r),left(u),left(p), right(r),right(u),right(p), 2, normal())"
+                  "flux_u2(left(r),left(u),left(p), right(r),right(u),right(p), 3, normal())"])
+                  
+Note:
+To get a reconstructed value for a variable r,
+    "r"         -> A centered interpolation
+    "left(r)"   -> extrapolated from cells on side 1 of the face (the normal vector points from side 1 to side 2)
+    "right(r)"  -> similar, but for side 2
+    "central(r)"-> similar to "r"
+In all cases, neighborhoods that are truncated by a boundary will simply use fewer cells.
+Boundary faces will use one ghost cell identical to the interior cell.
+The side1/2 orientation is only tied to the normal vector, so if the physical orientation is needed,
+pass the normal vector as well with "normal()".
+=#
 
-exportCode("fveuler1dcodeout")
+# For inspecting the generated code, look in "fveuler1dcode.jl"
+# If you wish to modify it and reimport, use importCode("fveuler1dcode") instead.
+# Importing will override anything previously generated.
+exportCode("fveuler1dcode")
 
+# Need to update primitive variables each time conserved variables are changed.
 @postStepFunction(
     transformVariable(Q2U)
 );
 
+# Solve for the conserved variables because the equations were defined for them.
+# Since primitive variables are also updated each step, they are also solved for.
 solve(Q)
 
 finalize_finch()
 
-##### Uncomment below to compare to plot
+##### Uncomment below to plot
 
-x = Finch.fv_info.cellCenters[:];
+# x = Finch.fv_info.cellCenters[:];
 
-using Plots
-pyplot();
-display(plot([x x x], [r.values[:] u.values[:] p.values[:]], markershape=:circle, label=["r" "u" "p"]))
+# using Plots
+# pyplot();
+# display(plot([x x x], [r.values[:] u.values[:] p.values[:]], markershape=:circle, label=["r" "u" "p"]))

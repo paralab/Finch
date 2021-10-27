@@ -11,6 +11,7 @@ Also has functions useful for FV such as
 =#
 
 struct FVInfo
+    fluxOrder::Int                  # Order for flux reconstruction
     cellCenters::Array{Float64}     # Coordinates of cell centers
     faceCenters::Array{Float64}     # Coordinates of face centers
     
@@ -24,7 +25,7 @@ etypetonf = [2, 3, 4, 4, 6, 5, 5, 2, 3, 4, 4, 6, 5, 5, 1, 4, 6, 5, 5]; # number 
 etypetoftype=[0,1, 1, 2, 3, 3, 3, 0, 1, 1, 2, 3, 3, 3, 0, 0, 0, 0, 0]; # type of faces for this element type
 
 # Build the FVInfo from a given grid
-function build_FV_info(grid)
+function build_FV_info(grid, order=1)
     nel = size(grid.loc2glb, 2);
     nface = size(grid.face2glb, 3);
     nnode = size(grid.allnodes, 2);
@@ -85,7 +86,7 @@ function build_FV_info(grid)
         end
     end
     
-    return FVInfo(cell_centers, face_centers, cell2node, cell2nodeWeight);
+    return FVInfo(order, cell_centers, face_centers, cell2node, cell2nodeWeight);
 end
 
 # Interpolate nodal values from neighboring cells.
@@ -139,6 +140,19 @@ function FV_node_to_cell(node_values, cell_values = nothing)
     end
     
     return cell_values;
+end
+
+# reconstructs u at x based on a cell set
+function FV_reconstruct_value(cellx, cellu, x)
+    # If only one cell given, return that value
+    if length(cellu) == 1
+        return cellu[1];
+    end
+    
+    # Interpolate value at x
+    # Note: if extrapolating from only one side, 
+    # consider using FV_reconstruct_value_left_right to include slope limiting
+    return polyharmonic_interp(x, cellx, cellu)[1];
 end
 
 # reconstructs u at x based on left and right cell sets

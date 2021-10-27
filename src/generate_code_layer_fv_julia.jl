@@ -4,18 +4,34 @@ Code generation functions for FV for Julia.
 
 # Extract the input args. This must match the arguments passed by the solver.
 function handle_input_args_fv_julia(lorr, vors)
-    # args = (var, eid, fid, grid_data, geo_factors, fv_info, t, dt)
-    code =
-"var =       args[1];
-eid =       args[2];
-fid =       args[3];
-grid =      args[4];
-geo_facs =  args[5];
-fv_data =   args[6];
-refel =     args[7];
-time =      args[8];
-dt =        args[9];
+    if vors == "volume"
+        # args = (var, eid, fid, grid_data, geo_factors, fv_info, t, dt)
+        code =
+"var =       args[1]; # variable list
+eid =       args[2]; # element ID
+fid =       args[3]; # NA
+grid =      args[4]; # grid data struct
+geo_facs =  args[5]; # geometric factors
+fv_data =   args[6]; # FV specific info
+refel =     args[7]; # reference element
+time =      args[8]; # time
+dt =        args[9]; # dt
 "
+    else # surface
+        # args = (var, eid, fid, els, grid_data, geo_factors, fv_info, t, dt)
+        code =
+"var =       args[1]; # variable list
+eid =       args[2]; # element this flux is applied to
+fid =       args[3]; # face ID
+els =       args[4]; # neighborhood element IDs [[left], [right]]
+grid =      args[5]; # grid data struct
+geo_facs =  args[6]; # geometric factors
+fv_data =   args[7]; # FV specific info
+refel =     args[8]; # reference element
+time =      args[9]; # time
+dt =        args[10]; # dt
+"
+    end
     return code;
 end
 
@@ -31,6 +47,7 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
     end
     need_deriv_matrix = false;
     need_deriv_dist = false;
+    fv_order = fv_info.fluxOrder;
     
     code = "";
     
@@ -153,17 +170,19 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                         cellside = 1;
                     elseif occursin("DGSIDE2", entities[i].flags[flagi]) || occursin("CELL2", entities[i].flags[flagi])
                         cellside = 2;
+                    elseif occursin("CENTRAL", entities[i].flags[flagi])
+                        cellside = 3;
                     end
                 end
                 if vors == "surface"
-                    l2gsymbol = "els[1]"
+                    l2gsymbol = "els1"
                 else
                     l2gsymbol = "el"
                 end
                 if cellside == 1
-                    l2gsymbol = "els[1]"
+                    l2gsymbol = "els1"
                 elseif cellside == 2
-                    l2gsymbol = "els[2]"
+                    l2gsymbol = "els2"
                 end
                 
                 if typeof(entities[i].index) <: Array
@@ -194,21 +213,49 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                     else
                         code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", "*l2gsymbol*"];\n";
                     end
-                else
-                    if length(entities[i].derivs) > 0
-                        code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", els[2]] - Finch.variables["*string(cval)*"].values["*indstr*", els[1]];\n";
-                        code *= cname * " = (els[1] != els[2] && abs(normal["*string(entities[i].derivs[1])*"]) > 1e-10) ? "*cname*" ./ dxyz["*string(entities[i].derivs[1])*"]  : 0\n"
-                        need_deriv_dist = true;
-                        piece_needed[4] = true; # cellx
-                        piece_needed[8] = true; # normal
-                    else
-                        if cellside == 0
-                            # No side was specified, so use the average
-                            code *= cname * " = 0.5 * (Finch.variables["*string(cval)*"].values["*indstr*", els[1]] + Finch.variables["*string(cval)*"].values["*indstr*", els[2]]);\n";
+                    
+                else # surface
+                    if fv_order == 1
+                        if length(entities[i].derivs) > 0
+                            code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", els2] - Finch.variables["*string(cval)*"].values["*indstr*", els1];\n";
+                            code *= cname * " = (els1 != els2 && abs(normal["*string(entities[i].derivs[1])*"]) > 1e-10) ? "*cname*" ./ dxyz["*string(entities[i].derivs[1])*"]  : 0\n"
+                            need_deriv_dist = true;
+                            piece_needed[4] = true; # cellx
+                            piece_needed[8] = true; # normal
                         else
-                            code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", "*l2gsymbol*"];\n";
+                            if cellside == 0
+                                # No side was specified, so use the average
+                                code *= cname * " = 0.5 * (Finch.variables["*string(cval)*"].values["*indstr*", els1] + Finch.variables["*string(cval)*"].values["*indstr*", els2]);\n";
+                            elseif cellside < 3
+                                code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", "*l2gsymbol*"];\n";
+                            else # central
+                                # same as 0 for this case
+                                code *= cname * " = 0.5 * (Finch.variables["*string(cval)*"].values["*indstr*", els1] + Finch.variables["*string(cval)*"].values["*indstr*", els2]);\n";
+                            end
+                        end
+                        
+                    else # order > 1
+                        # collect the cell info
+                        piece_needed[6] = true; # face center coords
+                        piece_needed[4] = true; # cell centers
+                        if length(entities[i].derivs) > 0
+                            code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", els[2][1]] - Finch.variables["*string(cval)*"].values["*indstr*", els[1][1]];\n";
+                            code *= cname * " = (els[1][1] != els[2][1] && abs(normal["*string(entities[i].derivs[1])*"]) > 1e-10) ? "*cname*" ./ dxyz["*string(entities[i].derivs[1])*"]  : 0\n"
+                            need_deriv_dist = true;
+                            piece_needed[4] = true; # cellx
+                            piece_needed[8] = true; # normal
+                        else
+                            if cellside == 0 || cellside == 3
+                                # Use the full neighborhood
+                                code *= cname * " = Finch.FV_reconstruct_value([cellx[1] cellx[2]], [Finch.variables["*string(cval)*"].values["*indstr*", els[1]] ; Finch.variables["*string(cval)*"].values["*indstr*", els[2]]], facex);\n";
+                            elseif cellside == 1 # left
+                                code *= cname * " = Finch.FV_reconstruct_value_left_right(cellx[1], cellx[2], Finch.variables["*string(cval)*"].values["*indstr*", els[1]], Finch.variables["*string(cval)*"].values["*indstr*", els[2]], facex, limiter=\"vanleer\")[1];\n";
+                            else # right
+                                code *= cname * " = Finch.FV_reconstruct_value_left_right(cellx[1], cellx[2], Finch.variables["*string(cval)*"].values["*indstr*", els[1]], Finch.variables["*string(cval)*"].values["*indstr*", els[2]], facex, limiter=\"vanleer\")[2];\n";
+                            end
                         end
                     end
+                    
                 end
                 
             elseif ctype == 4 # an indexed coefficient
@@ -345,26 +392,22 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
         
     else # surface
         needed_pieces = 
-"if grid.face2element[1, fid] == eid # The normal points out of e
-    neighbor = grid.face2element[2, fid];
-    "*(piece_needed[1] ? "els = (eid, neighbor);" : "")*"
-    "*(piece_needed[5] ? "frefelind = [grid.faceRefelInd[1,fid], grid.faceRefelInd[2,fid]]; # refel based index of face in both elements" : "")*"
-else # The normal points into e
-    neighbor = grid.face2element[1, fid];
-    "*(piece_needed[1] ? "els = (neighbor, eid);" : "")*"
-    "*(piece_needed[5] ? "frefelind = [grid.faceRefelInd[2,fid], grid.faceRefelInd[1,fid]]; # refel based index of face in both elements" : "")*"
+"if length(els[2]) == 0 # This is a boundary face. For now, just compute as if neighbor is identical. BCs handled later.
+    els[2] = [eid];
 end
-if neighbor == 0 # This is a boundary face. For now, just compute as if neighbor is identical. BCs handled later.
-    neighbor = eid;
-    els = (eid, neighbor);
-end\n
 ";
+        if fv_order == 1
+            needed_pieces *= "els1 = els[1][1]; els2 = els[2][1]; # For first order only.\n";
+        end
         # els, nodex, loc2glb, cellx, frefelind, facex, face2glb, normal, face_detJ, area, vol_J
-        if piece_needed[8]
+        if piece_needed[5]
+            needed_pieces *= "frefelind = [grid.faceRefelInd[1,fid], grid.faceRefelInd[2,fid]]; # refel based index of face in both elements\n"
+        end
+        if piece_needed[8] || true # probably always need
             needed_pieces *= "normal = grid.facenormals[:, fid];\n"
         end
         if piece_needed[2] || piece_needed[3]
-            needed_pieces *= "loc2glb = (grid.loc2glb[:,els[1]], grid.loc2glb[:, els[2]]); # volume local to global\n"
+            needed_pieces *= "loc2glb = (grid.loc2glb[:,els[1][1]], grid.loc2glb[:, els[2][1]]); # volume local to global\n"
         end
         if piece_needed[2]
             needed_pieces *= "nodex = (grid.allnodes[:,loc2glb[1][:]], grid.allnodes[:,loc2glb[2][:]]); # volume node coordinates\n"
@@ -376,7 +419,7 @@ end\n
             needed_pieces *= "face2glb = grid.face2glb[:,:,fid];         # global index for face nodes for each side of each face\n"
         end
         if piece_needed[6]
-            needed_pieces *= "facex = grid.allnodes[:, face2glb[:, 1]];  # face node coordinates\n"
+            needed_pieces *= "facex = fv_data.faceCenters[:, fid];  # face node coordinates\n"
         end
         if piece_needed[9]
             needed_pieces *= "face_detJ = geo_facs.face_detJ[fid];       # detJ on face\n"
@@ -385,14 +428,14 @@ end\n
             needed_pieces *= "area = geo_facs.area[fid];                 # area of face\n"
         end
         if piece_needed[11]
-            needed_pieces *= "vol_J = (geo_facs.J[els[1]], geo_facs.J[els[2]]);\n"
+            needed_pieces *= "vol_J = (geo_facs.J[els[1][1]], geo_facs.J[els[2][1]]);\n"
         end
         
         if need_deriv_matrix
             needed_pieces *= "TODO: derivative matrices for surface. generate_code_layer_fv_julia.jl - prepare_needed_values_fv_julia()"
         end
         if need_deriv_dist
-            needed_pieces *= "dxyz = norm(cellx[2] - cellx[1]) .* normal; # normal scaled by distance between cell centers\n"
+            needed_pieces *= "dxyz = norm(cellx[2][:,1] - cellx[1][:,1]) .* normal; # normal scaled by distance between cell centers\n"
         end
     end
     
@@ -512,7 +555,7 @@ function make_elemental_computation_fv_julia(terms, var, dofsper, offset_ind, lo
                 end
             end
             code *= "
-if els[2] == eid && els[1] != els[2]
+if els[2][1] == eid && els[1][1] != els[2][1]
     result = -result; # Since this flux is applied to element eid, make sure it's going in the right direction.
 end
 return result;
@@ -549,7 +592,7 @@ return result;
         end
         code *= "result = [" * result * "];\n";
         code *= "
-if els[2] == eid && els[1] != els[2]
+if els[2][1] == eid && els[1][1] != els[2][1]
     result = -result; # Since this flux is applied to element eid, make sure it's going in the right direction.
 end
 return result;
