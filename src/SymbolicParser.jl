@@ -334,25 +334,6 @@ function replace_symbols(ex)
         # none of them?
         return ex;
     elseif typeof(ex) == Expr && length(ex.args) > 0
-        # # handle function calls separately to check for callbacks
-        # if ex.head === :call
-        #     fun_part = replace_symbols(ex.args[1]);
-        #     for i=2:length(ex.args)
-        #         ex.args[i] = replace_symbols(ex.args[i]);
-        #     end
-        #     if occursin("CALLBACK_", string(fun_part))
-        #         arg_part = ex.args[2:end];
-        #         newex = Expr(:call, :(handle_callback), fun_part, arg_part);
-        #         ex = newex;
-        #     else
-        #         ex.args[1] = fun_part;
-        #     end
-            
-        # else
-        #     for i=1:length(ex.args)
-        #         ex.args[i] = replace_symbols(ex.args[i]); # recursively replace on args if ex
-        #     end
-        # end
         for i=1:length(ex.args)
             ex.args[i] = replace_symbols(ex.args[i]); # recursively replace on args if ex
         end

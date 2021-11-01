@@ -249,7 +249,7 @@ function transformVariable(var1, var2)
     end
 end
 
-function boundary(var, bid, bc_type, bc_exp=0; requires=[])
+function boundary(var, bid, bc_type, bc_exp=0)
     # The expression may contain variable symbols.
     # Parse it, replace variable symbols with the appropriate parts
     # Type may change in bc_exp, so convert it to an array of Any
@@ -260,25 +260,24 @@ function boundary(var, bid, bc_type, bc_exp=0; requires=[])
         for i=1:length(bc_exp)
             if typeof(bc_exp[i]) == String
                 ex = Meta.parse(bc_exp[i]);
-                ex = replace_var_symbols_with_values(ex);
+                ex = replace_symbols_in_conditions(ex);
                 newbc_exp[i] = string(ex);
                 nfuns += makeFunctions(newbc_exp[i]);
             elseif typeof(bc_exp[i]) <: Number
                 # do nothing
-            else # a callback function 
-                newbc_exp[i] = CallbackFunction(string(bc_exp[i]), requires, bc_exp[i]);
+            else
+                # What else could it be?
             end
         end
     elseif typeof(bc_exp) == String
         ex = Meta.parse(bc_exp);
-        ex = replace_var_symbols_with_values(ex);
+        ex = replace_symbols_in_conditions(ex);
         newbc_exp = string(ex);
-        nfuns = makeFunctions(bc_exp);
+        nfuns = makeFunctions(newbc_exp);
     elseif typeof(bc_exp) <: Number
         nfuns = 0;
-    else # a callback function 
-        newbc_exp = CallbackFunction(string(bc_exp), requires, bc_exp);
-        nfuns = 0;
+    else
+        # ??
     end
     
     add_boundary_condition(var, bid, bc_type, newbc_exp, nfuns);
@@ -316,8 +315,14 @@ function postStepFunction(fun)
     solver.set_post_step(fun);
 end
 
-function callbackFunction(fun; args=[])
-    add_callback_function(CallbackFunction(string(fun), [], fun));
+function callbackFunction(fun; name="", args=[], body="")
+    if name==""
+        name = string(fun);
+    end
+    # If args and body are not provided, this may still work internally
+    # but it can't be generated for external targets.
+    
+    add_callback_function(CallbackFunction(name, args, body, fun));
 end
 
 function weakForm(var, wf)

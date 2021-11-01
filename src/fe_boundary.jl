@@ -394,15 +394,15 @@ function evaluate_at_nodes(val, nodes, face, t)
         result = zeros(N);
         if dim == 1
             for i=1:N
-                result[i]=val.value[1].func(grid_data.allnodes[1,nodes[i]],0,0,t,nodes[i]);
+                result[i]=val.value[1].func(grid_data.allnodes[1,nodes[i]],0,0,t,nodes[i],face);
             end
         elseif dim == 2
             for i=1:N
-                result[i]=val.value[1].func(grid_data.allnodes[1,nodes[i]],grid_data.allnodes[2,nodes[i]],0,t,nodes[i]);
+                result[i]=val.value[1].func(grid_data.allnodes[1,nodes[i]],grid_data.allnodes[2,nodes[i]],0,t,nodes[i],face);
             end
         else
             for i=1:N
-                result[i]=val.value[1].func(grid_data.allnodes[1,nodes[i]],grid_data.allnodes[2,nodes[i]],grid_data.allnodes[3,nodes[i]],t,nodes[i]);
+                result[i]=val.value[1].func(grid_data.allnodes[1,nodes[i]],grid_data.allnodes[2,nodes[i]],grid_data.allnodes[3,nodes[i]],t,nodes[i],face);
             end
         end
         
@@ -410,15 +410,15 @@ function evaluate_at_nodes(val, nodes, face, t)
         result = zeros(N);
         if dim == 1
             for i=1:N
-                result[i]=val.func(grid_data.allnodes[1,nodes[i]],0,0,t,nodes[i]);
+                result[i]=val.func(grid_data.allnodes[1,nodes[i]],0,0,t,nodes[i],face);
             end
         elseif dim == 2
             for i=1:N
-                result[i]=val.func(grid_data.allnodes[1,nodes[i]],grid_data.allnodes[2,nodes[i]],0,t,nodes[i]);
+                result[i]=val.func(grid_data.allnodes[1,nodes[i]],grid_data.allnodes[2,nodes[i]],0,t,nodes[i],face);
             end
         else
             for i=1:N
-                result[i]=val.func(grid_data.allnodes[1,nodes[i]],grid_data.allnodes[2,nodes[i]],grid_data.allnodes[3,nodes[i]],t,nodes[i]);
+                result[i]=val.func(grid_data.allnodes[1,nodes[i]],grid_data.allnodes[2,nodes[i]],grid_data.allnodes[3,nodes[i]],t,nodes[i],face);
             end
         end
         

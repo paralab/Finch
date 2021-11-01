@@ -5,13 +5,28 @@ Try to use the regular function interface in finch_interface.jl
 =#
 export @generateFor, @domain, @mesh, @solver, @stepper, @setSteps, @functionSpace, @trialFunction, @matrixFree,
         @testFunction, @nodes, @order, @boundary, @addBoundaryID, @referencePoint, @variable, @coefficient, 
-        @parameter, @testSymbol, @initial, @preStepFunction, @postStepFunction,
+        @parameter, @testSymbol, @initial, @preStepFunction, @postStepFunction, @callbackFunction,
         @timeInterval, @weakForm, @fluxAndSource, @LHS, @RHS, @exportCode, @importCode,
         @customOperator, @customOperatorFile,
         @outputMesh, @useLog, @finalize
 
 ###############################################################################
 # These will be kept.
+
+#= Assume something like this
+myf = @callbackFunction(
+    function f(a,b,c)
+        body...
+    end
+)
+=#
+macro callbackFunction(f)
+    fname = string(f.args[1].args[1]);
+    fargs = [string(f.args[1].args[i]) for i=2:length(f.args[1].args)];
+    fbody = string(f.args[2]);
+    return esc(:(callbackFunction($f, name=$fname, args=$fargs, body=$fbody)));
+end
+
 macro preStepFunction(f)
     return esc(quote
         function PRE_STEP_FUNCTION()

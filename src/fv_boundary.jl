@@ -159,11 +159,11 @@ function evaluate_bc(val, eid, fid, t)
     elseif typeof(val) == GenFunction
         facex = fv_info.faceCenters[:,fid];
         if dim == 1
-            result=val.func(facex[1],0,0,t,eid);
+            result=val.func(facex[1],0,0,t,eid,fid);
         elseif dim == 2
-            result=val.func(facex[1],facex[2],0,t,eid);
+            result=val.func(facex[1],facex[2],0,t,eid,fid);
         else
-            result=val.func(facex[1],facex[2],facex[3],t,eid);
+            result=val.func(facex[1],facex[2],facex[3],t,eid,fid);
         end
         
     elseif typeof(val) == CallbackFunction

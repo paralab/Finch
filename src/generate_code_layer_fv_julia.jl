@@ -419,7 +419,8 @@ end
             needed_pieces *= "face2glb = grid.face2glb[:,:,fid];         # global index for face nodes for each side of each face\n"
         end
         if piece_needed[6]
-            needed_pieces *= "facex = fv_data.faceCenters[:, fid];  # face node coordinates\n"
+            # needed_pieces *= "facex = fv_data.faceCenters[:, fid];  # face node coordinates\n"
+            needed_pieces *= "facex = grid_data.allnodes[:, grid_data.face2glb[:,1,fid]];  # face node coordinates\n"
         end
         if piece_needed[9]
             needed_pieces *= "face_detJ = geo_facs.face_detJ[fid];       # detJ on face\n"
@@ -554,12 +555,15 @@ function make_elemental_computation_fv_julia(terms, var, dofsper, offset_ind, lo
                     code *= "result["*string(emi)*"] = " * subvector[emi] * "\n";
                 end
             end
-            code *= "
+            if vors == "surface"
+                code *= "
 if els[2][1] == eid && els[1][1] != els[2][1]
     result = -result; # Since this flux is applied to element eid, make sure it's going in the right direction.
 end
 return result;
 "
+            end
+            
         end
         
         
@@ -591,12 +595,15 @@ return result;
             end
         end
         code *= "result = [" * result * "];\n";
-        code *= "
+        if vors == "surface"
+            code *= "
 if els[2][1] == eid && els[1][1] != els[2][1]
     result = -result; # Since this flux is applied to element eid, make sure it's going in the right direction.
 end
 return result;
 "
+        end
+        
     end
     
     return code;
@@ -727,7 +734,15 @@ face_done = allocated_vecs[4];
             if face_done[fid] < dofs_per_node
                 face_done[fid] += dofs_per_loop;
                 
-                fluxargs = (var, eid, fid, grid_data, geo_factors, fv_info, refel, t, dt);
+                # Only one element on either side is available here. For more use parent/child version.
+                (leftel, rightel) = grid_data.face2element[:,fid];
+                if rightel == 0
+                    neighborhood = [[leftel],[]];
+                else
+                    neighborhood = [[leftel],[rightel]];
+                end
+                
+                fluxargs = (var, eid, fid, neighborhood, grid_data, geo_factors, fv_info, refel, t, dt);
                 flux = flux_rhs.func(fluxargs; "*index_args*") .* geo_factors.area[fid];
                 
                 # Add to global flux vector for faces
