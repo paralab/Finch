@@ -142,6 +142,39 @@ function FV_flux_bc_rhs_only_simple(val, fid, t=0)
     return evaluate_bc(val, eid, fid, t);
 end
 
+function copy_bdry_vals_to_vector(var, vec, grid, dofs_per_node)
+    if typeof(var) <: Array
+        dofind = 0;
+        for vi=1:length(var)
+            for compo=1:length(var[vi].symvar)
+                dofind = dofind + 1;
+                for bid=1:size(prob.bc_type,2)
+                    if prob.bc_type[var[vi].index, bid] == DIRICHLET
+                        for i = 1:length(grid.bdryface[bid]) # loop over faces with this BID
+                            fid = grid.bdryface[bid][i];
+                            eid = grid.face2element[1,fid];
+                            vec[(eid-1)*dofs_per_node + dofind] = var[vi].values[compo, eid];
+                        end
+                    end
+                end
+            end
+        end
+    else
+        for d=1:dofs_per_node
+            dofind = d;
+            for bid=1:size(prob.bc_type,2)
+                if prob.bc_type[var.index, bid] == DIRICHLET
+                    for i = 1:length(grid.bdryface[bid]) # loop over faces with this BID
+                        fid = grid.bdryface[bid][i];
+                        eid = grid.face2element[1,fid];
+                        vec[(eid-1)*dofs_per_node + dofind] = var.values[d, eid];
+                    end
+                end
+            end
+        end
+    end
+end
+
 # This evaluates the BC at a specific node.
 # That could mean:
 # - the value of constant BCs

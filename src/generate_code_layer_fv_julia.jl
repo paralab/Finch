@@ -780,6 +780,9 @@ face_done = allocated_vecs[4];
                         
                         fluxvec[index_offset + dofind-1] += (bflux - facefluxvec[face_index_offset + dofind-1]) ./ geo_factors.volume[eid];
                         facefluxvec[face_index_offset + dofind-1] = bflux;
+                    elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
+                        # Set variable array and handle after the face loop
+                        var[vi].values[compo,eid] = FVSolver.evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
                     else
                         printerr(\"Unsupported boundary condition type: \"*prob.bc_type[var[vi].index, fbid]);
                     end
@@ -800,6 +803,9 @@ face_done = allocated_vecs[4];
                     
                     fluxvec[index_offset] += (bflux - facefluxvec[face_index_offset]) ./ geo_factors.volume[eid];
                     facefluxvec[face_index_offset] = bflux;
+                elseif prob.bc_type[var.index, fbid] == DIRICHLET
+                    # Set variable array and handle after the face loop
+                    var.values[d,eid] = FVSolver.evaluate_bc(prob.bc_func[var.index, fbid][d], eid, fid, t);
                 else
                     printerr(\"Unsupported boundary condition type: \"*prob.bc_type[var.index, fbid]);
                 end

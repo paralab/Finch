@@ -40,9 +40,11 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
         dofs_per_node = var.total_components;
     end
     if fv_grid === nothing
+        grid = grid_data;
         nel = size(grid_data.loc2glb, 2);
         nfaces = size(grid_data.face2element, 2);
     else
+        grid = fv_grid;
         nel = size(fv_grid.loc2glb, 2);
         nfaces = size(fv_grid.face2element, 2);
     end
@@ -104,6 +106,7 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
                         end
                         tmppi = tmppi + stepper.b[rki].*tmpki
                         
+                        copy_bdry_vals_to_vector(var, tmppi, grid, dofs_per_node);
                         place_sol_in_vars(var, tmppi, stepper);
                         
                         post_step_function();
@@ -132,6 +135,7 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
                             end
                         end
                         
+                        copy_bdry_vals_to_vector(var, tmpvals, grid, dofs_per_node);
                         place_sol_in_vars(var, tmpvals, stepper);
                         
                         post_step_function();
@@ -139,6 +143,7 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
                     for stage=1:stepper.stages
                         sol += stepper.dt * stepper.b[stage] .* tmpki[:, stage];
                     end
+                    copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
                     place_sol_in_vars(var, sol, stepper);
                     
                     post_step_function();
@@ -149,6 +154,7 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
                 
                 sol = sol .+ stepper.dt .* assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func);
                 
+                copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
                 place_sol_in_vars(var, sol, stepper);
                 
                 post_step_function();
@@ -308,6 +314,9 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                                 
                                 fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ geo_factors.volume[eid];
                                 facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
+                            elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
+                                # Set variable array and handle after the face loop
+                                var[vi].values[compo,eid] = evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
                             else
                                 printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
                             end
@@ -327,6 +336,9 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                             
                             fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ geo_factors.volume[eid];
                             facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
+                        elseif prob.bc_type[var.index, fbid] == DIRICHLET
+                            # Set variable array and handle after the face loop
+                            var.values[compo,eid] = evaluate_bc(prob.bc_func[var.index, fbid][d], eid, fid, t);
                         else
                             printerr("Unsupported boundary condition type: "*prob.bc_type[var.index, fbid]);
                         end
@@ -335,6 +347,16 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
             end# BCs
             
         end# face loop
+        # Now handle Dirichlet BC
+        if length(dirichlet_cell) > 0
+            # Zero the net flux and source vectors for this cell
+            for i=1:length(dirichlet_cell)
+                dofind = dirichlet_cell[i];
+                fluxvec[(eid-1)*dofs_per_node + dofind] = 0;
+                sourcevec[(eid-1)*dofs_per_node + dofind] = 0;
+            end
+        end
+        
     end# element loop
     
     return sourcevec + fluxvec;
@@ -472,12 +494,16 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
                                 # do nothing
                             elseif prob.bc_type[var[vi].index, fbid] == FLUX
                                 # compute the value and add it to the flux directly
-                                Qvec = (fv_refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (fv_refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, fv_refel.face2local[fv_grid.faceRefelInd[1,fid]]]
-                                Qvec = Qvec ./ fv_geo_factors.area[fid];
-                                bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
+                                # Qvec = (fv_refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (fv_refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, fv_refel.face2local[fv_grid.faceRefelInd[1,fid]]]
+                                # Qvec = Qvec ./ fv_geo_factors.area[fid];
+                                # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
+                                bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fid, t) .* geo_factors.area[fid];
                                 
                                 fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
                                 facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
+                            elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
+                                # Set variable array and handle after the face loop
+                                var[vi].values[compo,eid] = evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
                             else
                                 printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
                             end
@@ -490,12 +516,16 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
                             # do nothing
                         elseif prob.bc_type[var.index, fbid] == FLUX
                             # compute the value and add it to the flux directly
-                            Qvec = (fv_refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (fv_refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, fv_refel.face2local[fv_grid.faceRefelInd[1,fid]]]
-                            Qvec = Qvec ./ fv_geo_factors.area[fid];
-                            bflux = FV_flux_bc_rhs_only(prob.bc_func[var.index, fbid][d], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
+                            # Qvec = (fv_refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (fv_refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, fv_refel.face2local[fv_grid.faceRefelInd[1,fid]]]
+                            # Qvec = Qvec ./ fv_geo_factors.area[fid];
+                            # bflux = FV_flux_bc_rhs_only(prob.bc_func[var.index, fbid][d], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
+                            bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t) .* geo_factors.area[fid];
                             
                             fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
                             facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
+                        elseif prob.bc_type[var.index, fbid] == DIRICHLET
+                            # Set variable array and handle after the face loop
+                            var.values[compo,eid] = evaluate_bc(prob.bc_func[var.index, fbid][d], eid, fid, t);
                         else
                             printerr("Unsupported boundary condition type: "*prob.bc_type[var.index, fbid]);
                         end

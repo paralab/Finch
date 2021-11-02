@@ -700,7 +700,12 @@ function exportCode(filename)
                 if LorR == RHS
                     if !(codeassemble[i] == "" || assembly_loops[i] === nothing)
                         func_name = "assembly_function_for_"*var;
-                        println(file, "function "*func_name*"(args; kwargs...)");
+                        if config.solver_type == FV
+                            args = "var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0";
+                        elseif config.solver_type == CG
+                            args = "var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; rhs_only=false";
+                        end
+                        println(file, "function "*func_name*"("*args*")");
                         println(file, codeassemble[i]);
                         println(file, "end #"*func_name*"\n");
                     else
@@ -807,7 +812,12 @@ function importCode(filename)
                 if afunc_string == ""
                     log_entry("Warning: While importing, no assembly function was found for "*var*" (using default)");
                 else
-                    makeFunction("args; kwargs...", CodeGenerator.code_string_to_expr(afunc_string));
+                    if config.solver_type == FV
+                        args = "var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0";
+                    elseif config.solver_type == CG
+                        args = "var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; rhs_only=false";
+                    end
+                    makeFunction(args, CodeGenerator.code_string_to_expr(afunc_string));
                     set_assembly_loops(variables[i]);
                 end
                 
