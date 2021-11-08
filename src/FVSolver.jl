@@ -265,18 +265,17 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
         # Loop over this element's faces.
         for i=1:refel.Nfaces
             fid = grid_data.element2face[i, eid];
+            # Only one element on either side is available here. For more use parent/child version.
+            (leftel, rightel) = grid_data.face2element[:,fid];
+            if rightel == 0
+                neighborhood = [[leftel],[]];
+            else
+                neighborhood = [[leftel],[rightel]];
+            end
             
             if !(flux_rhs === nothing)
                 if face_done[fid] == 0
                     face_done[fid] = 1; # Possible race condition, but in the worst case it will be computed twice.
-                    
-                    # Only one element on either side is available here. For more use parent/child version.
-                    (leftel, rightel) = grid_data.face2element[:,fid];
-                    if rightel == 0
-                        neighborhood = [[leftel],[]];
-                    else
-                        neighborhood = [[leftel],[rightel]];
-                    end
                     
                     #fluxargs = prepare_args(var, eid, fid, RHS, "surface", t, dt); #(var, (e, neighbor), refel, vol_loc2glb, nodex, cellx, frefelind, facex, face2glb, normal, fdetj, face_area, (J, vol_J_neighbor), t, dt);
                     fluxargs = (var, eid, fid, neighborhood, grid_data, geo_factors, fv_info, refel, t, dt);
@@ -347,15 +346,6 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
             end# BCs
             
         end# face loop
-        # Now handle Dirichlet BC
-        if length(dirichlet_cell) > 0
-            # Zero the net flux and source vectors for this cell
-            for i=1:length(dirichlet_cell)
-                dofind = dirichlet_cell[i];
-                fluxvec[(eid-1)*dofs_per_node + dofind] = 0;
-                sourcevec[(eid-1)*dofs_per_node + dofind] = 0;
-            end
-        end
         
     end# element loop
     

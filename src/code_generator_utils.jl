@@ -92,24 +92,30 @@ function get_coef_index(c)
 end
 
 # Makes a name for this value based on coefficient or variable name, derivative and other modifiers, and component index.
-function make_coef_name(c)
+# c is a SymEntity
+function make_entity_name(c)
     # Special case for dt or other special symbols
     if c.index == -1
         return c.name;
     end
     
     tag = "";
+    type_label = "value_";
     for i=1:length(c.flags)
         tag = c.flags[i] * tag;
+        if c.flags[i] == "NEIGHBORHOOD"
+            tmp = type_label[1];
+            type_label = "noBroadcast_";
+        end
     end
     for i=1:length(c.derivs)
         tag = "D"*string(c.derivs[i]) * tag;
     end
     
     if typeof(c.index) == Int
-        str = "coef_"*tag*"_"*string(c.name)*"_"*string(c.index);
+        str = type_label*tag*"_"*string(c.name)*"_"*string(c.index);
     else
-        str = "coef_"*tag*"_"*string(c.name)*"_";
+        str = type_label*tag*"_"*string(c.name)*"_";
         for i=1:length(c.index)
             str *= string(c.index[i]);
         end
@@ -164,13 +170,23 @@ function broadcast_all_ops(ex)
             elseif ex.args[1] === :- ex.args[1] = :.-
             elseif ex.args[1] in [:.+, :.-, :.*, :./, :.^] # no change
             else # named operator: abs -> abs.
-                argtuple = Expr(:tuple, ex.args[2]);
-                if length(ex.args) > 2
-                    append!(argtuple.args, ex.args[3:end]);
+                # Make sure the arguments are suitable for broadcasting.
+                suitable = true;
+                for i=2:length(ex.args)
+                    if typeof(ex.args[i]) == SymEntity && "NEIGHBORHOOD" in ex.args[i].flags
+                        # Don't broadcast
+                        suitable = false;
+                    end
                 end
-                bop = Expr(:., ex.args[1], argtuple);
-                ex = bop;
-                bopped = true;
+                if suitable
+                    argtuple = Expr(:tuple, ex.args[2]);
+                    if length(ex.args) > 2
+                        append!(argtuple.args, ex.args[3:end]);
+                    end
+                    bop = Expr(:., ex.args[1], argtuple);
+                    ex = bop;
+                    bopped = true;
+                end
             end
             if bopped
                 for i=1:length(ex.args[2].args)
@@ -386,8 +402,8 @@ function replace_entities_with_symbols(ex; index=nothing)
             ex.args[i] = replace_entities_with_symbols(ex.args[i], index=index);
         end
     elseif typeof(ex) == SymEntity
-        # use make_coef_name
-        name = make_coef_name(ex)
+        # use make_entity_name
+        name = make_entity_name(ex)
         if !(index===nothing) && !(name == "dt")
             idx = Symbol(index);
             newex = :(a[$idx]);

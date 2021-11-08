@@ -323,6 +323,8 @@ function callbackFunction(fun; name="", args=[], body="")
     # but it can't be generated for external targets.
     
     add_callback_function(CallbackFunction(name, args, body, fun));
+    
+    log_entry("Added callback function: "*name, 2);
 end
 
 function weakForm(var, wf)
@@ -647,7 +649,7 @@ function assemblyLoops(var, indices)
         
     end
     
-    (loop_string, loop_code) = generate_assembly_loops(indexer_list, config.solver_type, language);
+    (loop_string, loop_code) = generate_assembly_loops(var, indexer_list, config.solver_type, language);
     log_entry("assembly loop function: \n\t"*string(loop_string));
     
     if language == JULIA || language == 0

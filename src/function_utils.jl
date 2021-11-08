@@ -89,6 +89,7 @@ function replace_symbols_in_conditions(ex)
         for i=1:length(ex.args)
             ex.args[i] = replace_symbols_in_conditions(ex.args[i]);
         end
+        
     elseif typeof(ex) == Symbol
         # Check against the possibilities and replace as needed
         if !(ex in [:x, :y, :z, :t, :node_index, :face_index]) # don't change these

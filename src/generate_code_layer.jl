@@ -124,13 +124,13 @@ function generate_code_layer(symex, var, lorr, vors, solver, language, framework
 end
 
 
-function generate_assembly_loops(indices, solver, target)
+function generate_assembly_loops(var, indices, solver, target)
     # still working on this.
     if solver == FV && target == JULIA
-        code = generate_assembly_loop_fv_julia(indices);
+        code = generate_assembly_loop_fv_julia(var, indices);
         return (code, code_string_to_expr(code));
     elseif solver == CG && target == JULIA
-        code = generate_assembly_loop_cg_julia(indices);
+        code = generate_assembly_loop_cg_julia(var, indices);
         return (code, code_string_to_expr(code));
     else
         println("assembly loop generation not ready for "*string(solver)*" with "*string(target));

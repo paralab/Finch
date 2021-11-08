@@ -88,13 +88,13 @@ function prepare_needed_values_dg_julia(entities, var, lorr, vors)
     
     code = "";
     for i=1:length(entities)
-        cname = make_coef_name(entities[i]);
+        cname = make_entity_name(entities[i]);
         side1_entity = copy(entities[i]);
         side2_entity = copy(entities[i]);
         push!(side1_entity.flags, "DGSIDE1");
         push!(side2_entity.flags, "DGSIDE2");
-        cnameside1 = make_coef_name(side1_entity);
-        cnameside2 = make_coef_name(side2_entity);
+        cnameside1 = make_entity_name(side1_entity);
+        cnameside2 = make_entity_name(side2_entity);
         if is_test_function(entities[i])
             # Assign it a transpose quadrature matrix
             if vors == "volume"
@@ -213,33 +213,41 @@ function prepare_needed_values_dg_julia(entities, var, lorr, vors)
                 # end
                 ######################################
                 # Note: for LHS, this is only Nfp values. For RHS, this is Np values, but only evaluated at face
-                cargs = "(nodex[coefi], 0, 0, time)";
-                if config.dimension == 2
-                    cargs = "(nodex[1, coefi], nodex[2, coefi], 0, time)";
-                elseif config.dimension == 3
-                    cargs = "(nodex[1, coefi], nodex[2, coefi], nodex[3, coefi], time)";
-                end
-                cargs1 = "(nodex[1][coefi], 0, 0, time)";
-                if config.dimension == 2
-                    cargs1 = "(nodex[1][1, coefi], nodex[1][2, coefi], 0, time)";
-                elseif config.dimension == 3
-                    cargs1 = "(nodex[1][1, coefi], nodex[1][2, coefi], nodex[1][3, coefi], time)";
-                end
-                cargs2 = "(nodex[2][coefi], 0, 0, time)";
-                if config.dimension == 2
-                    cargs2 = "(nodex[2][1, coefi], nodex[2][2, coefi], 0, time)";
-                elseif config.dimension == 3
-                    cargs2 = "(nodex[2][1, coefi], nodex[2][2, coefi], nodex[2][3, coefi], time)";
-                end
-                cargsf = "(facex[coefi], 0, 0, time)";
-                if config.dimension == 2
-                    cargsf = "(facex[1, coefi], facex[2, coefi], 0, time)";
-                elseif config.dimension == 3
-                    cargsf = "(facex[1, coefi], facex[2, coefi], facex[3, coefi], time)";
-                end
+                # cargs = "(nodex[coefi], 0, 0, time)";
+                # if config.dimension == 2
+                #     cargs = "(nodex[1, coefi], nodex[2, coefi], 0, time)";
+                # elseif config.dimension == 3
+                #     cargs = "(nodex[1, coefi], nodex[2, coefi], nodex[3, coefi], time)";
+                # end
+                # cargs1 = "(nodex[1][coefi], 0, 0, time)";
+                # if config.dimension == 2
+                #     cargs1 = "(nodex[1][1, coefi], nodex[1][2, coefi], 0, time)";
+                # elseif config.dimension == 3
+                #     cargs1 = "(nodex[1][1, coefi], nodex[1][2, coefi], nodex[1][3, coefi], time)";
+                # end
+                # cargs2 = "(nodex[2][coefi], 0, 0, time)";
+                # if config.dimension == 2
+                #     cargs2 = "(nodex[2][1, coefi], nodex[2][2, coefi], 0, time)";
+                # elseif config.dimension == 3
+                #     cargs2 = "(nodex[2][1, coefi], nodex[2][2, coefi], nodex[2][3, coefi], time)";
+                # end
+                # cargsf = "(facex[coefi], 0, 0, time)";
+                # if config.dimension == 2
+                #     cargsf = "(facex[1, coefi], facex[2, coefi], 0, time)";
+                # elseif config.dimension == 3
+                #     cargsf = "(facex[1, coefi], facex[2, coefi], facex[3, coefi], time)";
+                # end
+                
+                nodesymbol = "nodex";
+                nodesymbol1 = "nodex[1]";
+                nodesymbol2 = "nodex[2]";
+                nodesymbolf = "facex";
+                coef_index = get_coef_index(entities[i]);
+                
                 if vors == "volume"
                     code *= cname * " = zeros(refel.Np);\n";
-                    code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs * " end\n";
+                    # code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs * " end\n";
+                    code *= "for coefi = 1:refel.Np " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(coef_index)*"], "*string(entities[i].index)*", "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
                     # Apply any needed derivative operators. Interpolate at quadrature points.
                     if length(entities[i].derivs) > 0
                         xyzchar = ["x","y","z"];
@@ -264,9 +272,11 @@ function prepare_needed_values_dg_julia(entities, var, lorr, vors)
                     if length(entities[i].derivs) > 0
                         code *= cname * " = zeros(refel.Np);\n";
                         if dgside == 2
-                            code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs2 * " end\n";
+                            # code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs2 * " end\n";
+                            code *= "for coefi = 1:refel.Np " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(coef_index)*"], "*string(entities[i].index)*", "*nodesymbol2*"[:,coefi], time, eid, fid) end\n";
                         else
-                            code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs1 * " end\n";
+                            # code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs1 * " end\n";
+                            code *= "for coefi = 1:refel.Np " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(coef_index)*"], "*string(entities[i].index)*", "*nodesymbol1*"[:,coefi], time, eid, fid) end\n";
                         end
                         xyzchar = ["x","y","z"];
                         for di=1:length(entities[i].derivs)
@@ -288,7 +298,8 @@ function prepare_needed_values_dg_julia(entities, var, lorr, vors)
                         
                     else # no derivatives, only need surface nodes
                         code *= cname * " = zeros(Nfp);\n";
-                        code *= "for coefi = 1:Nfp " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargsf * " end\n";
+                        # code *= "for coefi = 1:Nfp " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargsf * " end\n";
+                        code *= "for coefi = 1:refel.Nfp " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(coef_index)*"], "*string(entities[i].index)*", "*nodesymbolf*"[:,coefi], time, eid, fid) end\n";
                         piece_needed[6] = true;
                     end
                     

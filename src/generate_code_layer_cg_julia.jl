@@ -47,7 +47,7 @@ function prepare_needed_values_cg_julia(entities, var, lorr, vors)
     end
     
     for i=1:length(entities)
-        cname = make_coef_name(entities[i]);
+        cname = make_entity_name(entities[i]);
         if is_test_function(entities[i])
             # Assign it a transpose quadrature matrix
             if vors == "volume"
@@ -658,7 +658,7 @@ function generate_term_calculation_cg_julia(term, var, lorr, vors)
 end
 
 # Generate the assembly loop structures and insert the content
-function generate_assembly_loop_cg_julia(indices)
+function generate_assembly_loop_cg_julia(var, indices)
     # Each of the indices must be passed to the functions in a named tuple.
     # Pass all defined indexers.
     index_args = "";
@@ -730,8 +730,6 @@ loop_time = Base.Libc.time();
     code *= "# Loops\n"
     loop_start = ""
     loop_end = ""
-    ind_offset = ""
-    prev_ind = ""
     for i=1:length(indices)
         if indices[i] == "elements" || indices[i] == "cells"
             loop_start *= "for eid in elemental_order\n";
@@ -740,18 +738,34 @@ loop_time = Base.Libc.time();
         else
             loop_start *= "for indexing_variable_"*string(indices[i].symbol)*" in "*string(indices[i].range)*"\n";
             loop_end *= "end # loop for "*string(indices[i].symbol)*"\n";
-            if length(prev_ind) == 0
-                ind_offset *= "(indexing_variable_"*string(indices[i].symbol);
-                prev_ind = string(length(indices[i].range));
-            else
-                ind_offset *= " + "*prev_ind*" * (indexing_variable_"*string(indices[i].symbol)*" - 1";
-                prev_ind = string(length(indices[i].range));
-            end
         end
     end
-    for i=2:length(indices)
+    
+    # The index offset depends on the order in which indexers were used during variable creation.
+    # They must all be the same for now.
+    ind_offset = ""
+    prev_ind = ""
+    if typeof(var) <: Array
+        var_indices = var[1].indexer;
+    else
+        var_indices = var.indexer;
+    end
+    if !(typeof(var_indices) <: Array)
+        var_indices = [var_indices];
+    end
+    for i=1:length(var_indices)
+        if length(prev_ind) == 0
+            ind_offset *= "(indexing_variable_"*string(var_indices[i].symbol);
+            prev_ind = string(length(var_indices[i].range));
+        else
+            ind_offset *= " + "*prev_ind*" * (indexing_variable_"*string(var_indices[i].symbol)*" - 1";
+            prev_ind = string(length(var_indices[i].range));
+        end
+    end
+    for i=1:length(var_indices)
         ind_offset *= ")";
     end
+    
     # index_offset = "dofs_per_loop * ("*ind_offset*" - 1 + dofs_per_node * (eid - 1)) + 1"
     # face_index_offset = "dofs_per_loop * ("*ind_offset*" - 1 + dofs_per_node * (fid - 1)) + 1"
     

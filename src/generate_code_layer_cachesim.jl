@@ -102,7 +102,7 @@ function prepare_needed_values_cachesim(entities, var, lorr, vors)
     end
     
     for i=1:length(entities)
-        cname = make_coef_name(entities[i]);
+        cname = make_entity_name(entities[i]);
         if is_test_function(entities[i])
             # Assign it a transpose quadrature matrix
             if vors == "volume"

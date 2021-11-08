@@ -61,7 +61,7 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
     end
     
     for i=1:length(entities)
-        cname = make_coef_name(entities[i]);
+        cname = make_entity_name(entities[i]);
         if is_unknown_var(entities[i], var) && lorr == LHS
             # TODO
             
@@ -172,6 +172,8 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                         cellside = 2;
                     elseif occursin("CENTRAL", entities[i].flags[flagi])
                         cellside = 3;
+                    elseif occursin("NEIGHBORHOOD", entities[i].flags[flagi])
+                        cellside = 4;
                     end
                 end
                 if vors == "surface"
@@ -228,9 +230,14 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                                 code *= cname * " = 0.5 * (Finch.variables["*string(cval)*"].values["*indstr*", els1] + Finch.variables["*string(cval)*"].values["*indstr*", els2]);\n";
                             elseif cellside < 3
                                 code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", "*l2gsymbol*"];\n";
-                            else # central
+                            elseif cellside == 3 # central
                                 # same as 0 for this case
                                 code *= cname * " = 0.5 * (Finch.variables["*string(cval)*"].values["*indstr*", els1] + Finch.variables["*string(cval)*"].values["*indstr*", els2]);\n";
+                            elseif cellside == 4 # neighborhood
+                                # This is a special case only for callback functions.
+                                # Rather than representing a value, it constructs a Neighborhood object to be passed.
+                                code *= cname * " = Finch.Neighborhood(els, cellx, [Finch.variables["*string(cval)*"].values["*indstr*", els[1]], Finch.variables["*string(cval)*"].values["*indstr*", els[2]]]);\n";
+                                piece_needed[4] = true; # cellx
                             end
                         end
                         
@@ -250,8 +257,11 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                                 code *= cname * " = Finch.FV_reconstruct_value([cellx[1] cellx[2]], [Finch.variables["*string(cval)*"].values["*indstr*", els[1]] ; Finch.variables["*string(cval)*"].values["*indstr*", els[2]]], facex);\n";
                             elseif cellside == 1 # left
                                 code *= cname * " = Finch.FV_reconstruct_value_left_right(cellx[1], cellx[2], Finch.variables["*string(cval)*"].values["*indstr*", els[1]], Finch.variables["*string(cval)*"].values["*indstr*", els[2]], facex, limiter=\"vanleer\")[1];\n";
-                            else # right
+                            elseif cellside == 2 # right
                                 code *= cname * " = Finch.FV_reconstruct_value_left_right(cellx[1], cellx[2], Finch.variables["*string(cval)*"].values["*indstr*", els[1]], Finch.variables["*string(cval)*"].values["*indstr*", els[2]], facex, limiter=\"vanleer\")[2];\n";
+                            elseif cellside == 2 # right
+                                code *= cname * " = Finch.Neighborhood(els, cellx, [Finch.variables["*string(cval)*"].values["*indstr*", els[1]], Finch.variables["*string(cval)*"].values["*indstr*", els[2]]]);\n";
+                                piece_needed[4] = true; # cellx
                             end
                         end
                     end
@@ -407,13 +417,13 @@ end
             needed_pieces *= "normal = grid.facenormals[:, fid];\n"
         end
         if piece_needed[2] || piece_needed[3]
-            needed_pieces *= "loc2glb = (grid.loc2glb[:,els[1][1]], grid.loc2glb[:, els[2][1]]); # volume local to global\n"
+            needed_pieces *= "loc2glb = [grid.loc2glb[:,els[1][1]], grid.loc2glb[:, els[2][1]]]; # volume local to global\n"
         end
         if piece_needed[2]
-            needed_pieces *= "nodex = (grid.allnodes[:,loc2glb[1][:]], grid.allnodes[:,loc2glb[2][:]]); # volume node coordinates\n"
+            needed_pieces *= "nodex = [grid.allnodes[:,loc2glb[1][:]], grid.allnodes[:,loc2glb[2][:]]]; # volume node coordinates\n"
         end
         if piece_needed[4]
-            needed_pieces *= "cellx = (fv_data.cellCenters[:, els[1]], fv_data.cellCenters[:, els[2]]); # cell center coordinates\n"
+            needed_pieces *= "cellx = [fv_data.cellCenters[:, els[1]], fv_data.cellCenters[:, els[2]]]; # cell center coordinates\n"
         end
         if piece_needed[5] || piece_needed[6]
             needed_pieces *= "face2glb = grid.face2glb[:,:,fid];         # global index for face nodes for each side of each face\n"
@@ -637,7 +647,7 @@ function generate_term_calculation_fv_julia(term, var, lorr)
 end
 
 # Generate the assembly loop structures and insert the content
-function generate_assembly_loop_fv_julia(indices)
+function generate_assembly_loop_fv_julia(var, indices)
     # Each of the indices must be passed to the functions in a named tuple.
     # Pass all defined indexers.
     index_args = "";
@@ -675,8 +685,6 @@ face_done = allocated_vecs[4];
     code *= "# Loops\n"
     loop_start = ""
     loop_end = ""
-    ind_offset = ""
-    prev_ind = ""
     for i=1:length(indices)
         if indices[i] == "elements" || indices[i] == "cells"
             loop_start *= "for eid in elemental_order\n";
@@ -685,18 +693,34 @@ face_done = allocated_vecs[4];
         else
             loop_start *= "for indexing_variable_"*string(indices[i].symbol)*" in "*string(indices[i].range)*"\n";
             loop_end *= "end # loop for "*string(indices[i].symbol)*"\n";
-            if length(prev_ind) == 0
-                ind_offset *= "(indexing_variable_"*string(indices[i].symbol);
-                prev_ind = string(length(indices[i].range));
-            else
-                ind_offset *= " + "*prev_ind*" * (indexing_variable_"*string(indices[i].symbol)*" - 1";
-                prev_ind = string(length(indices[i].range));
-            end
         end
     end
-    for i=2:length(indices)
+    
+    # The index offset depends on the order in which indexers were used during variable creation.
+    # They must all be the same for now.
+    ind_offset = ""
+    prev_ind = ""
+    if typeof(var) <: Array
+        var_indices = var[1].indexer;
+    else
+        var_indices = var.indexer;
+    end
+    if !(typeof(var_indices) <: Array)
+        var_indices = [var_indices];
+    end
+    for i=1:length(var_indices)
+        if length(prev_ind) == 0
+            ind_offset *= "(indexing_variable_"*string(var_indices[i].symbol);
+            prev_ind = string(length(var_indices[i].range));
+        else
+            ind_offset *= " + "*prev_ind*" * (indexing_variable_"*string(var_indices[i].symbol)*" - 1";
+            prev_ind = string(length(var_indices[i].range));
+        end
+    end
+    for i=1:length(var_indices)
         ind_offset *= ")";
     end
+    
     index_offset = "dofs_per_loop * ("*ind_offset*" - 1 + dofs_per_node * (eid - 1)) + 1"
     face_index_offset = "dofs_per_loop * ("*ind_offset*" - 1 + dofs_per_node * (fid - 1)) + 1"
     
@@ -776,7 +800,7 @@ face_done = allocated_vecs[4];
                         # Qvec = Qvec ./ geo_factors.area[fid];
                         # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* geo_factors.area[fid];
                         
-                        bflux = FVSolver.FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fid, t);
+                        bflux = FVSolver.FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fid, t) .* geo_factors.area[fid];
                         
                         fluxvec[index_offset + dofind-1] += (bflux - facefluxvec[face_index_offset + dofind-1]) ./ geo_factors.volume[eid];
                         facefluxvec[face_index_offset + dofind-1] = bflux;
@@ -798,7 +822,7 @@ face_done = allocated_vecs[4];
                     # Qvec = Qvec ./ geo_factors.area[fid];
                     # bflux = FV_flux_bc_rhs_only(prob.bc_func[var.index, fbid][d], facex, Qvec, t, dofind, dofs_per_node) .* geo_factors.area[fid];
                     
-                    bflux = FVSolver.FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t);
+                    bflux = FVSolver.FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t) .* geo_factors.area[fid];
                     
                     
                     fluxvec[index_offset] += (bflux - facefluxvec[face_index_offset]) ./ geo_factors.volume[eid];

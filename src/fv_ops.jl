@@ -57,26 +57,24 @@ function sym_central_op(f)
     return result;
 end
 
-# function sym_central_op(f)
-#     # Input will be an array of Basic. Output should be in a similar array.
-#     if typeof(f) <: Array
-#         result = copy(f);
-#         for i=1:length(result)
-#             result[i] = sym_central_op(f[i]);
-#         end
+function sym_neighborhood_op(f)
+    # Input will be an array of Basic. Output should be in a similar array.
+    if typeof(f) <: Array
+        result = copy(f);
+        for i=1:length(result)
+            result[i] = sym_neighborhood_op(f[i]);
+        end
         
-#     elseif typeof(f) <: Number
-#         # If the input was just a constant, the result will just be that constant.
-#         result = Basic(f);
+    elseif typeof(f) == Basic
+        # Apply a CELL2 tag to signal to the code generator which side of the face the value is from.
+        result = apply_flag_to_all_symbols("NEIGHBORHOOD", f);
         
-#     elseif typeof(f) == Basic
-#         # Apply a CELLn tag to signal to the code generator which side of the face the value is from.
-#         side1 = apply_flag_to_all_symbols("CELL1", f);
-#         side2 = apply_flag_to_all_symbols("CELL2", f);
-#         result = Basic(0.5) .* (side1 .+ side2);
-#     end
-#     return result;
-# end
+    elseif typeof(f) <: Number
+        # If the input was just a constant, the result will just be that constant.
+        result = Basic(f);
+    end
+    return result;
+end
 
 function sym_upwind_op(v, f, alpha=Basic(0))
     # Input will be an array of Basic. Output should be in a similar array.
@@ -135,5 +133,5 @@ function sym_burgerGodunov_op(u, f)
     return result;
 end
 
-_names = [:left, :right, :central, :upwind, :burgerGodunov];
-_handles = [sym_left_op, sym_right_op, sym_central_op, sym_upwind_op, sym_burgerGodunov_op];
+_names = [:left, :right, :central, :neighborhood, :upwind, :burgerGodunov];
+_handles = [sym_left_op, sym_right_op, sym_central_op, sym_neighborhood_op, sym_upwind_op, sym_burgerGodunov_op];
