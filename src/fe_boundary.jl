@@ -379,6 +379,90 @@ function zero_rhs_bdry_vals(rhs, dofs)
     return rhs;
 end
 
+function copy_bdry_vals_to_variables(var, vec, grid, dofs_per_node; zero_vals=true)
+    if typeof(var) <: Array
+        dofind = 0;
+        for vi=1:length(var)
+            for compo=1:length(var[vi].symvar)
+                dofind = dofind + 1;
+                for bid=1:size(prob.bc_type,2)
+                    if prob.bc_type[var[vi].index, bid] == DIRICHLET
+                        for i = 1:length(grid.bdryface[bid]) # loop over faces with this BID
+                            fid = grid.bdryface[bid][i];
+                            face_nodes = grid.face2glb[:,1,fid];
+                            for ni=1:length(face_nodes)
+                                node = face_nodes[ni];
+                                var[vi].values[compo, node] = vec[(node-1)*dofs_per_node + dofind];
+                                if zero_vals
+                                    vec[(node-1)*dofs_per_node + dofind] = 0;
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    else
+        for d=1:dofs_per_node
+            dofind = d;
+            for bid=1:size(prob.bc_type,2)
+                if prob.bc_type[var.index, bid] == DIRICHLET
+                    for i = 1:length(grid.bdryface[bid]) # loop over faces with this BID
+                        fid = grid.bdryface[bid][i];
+                        face_nodes = grid.face2glb[:,1,fid];
+                        for ni=1:length(face_nodes)
+                            node = face_nodes[ni];
+                            var.values[d, node] = vec[(node-1)*dofs_per_node + dofind];
+                            if zero_vals
+                                vec[(node-1)*dofs_per_node + dofind] = 0;
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+function copy_bdry_vals_to_vector(var, vec, grid, dofs_per_node)
+    if typeof(var) <: Array
+        dofind = 0;
+        for vi=1:length(var)
+            for compo=1:length(var[vi].symvar)
+                dofind = dofind + 1;
+                for bid=1:size(prob.bc_type,2)
+                    if prob.bc_type[var[vi].index, bid] == DIRICHLET
+                        for i = 1:length(grid.bdryface[bid]) # loop over faces with this BID
+                            fid = grid.bdryface[bid][i];
+                            face_nodes = grid.face2glb[:,1,fid];
+                            for ni=1:length(face_nodes)
+                                node = face_nodes[ni];
+                                vec[(node-1)*dofs_per_node + dofind] = var[vi].values[compo, node];
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    else
+        for d=1:dofs_per_node
+            dofind = d;
+            for bid=1:size(prob.bc_type,2)
+                if prob.bc_type[var.index, bid] == DIRICHLET
+                    for i = 1:length(grid.bdryface[bid]) # loop over faces with this BID
+                        fid = grid.bdryface[bid][i];
+                        face_nodes = grid.face2glb[:,1,fid];
+                        for ni=1:length(face_nodes)
+                            node = face_nodes[ni];
+                            vec[(node-1)*dofs_per_node + dofind] = var.values[d, node];
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
 # This evaluates the BC at a specific node.
 # That could mean:
 # - the value of constant BCs

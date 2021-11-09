@@ -16,6 +16,17 @@ include("nonlinear.jl")
 include("cg_matrixfree.jl");
 include("level_benchmark.jl");
 
+# Things to do before and after each step(or stage) ########
+function default_pre_step() end
+function default_post_step() end
+
+pre_step_function = default_pre_step;
+post_step_function = default_post_step;
+
+function set_pre_step(fun) global pre_step_function = fun; end
+function set_post_step(fun) global post_step_function = fun; end
+############################################################
+
 function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=nothing)
     if config.linalg_matrixfree
         return solve_matrix_free_sym(var, bilinear, linear, stepper);
@@ -58,7 +69,8 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
 
         log_entry("Beginning "*string(stepper.Nsteps)*" time steps.");
         t = 0;
-        sol = [];
+        sol = sol = get_var_vals(var);
+        
         start_t = Base.Libc.time();
         assemble_t = 0;
         linsolve_t = 0;
@@ -89,9 +101,16 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                     for rki=1:stepper.stages
                         rktime = t + stepper.c[rki]*stepper.dt;
                         # p(i-1) is currently in u
+                        pre_step_function();
+                        
                         assemble_t += @elapsed(b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, rktime, stepper.dt; rhs_only = true, assemble_loops=assemble_func));
                         
                         linsolve_t += @elapsed(sol = A\b);
+                        
+                        # At this point sol holds the boundary values
+                        # directly write them to the variable values and zero sol.
+                        copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, zero_vals=true);
+                        
                         if rki == 1 # because a1 == 0
                             tmpki = stepper.dt .* sol;
                         else
@@ -99,7 +118,10 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                         end
                         tmppi = tmppi + stepper.b[rki].*tmpki
                         
+                        copy_bdry_vals_to_vector(var, tmppi, grid_data, dofs_per_node);
                         place_sol_in_vars(var, tmppi, stepper);
+                        
+                        post_step_function();
                     end
                     
                 else
@@ -115,10 +137,15 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                     # tmpki = zeros(length(b), stepper.stages);
                     for stage=1:stepper.stages
                         stime = t + stepper.c[stage]*stepper.dt;
+                        pre_step_function();
                         
                         assemble_t += @elapsed(b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, stime, stepper.dt; rhs_only = true, assemble_loops=assemble_func));
                         
                         linsolve_t += @elapsed(tmpki[:,stage] = A\b);
+                        
+                        # At this point tmpki[:,stage] holds the boundary values
+                        # directly write them to the variable values and zero sol.
+                        copy_bdry_vals_to_variables(var, tmpki[:,stage], grid_data, dofs_per_node, zero_vals=true);
                         
                         tmpresult = get_var_vals(var, tmpresult);
                         for j=1:(stage-1)
@@ -127,21 +154,43 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                             end
                         end
                         if stage < stepper.stages
+                            copy_bdry_vals_to_vector(var, tmpresult, grid_data, dofs_per_node);
                             place_sol_in_vars(var, tmpresult, stepper);
+                            post_step_function();
                         end
                     end
                     for stage=1:stepper.stages
                         last_result += stepper.dt * stepper.b[stage] .* tmpki[:, stage];
                     end
+                    copy_bdry_vals_to_vector(var, last_result, grid_data, dofs_per_node);
                     place_sol_in_vars(var, last_result, stepper);
+                    post_step_function();
                 end
                 
-            else # single stage methods such as Euler
+            elseif stepper.type == EULER_EXPLICIT
+                pre_step_function();
+                assemble_t += @elapsed(b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt; rhs_only = true, assemble_loops=assemble_func));
+                
+                linsolve_t += @elapsed(tmpvec = A\b);
+                
+                # At this point tmpvec holds the boundary values
+                # directly write them to the variable values and zero sol.
+                copy_bdry_vals_to_variables(var, tmpvec, grid_data, dofs_per_node, zero_vals=true);
+                
+                sol = sol .+ stepper.dt .* tmpvec;
+                
+                copy_bdry_vals_to_vector(var, sol, grid_data, dofs_per_node);
+                place_sol_in_vars(var, sol, stepper);
+                post_step_function();
+                
+            else # implicit methods include the dt part 
+                pre_step_function();
                 assemble_t += @elapsed(b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt; rhs_only = true, assemble_loops=assemble_func));
                 
                 linsolve_t += @elapsed(sol = A\b);
                 
                 place_sol_in_vars(var, sol, stepper);
+                post_step_function();
             end
             
             t += stepper.dt;
@@ -620,7 +669,7 @@ function get_var_vals(var, vect=nothing)
     else
         components = var.total_components;
         if vect === nothing
-            vect = zeros(totalcomponents * length(var.values[1,:]));
+            vect = zeros(components * length(var.values[1,:]));
         end
         for compi=1:components
             vect[compi:components:end] = var.values[compi,:];

@@ -15,6 +15,17 @@ include("fe_boundary.jl"); # Can we use the CG versions here?
 include("nonlinear.jl");
 include("cg_matrixfree.jl");
 
+# Things to do before and after each step(or stage) ########
+function default_pre_step() end
+function default_post_step() end
+
+pre_step_function = default_pre_step;
+post_step_function = default_post_step;
+
+function set_pre_step(fun) global pre_step_function = fun; end
+function set_post_step(fun) global post_step_function = fun; end
+############################################################
+
 function linear_solve(var, bilinear, linear, face_bilinear, face_linear, stepper=nothing)
     if config.dimension > 2
         printerr("DG solver only available for 1D and 2D. Surface quadrature under construction.")
@@ -35,7 +46,8 @@ function linear_solve(var, bilinear, linear, face_bilinear, face_linear, stepper
 
         log_entry("Beginning "*string(stepper.Nsteps)*" time steps.");
         t = 0;
-        sol = [];
+        sol = sol = get_var_vals(var);
+        
         start_t = Base.Libc.time();
         assemble_t = 0;
         linsolve_t = 0;
@@ -59,6 +71,8 @@ function linear_solve(var, bilinear, linear, face_bilinear, face_linear, stepper
                     for rki=1:stepper.stages
                         rktime = t + stepper.c[rki]*stepper.dt;
                         # p(i-1) is currently in u
+                        pre_step_function();
+                        
                         assemble_t += @elapsed(b = assemble(var, nothing, linear, nothing, face_linear, rktime, stepper.dt; rhs_only = true));
                         
                         linsolve_t += @elapsed(sol = A\b);
@@ -73,6 +87,7 @@ function linear_solve(var, bilinear, linear, face_bilinear, face_linear, stepper
                         tmppi = apply_boundary_conditions_rhs_only(var, tmppi, rktime);
                         
                         place_sol_in_vars(var, tmppi, stepper);
+                        post_step_function();
                     end
                     
                 else
@@ -88,6 +103,7 @@ function linear_solve(var, bilinear, linear, face_bilinear, face_linear, stepper
                     tmpki = zeros(length(b), stepper.stages);
                     for stage=1:stepper.stages
                         stime = t + stepper.c[stage]*stepper.dt;
+                        pre_step_function();
                         
                         assemble_t += @elapsed(b = assemble(var, nothing, linear, nothing, face_linear, stime, stepper.dt; rhs_only = true));
                         
@@ -104,6 +120,7 @@ function linear_solve(var, bilinear, linear, face_bilinear, face_linear, stepper
                         tmpvals = apply_boundary_conditions_rhs_only(var, tmpvals, stime);
                         
                         place_sol_in_vars(var, tmpvals, stepper);
+                        post_step_function();
                     end
                     for stage=1:stepper.stages
                         result += stepper.dt * stepper.b[stage] .* tmpki[:, stage];
@@ -111,12 +128,16 @@ function linear_solve(var, bilinear, linear, face_bilinear, face_linear, stepper
                     
                     result = apply_boundary_conditions_rhs_only(var, result, t + stepper.dt);
                     place_sol_in_vars(var, result, stepper);
+                    post_step_function();
                 end
             else
+                ##### TODO ###### Update needed
+                pre_step_function();
                 assemble_t += @elapsed(b = assemble(var, nothing, linear, nothing, face_linear, t, stepper.dt; rhs_only = true));
                 linsolve_t += @elapsed(sol = A\b);
                 
                 place_sol_in_vars(var, sol, stepper);
+                post_step_function();
             end
             
             #println("b(bdry): "*string(b[1])*", "*string(b[end]));
