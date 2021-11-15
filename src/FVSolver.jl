@@ -234,7 +234,7 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
         return assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt);
     end
     
-    nel = size(grid_data.loc2glb, 2);
+    nel = size(fv_grid.loc2glb, 2);
     
     # Label things that were allocated externally
     sourcevec = allocated_vecs[1];
@@ -255,8 +255,8 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
         # Compute RHS volume integral
         if !(source_rhs === nothing)
             #sourceargs = prepare_args(var, eid, 0, RHS, "volume", t, dt); # (var, e, nodex, loc2glb, refel, detj, J, t, dt)
-            sourceargs = (var, eid, 0, grid_data, geo_factors, fv_info, refel, t, dt);
-            source = source_rhs.func(sourceargs) ./ geo_factors.volume[eid];
+            sourceargs = (var, eid, 0, fv_grid, fv_geo_factors, fv_info, refel, t, dt);
+            source = source_rhs.func(sourceargs) ./ fv_geo_factors.volume[eid];
             # Add to global source vector
             sourcevec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] = source;
         end
@@ -264,9 +264,9 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
         ##### Flux integrated over the faces #####
         # Loop over this element's faces.
         for i=1:refel.Nfaces
-            fid = grid_data.element2face[i, eid];
+            fid = fv_grid.element2face[i, eid];
             # Only one element on either side is available here. For more use parent/child version.
-            (leftel, rightel) = grid_data.face2element[:,fid];
+            (leftel, rightel) = fv_grid.face2element[:,fid];
             if rightel == 0
                 neighborhood = [[leftel],[]];
             else
@@ -277,25 +277,24 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                 if face_done[fid] == 0
                     face_done[fid] = 1; # Possible race condition, but in the worst case it will be computed twice.
                     
-                    #fluxargs = prepare_args(var, eid, fid, RHS, "surface", t, dt); #(var, (e, neighbor), refel, vol_loc2glb, nodex, cellx, frefelind, facex, face2glb, normal, fdetj, face_area, (J, vol_J_neighbor), t, dt);
-                    fluxargs = (var, eid, fid, neighborhood, grid_data, geo_factors, fv_info, refel, t, dt);
-                    flux = flux_rhs.func(fluxargs) .* geo_factors.area[fid];
+                    fluxargs = (var, eid, fid, neighborhood, fv_grid, fv_geo_factors, fv_info, refel, t, dt);
+                    flux = flux_rhs.func(fluxargs) .* fv_geo_factors.area[fid];
                     # Add to global flux vector for faces
                     facefluxvec[((fid-1)*dofs_per_node + 1):(fid*dofs_per_node)] = flux;
                     # Combine all flux for this element
-                    fluxvec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] += flux ./ geo_factors.volume[eid];
+                    fluxvec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] += flux ./ fv_geo_factors.volume[eid];
                     
                 else
                     # This flux has either been computed or is being computed by another thread.
                     # The state will need to be known before paralellizing, but for now assume it's complete.
-                    fluxvec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] -= facefluxvec[((fid-1)*dofs_per_node + 1):(fid*dofs_per_node)] ./ geo_factors.volume[eid];
+                    fluxvec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] -= facefluxvec[((fid-1)*dofs_per_node + 1):(fid*dofs_per_node)] ./ fv_geo_factors.volume[eid];
                 end
             end
             
             # Boundary conditions are applied to flux
-            fbid = grid_data.facebid[fid]; # BID of this face
+            fbid = fv_grid.facebid[fid]; # BID of this face
             if fbid > 0
-                facex = grid_data.allnodes[:, grid_data.face2glb[:,1,fid]];  # face node coordinates
+                facex = fv_grid.allnodes[:, fv_grid.face2glb[:,1,fid]];  # face node coordinates
                 
                 if typeof(var) <: Array
                     dofind = 0;
@@ -306,12 +305,12 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                                 # do nothing
                             elseif prob.bc_type[var[vi].index, fbid] == FLUX
                                 # compute the value and add it to the flux directly
-                                # Qvec = (refel.surf_wg[grid_data.faceRefelInd[1,fid]] .* geo_factors.face_detJ[fid])' * (refel.surf_Q[grid_data.faceRefelInd[1,fid]])[:, refel.face2local[grid_data.faceRefelInd[1,fid]]]
-                                # Qvec = Qvec ./ geo_factors.area[fid];
-                                # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* geo_factors.area[fid];
-                                bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fid, t) .* geo_factors.area[fid];
+                                # Qvec = (refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, refel.face2local[fv_grid.faceRefelInd[1,fid]]]
+                                # Qvec = Qvec ./ fv_geo_factors.area[fid];
+                                # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
+                                bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fid, t) .* fv_geo_factors.area[fid];
                                 
-                                fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ geo_factors.volume[eid];
+                                fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
                                 facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                             elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
                                 # Set variable array and handle after the face loop
@@ -328,12 +327,12 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                             # do nothing
                         elseif prob.bc_type[var.index, fbid] == FLUX
                             # compute the value and add it to the flux directly
-                            # Qvec = (refel.surf_wg[grid_data.faceRefelInd[1,fid]] .* geo_factors.face_detJ[fid])' * (refel.surf_Q[grid_data.faceRefelInd[1,fid]])[:, refel.face2local[grid_data.faceRefelInd[1,fid]]]
-                            # Qvec = Qvec ./ geo_factors.area[fid];
-                            # bflux = FV_flux_bc_rhs_only(prob.bc_func[var.index, fbid][d], facex, Qvec, t, dofind, dofs_per_node) .* geo_factors.area[fid];
-                            bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t) .* geo_factors.area[fid];
+                            # Qvec = (refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, refel.face2local[fv_grid.faceRefelInd[1,fid]]]
+                            # Qvec = Qvec ./ fv_geo_factors.area[fid];
+                            # bflux = FV_flux_bc_rhs_only(prob.bc_func[var.index, fbid][d], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
+                            bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t) .* fv_geo_factors.area[fid];
                             
-                            fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ geo_factors.volume[eid];
+                            fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
                             facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                         elseif prob.bc_type[var.index, fbid] == DIRICHLET
                             # Set variable array and handle after the face loop
@@ -369,9 +368,9 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
     # to partition between parents using only the nearest parents as ghosts.
     Nparents = size(parent_maps.parent2child,2);
     nchildren = size(parent_maps.parent2child,1); # (assumes one element type)
-    npfaces = size(grid_data.element2face,1); # Outer faces of parent. Parents are elements in grid_data (assumes one element type)
+    npfaces = size(fv_grid.element2face,1); # Outer faces of parent. Parents are elements in fv_grid (assumes one element type)
     ncfaces = size(parent_maps.parent2face,1); # All faces of children in a parent (assumes one element type)
-    dim = size(grid_data.allnodes,1);
+    dim = size(fv_grid.allnodes,1);
     
     for parentid=1:Nparents
         # Get the cells in the local patch
@@ -390,7 +389,7 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
             # Use source_rhs for RHS volume integral
             if !(source_rhs === nothing)
                 sourceargs = (var, eid, 0, fv_grid, fv_geo_factors, fv_info, fv_refel, t, dt);
-                source = source_rhs.func(sourceargs; patch_cells=patch_cells) ./ fv_geo_factors.volume[eid];
+                source = source_rhs.func(sourceargs) ./ fv_geo_factors.volume[eid];
                 # Add to global source vector
                 sourcevec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] = source;
             end
@@ -400,14 +399,6 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
         for pfaceid = 1:ncfaces
             fid = parent_maps.parent2face[pfaceid, parentid];
             els = fv_grid.face2element[:,fid];
-            # # The eid passed to the flux func. will be one inside the parent.
-            # if els[1] in parent_maps.parent2child[:,parentid]
-            #     eid = els[1];
-            #     neighbor = els[2];
-            # else
-            #     eid = els[2];
-            #     neighbor = els[1];
-            # end
             eid = els[1];
             neighbor = els[2];
             
@@ -420,12 +411,11 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
                 if face_done[fid] == 0
                     face_done[fid] = 1; # Possible race condition, but in the worst case it will be computed twice.\
                     
-                    (left_cells, right_cells) = get_left_right_cells(patch_cells, pfaceid, parent_maps, dim);
+                    (left_cells, right_cells) = get_left_right_cells(patch_cells, pfaceid, parent_maps, dim, fv_info.fluxOrder);
                     
                     # leftness and rightness depends on the normal vector direction
                     # normal points left to right.
-                    leftcell = fv_grid.face2element[1,fid];
-                    if leftcell == right_cells[1]
+                    if !(eid == left_cells[1])
                         #oops, swap them
                         tmp = left_cells;
                         left_cells = right_cells;
@@ -437,7 +427,6 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
                     right_cells = remove_zero_cells(right_cells);
                     neighborhood = [left_cells, right_cells];
                     
-                    #fluxargs = prepare_args(var, eid, fid, RHS, "surface", t, dt); #(var, (e, neighbor), refel, vol_loc2glb, nodex, cellx, frefelind, facex, face2glb, normal, fdetj, face_area, (J, vol_J_neighbor), t, dt);
                     fluxargs = (var, eid, fid, neighborhood, fv_grid, fv_geo_factors, fv_info, fv_refel, t, dt);
                     flux = flux_rhs.func(fluxargs) .* fv_geo_factors.area[fid];
                     
@@ -473,7 +462,7 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
                 if debug 
                     println("applying bdry cond"*string(fbid)*" to "*string(fid));
                 end
-                facex = fv_grid.allnodes[:, fv_grid.face2glb[:,1,fid]];  # face node coordinates
+                # facex = fv_grid.allnodes[:, fv_grid.face2glb[:,1,fid]];  # face node coordinates
                 
                 if typeof(var) <: Array
                     dofind = 0;
@@ -487,7 +476,7 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
                                 # Qvec = (fv_refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (fv_refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, fv_refel.face2local[fv_grid.faceRefelInd[1,fid]]]
                                 # Qvec = Qvec ./ fv_geo_factors.area[fid];
                                 # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
-                                bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fid, t) .* geo_factors.area[fid];
+                                bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fid, t) .* fv_geo_factors.area[fid];
                                 
                                 fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
                                 facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
@@ -509,7 +498,7 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
                             # Qvec = (fv_refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (fv_refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, fv_refel.face2local[fv_grid.faceRefelInd[1,fid]]]
                             # Qvec = Qvec ./ fv_geo_factors.area[fid];
                             # bflux = FV_flux_bc_rhs_only(prob.bc_func[var.index, fbid][d], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
-                            bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t) .* geo_factors.area[fid];
+                            bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t) .* fv_geo_factors.area[fid];
                             
                             fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
                             facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
@@ -546,7 +535,7 @@ function remove_zero_cells(a)
 end
 
 # Returns arrays of left and right cells
-function get_left_right_cells(patch, face, maps, dim)
+function get_left_right_cells(patch, face, maps, dim, order)
     # Provide all of the cells that can be used for this face in a particular order.
     # Make two arrays, one for left one for right, starting from the nearest neighbor.
     left_cells = [];
@@ -609,7 +598,7 @@ function get_left_right_cells(patch, face, maps, dim)
             # Triangle parents have 9 faces, patches have 16 cells
             # Here Left means toward the center of the central parent
             left_cell_table_triangle = [
-                [1, 4, 3, 15, 16, 13, 2, ],
+                [1, 4, 3, 15, 16, 13, 2],
                 [2, 4, 3, 9, 12, 11, 1],
                 [2, 4, 1, 7, 8, 5, 3],
                 [3, 4, 1, 13, 16, 15, 2],
@@ -633,11 +622,49 @@ function get_left_right_cells(patch, face, maps, dim)
             left_cells = left_cell_table_triangle[face];
             right_cells = right_cell_table_triangle[face];
         else # quads
-            #TODO
+            # Quad parents have 12 faces, patches have 20 cells
+            # Here Left means toward the center of the central parent
+            left_cell_table_quad = [
+                [1, 4, 2, 16, 15, 3, 13, 14],
+                [2, 3, 1, 13, 14, 4, 16, 15],
+                [2, 1, 3, 20, 19, 4, 17, 18],
+                [3, 4, 2, 17, 18, 1, 20, 19],
+                [3, 2, 4, 8, 7, 1, 5, 6],
+                [4, 1, 3, 5, 6, 2, 8, 7],
+                [4, 3, 1, 12, 11, 2, 9, 10],
+                [1, 2, 4, 9, 10, 3, 12, 11],
+                [1, 20, 4, 19, 17, 18, 5],
+                [2, 8, 1, 7, 5, 6, 9],
+                [3, 12, 2, 11, 9, 10, 13],
+                [4, 16, 3, 15, 13, 14, 17]
+            ]
+            right_cell_table_quad = [
+                [5, 6, 8, 7],
+                [8, 7, 5, 6],
+                [9, 10, 12, 11],
+                [12, 11, 9, 10],
+                [13, 14, 16, 15],
+                [16, 15, 13, 14],
+                [17, 18, 20, 19],
+                [20, 19, 17, 18],
+                [2, 9, 3, 10, 12, 11],
+                [3, 13, 4, 14, 16, 15],
+                [4, 17, 1, 18, 20, 19],
+                [1, 5, 2, 6, 8, 7]
+            ]
+            left_cells = left_cell_table_quad[face];
+            right_cells = right_cell_table_quad[face];
         end
         
     elseif dim == 3
         #TODO
+    end
+    
+    if length(left_cells) > order
+        left_cells = left_cells[1:order];
+    end
+    if length(right_cells) > order
+        right_cells = right_cells[1:order];
     end
     
     return (patch[left_cells], patch[right_cells]);

@@ -277,6 +277,10 @@ function find_normals(face2v, x)
     return normals;
 end
 
+function normal1(a, b)
+    return b[1]>a[1] ? 1.0 : -1.0
+end
+
 function normal2(a, b)
     nx = b[2]-a[2];
     ny = a[1]-b[1];

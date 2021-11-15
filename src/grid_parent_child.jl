@@ -27,7 +27,7 @@ function divide_parent_grid(grid, order)
     nbids = length(grid.bdry);
     nchildren = 0; # will be set below
     
-    if order < 2
+    if order < 2 && dim==1
         #nothing needs to happen to the grid, but we should make the maps anyway
         nchildren = 1;
         c2p = ones(2, Nparent);
@@ -471,7 +471,137 @@ function divide_parent_grid(grid, order)
                 # println("p2glb for "*string(ei)*": "*string(parent2glb))
                     
             else # quad
-                # TODO
+                child_nodes = zeros(2,9);
+                child2loc = zeros(Int, 4, 4);
+                child2face = zeros(Int, 4, 4);
+                
+                #       6    5 
+                #    4----7----3
+                # 7  | c4 | c3 | 4
+                #    8----9----6
+                # 8  | c1 | c2 | 3
+                #    1----5----2
+                #       1    2
+                child_nodes[:,1:4] = pnodex[:,1:4];
+                child_nodes[:,5] = (pnodex[:,1] + pnodex[:,2])/2;
+                child_nodes[:,6] = (pnodex[:,2] + pnodex[:,3])/2;
+                child_nodes[:,7] = (pnodex[:,3] + pnodex[:,4])/2;
+                child_nodes[:,8] = (pnodex[:,1] + pnodex[:,4])/2;
+                child_nodes[:,9] = (pnodex[:,1] + pnodex[:,3])/2;
+                tmpallnodes[:,((ei-1)*9 + 1):(ei*9)] = child_nodes;
+                
+                child2loc[:,1] = [1, 5, 9, 8];
+                child2loc[:,2] = [2, 6, 9, 5];
+                child2loc[:,3] = [3, 7, 9, 6];
+                child2loc[:,4] = [4, 8, 9, 7];
+                child2face[:,1] = [1, 9, 12, 8];
+                child2face[:,2] = [3, 10, 9, 2];
+                child2face[:,3] = [5, 11, 10, 4];
+                child2face[:,4] = [7, 12, 11, 6];
+                face2loc = [1 5; 5 2; 2 6; 6 3; 3 7; 7 4; 4 8; 8 1; 5 9; 6 9; 7 9; 8 9]; # local index of face nodes
+                face2child = [1 0; 2 0; 2 0; 3 0; 3 0; 4 0; 4 0; 1 0; 1 2; 2 3; 3 4; 4 1]; # elements having this face (local index)
+                
+                parent2glb = ((ei-1)*9+1):(ei*9); # global index of parent nodes
+                parentface2glb = zeros(2,12); # global index of all face nodes in parent
+                for fi=1:12
+                    parentface2glb[:,fi] = parent2glb[face2loc[fi,:]];
+                end
+                
+                # The external faces
+                tmpfri = [2, 3, 4, 1];
+                for fi=1:4
+                    if face_done[1,pfaces[fi]] == 0
+                        face_done[1,pfaces[fi]] = next_face;
+                        face_done[2,pfaces[fi]] = next_face+1;
+                        
+                        p2f[fi*2-1,ei] = next_face;
+                        p2f[fi*2,ei] = next_face+1;
+                        
+                        face2element[1, next_face] = p2c[face2child[2*fi-1,1],ei];
+                        face2element[1, next_face+1] = p2c[face2child[2*fi,1],ei];
+                        # element2face[1, p2c[1,ei]] = next_face; # do later
+                        facenormals[:,next_face] = grid.facenormals[:,pfaces[fi]];
+                        facenormals[:,next_face+1] = grid.facenormals[:,pfaces[fi]];
+                        faceRefelInd[1, next_face] = tmpfri[fi];
+                        faceRefelInd[1, next_face+1] = tmpfri[fi];
+                        facebid[next_face] = grid.facebid[pfaces[fi]];
+                        facebid[next_face+1] = grid.facebid[pfaces[fi]];
+                        
+                        fbid = facebid[next_face];
+                        if fbid > 0
+                            bdryface[fbid][next_bdryface[fbid]] = next_face;
+                            bdryface[fbid][next_bdryface[fbid]+1] = next_face+1;
+                            
+                            next_bdryface[fbid] += 2;
+                        end
+                        
+                        next_face += 2;
+                        
+                    else # parent face already set
+                        same_orientation = false;
+                        # Check if the first corner matches the first child's face
+                        first_face_nodes = tmpallnodes[:,face2glb[:,1,face_done[1,pfaces[fi]]]];
+                        if fi==1
+                            corner = child_nodes[:,1];
+                        elseif fi==2
+                            corner = child_nodes[:,2];
+                        elseif fi==3
+                            corner = child_nodes[:,3];
+                        else
+                            corner = child_nodes[:,4];
+                        end
+                        for ffni=1:size(first_face_nodes,2)
+                            if norm(corner - first_face_nodes[:,ffni]) < 1e-16
+                                same_orientation = true;
+                            end
+                        end
+                        
+                        if same_orientation
+                            fid1 = face_done[1,pfaces[fi]];
+                            fid2 = face_done[2,pfaces[fi]];
+                        else
+                            fid1 = face_done[2,pfaces[fi]];
+                            fid2 = face_done[1,pfaces[fi]];
+                        end
+                        
+                        p2f[fi*2-1,ei] = fid1;
+                        p2f[fi*2,ei] = fid2;
+                        
+                        face2element[2, fid1] = p2c[face2child[2*fi-1,1],ei];
+                        face2element[2, fid2] = p2c[face2child[2*fi,1],ei];
+                        faceRefelInd[2, fid1] = tmpfri[fi];
+                        faceRefelInd[2, fid2] = tmpfri[fi];
+                    end
+                end # exterior faces
+                
+                # Interior faces
+                p2f[9:12,ei] = next_face:(next_face+3);
+                face2element[1, next_face:(next_face+3)] = p2c[face2child[9:12,1],ei];
+                face2element[2, next_face:(next_face+3)] = p2c[face2child[9:12,2],ei];
+                
+                p2 = child_nodes[:,9];
+                for inter=0:3
+                    p1 = child_nodes[:,5+inter];
+                    p1p2_dist = sqrt((p2[1]-p1[1])^2 + (p2[2]-p1[2])^2);
+                    facenormals[:,next_face+inter] = [(p2[2]-p1[2])/p1p2_dist, (p1[1]-p2[1])/p1p2_dist];
+                end
+                
+                faceRefelInd[:, next_face] = [3,1];
+                faceRefelInd[:, next_face+1] = [4,2];
+                faceRefelInd[:, next_face+2] = [1, 3];
+                faceRefelInd[:, next_face+3] = [2, 4];
+                facebid[next_face:(next_face+3)] = [0,0,0,0];
+                
+                next_face += 4;
+                
+                # Still need to do: loc2glb, face2glb, element2face, bdry, bdrynorm
+                for ci=1:4
+                    loc2glb[:, p2c[ci,ei]] = parent2glb[child2loc[:,ci]];
+                    element2face[:, p2c[ci,ei]] = p2f[child2face[:,ci],ei];
+                end
+                for fi=1:12
+                    face2glb[:, 1, p2f[fi,ei]] = parent2glb[face2loc[fi,:]];
+                end
             end
             
         end # parent loop
@@ -483,11 +613,16 @@ function divide_parent_grid(grid, order)
         
     elseif dim==3
         #TODO
+        printerr("Sorry, higher order FV is not ready for 3D (TODO: build parent/child grid)");
     end
     
     
     child_grid = Grid(allnodes, bdry, bdryface, bdrynorm, bids, loc2glb, loc2glb, face2glb, element2face, face2element, facenormals, faceRefelInd, facebid);
     tmp_parent_maps = ParentMaps(c2p, p2c, p2f, p2n, zeros(Int,0,0)); # no patches built yet
+    
+    # Normal vectors may be pointing the wrong way. Reorient them.
+    check_normal_vectors!(child_grid);
+    
     # build patches
     ncells_in_patch = (nneighbor+1)*nchildren;
     patches = zeros(Int, ncells_in_patch, Nparent);
@@ -497,6 +632,45 @@ function divide_parent_grid(grid, order)
     parent_maps = ParentMaps(c2p, p2c, p2f, p2n, patches);
     
     return (parent_maps, child_grid);
+end
+
+# Set normal direction so that it is pointing from 1->2 matching face2element.
+function check_normal_vectors!(grid)
+    dim = size(grid.allnodes,1);
+    nface = size(grid.face2element,2);
+    for fi=1:nface
+        els=grid.face2element[:,fi];
+        nfp = size(grid.face2glb,1);
+        np = size(grid.loc2glb,1);
+        fcenter = grid.allnodes[:,grid.face2glb[1,1,fi]] ./ nfp; # center of face
+        for i=2:nfp
+            fcenter += grid.allnodes[:,grid.face2glb[i,1,fi]] ./ nfp;
+        end
+        c1 = grid.allnodes[:,grid.loc2glb[1,els[1]]] ./ np; # center of element 1
+        for i=2:np
+            c1 += grid.allnodes[:,grid.loc2glb[i,els[1]]] ./ np;
+        end
+        if els[2] == 0 # boundary
+            c2 = fcenter; # center of face for boundary
+        else
+            c2 = grid.allnodes[:,grid.loc2glb[1,els[2]]] ./ np; # center of element 2
+            for i=2:np
+                c2 += grid.allnodes[:,grid.loc2glb[i,els[2]]] ./ np;
+            end
+        end
+        
+        # check and reverse if needed
+        if dim==1
+            grid.facenormals[1,fi] = c2[1]>c1[1] ? 1.0 : -1.0
+        else
+            # which is further from cell center 1, (face center + normal) or (face center - normal)
+            d1 = fcenter + grid.facenormals[:,fi] - c1;
+            d2 = fcenter - grid.facenormals[:,fi] - c1;
+            if norm(d2) > norm(d1)
+                grid.facenormals[:,fi] = -grid.facenormals[:,fi]
+            end
+        end
+    end
 end
 
 # Builds the local patch given a central parent.
@@ -563,7 +737,45 @@ function build_local_patch(maps, grid, center)
             end
             
         else # quad
-            # TODO
+            #        n3
+            #    4---------3
+            #    | c4 | c3 |
+            # n4 |---------| n2
+            #    | c1 | c2 | 
+            #    1---------2
+            #        n1
+            # Neighbor orientation could have eight configurations.
+            # Determine this by face ID.
+            orientation_table = [
+                [1, 4, 3, 2],
+                [2, 3, 4, 1],
+                [2, 1, 4, 3],
+                [3, 4, 1, 2],
+                [3, 2, 1, 4],
+                [4, 1, 2, 3],
+                [4, 3, 2, 1],
+                [1, 2, 3, 4]
+            ]
+            
+            patch = zeros(Int, 4 * 5);
+            patch[1:4] = maps.parent2child[:,center];
+            
+            neighbors = maps.parent2neighbor[:,center];
+            cfaces = maps.parent2face[[1,3,5,7],center]; # first face on each side of parent
+            orientation = [0,0,0,0]; # orientation index for each neighbor
+            for ni=1:4
+                if neighbors[ni] > 0 # not a boundary
+                    for fi=1:8
+                        if maps.parent2face[fi,neighbors[ni]] == cfaces[ni]
+                            orientation[ni] = fi; # This is the index of the face touching cfaces[ni]
+                            break;
+                        end
+                    end
+                    # Use the orientation table to populate the patch
+                    patch[(ni*4+1):((ni+1)*4)] = maps.parent2child[orientation_table[orientation[ni]], neighbors[ni]];
+                end
+            end
+            
         end
         
     elseif dim == 3

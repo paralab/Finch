@@ -20,9 +20,9 @@ function apply_boundary_conditions_to_face_rhs(var, fid, facefluxvec, t)
     end
     
     # Boundary conditions are applied to flux
-    fbid = grid_data.facebid[fid]; # BID of this face
+    fbid = fv_grid.facebid[fid]; # BID of this face
     if fbid > 0
-        facex = grid_data.allnodes[:, grid_data.face2glb[:,1,fid]];  # face node coordinates
+        facex = fv_grid.allnodes[:, fv_grid.face2glb[:,1,fid]];  # face node coordinates
         
         if multivar
             dofind = 0;
@@ -33,13 +33,13 @@ function apply_boundary_conditions_to_face_rhs(var, fid, facefluxvec, t)
                         # do nothing
                     elseif prob.bc_type[var[vi].index, fbid] == FLUX
                         # compute the value and add it to the flux directly
-                        # Qvec = (refel.surf_wg[grid_data.faceRefelInd[1,fid]] .* geo_factors.face_detJ[fid])' * (refel.surf_Q[grid_data.faceRefelInd[1,fid]])[:, refel.face2local[grid_data.faceRefelInd[1,fid]]]
-                        # Qvec = Qvec ./ geo_factors.area[fid];
-                        # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* geo_factors.area[fid];
+                        # Qvec = (refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, refel.face2local[fv_grid.faceRefelInd[1,fid]]]
+                        # Qvec = Qvec ./ fv_geo_factors.area[fid];
+                        # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
                         
-                        bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fid, t) .* geo_factors.area[fid];
+                        bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fid, t) .* fv_geo_factors.area[fid];
                         
-                        fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ geo_factors.volume[eid];
+                        fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
                         facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                     else
                         printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
@@ -53,12 +53,12 @@ function apply_boundary_conditions_to_face_rhs(var, fid, facefluxvec, t)
                     # do nothing
                 elseif prob.bc_type[var.index, fbid] == FLUX
                     # compute the value and add it to the flux directly
-                    # Qvec = (refel.surf_wg[grid_data.faceRefelInd[1,fid]] .* geo_factors.face_detJ[fid])' * (refel.surf_Q[grid_data.faceRefelInd[1,fid]])[:, refel.face2local[grid_data.faceRefelInd[1,fid]]]
-                    # Qvec = Qvec ./ geo_factors.area[fid];
-                    # bflux = FV_flux_bc_rhs_only(prob.bc_func[var.index, fbid][d], facex, Qvec, t, dofind, dofs_per_node) .* geo_factors.area[fid];
-                    bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t) .* geo_factors.area[fid];
+                    # Qvec = (refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, refel.face2local[fv_grid.faceRefelInd[1,fid]]]
+                    # Qvec = Qvec ./ fv_geo_factors.area[fid];
+                    # bflux = FV_flux_bc_rhs_only(prob.bc_func[var.index, fbid][d], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
+                    bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t) .* fv_geo_factors.area[fid];
                     
-                    fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ geo_factors.volume[eid];
+                    fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
                     facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                 else
                     printerr("Unsupported boundary condition type: "*prob.bc_type[var.index, fbid]);
@@ -137,7 +137,7 @@ function FV_flux_bc_rhs_only_simple(val, fid, t=0)
     #         bval = val.func(facex[1],facex[2],facex[3],t);
     #     end
     # end
-    eid = grid_data.face2element[1,fid];
+    eid = fv_grid.face2element[1,fid];
     
     return evaluate_bc(val, eid, fid, t);
 end
@@ -236,7 +236,7 @@ function evaluate_bc(val, eid, fid, t)
                     # These are already included
                 elseif r == "normal"
                     foundit = true;
-                    push!(arg_list, ("normal", grid_data.facenormals[:,fid]));
+                    push!(arg_list, ("normal", fv_grid.facenormals[:,fid]));
                 else
                     for v in variables
                         if string(v.symbol) == r

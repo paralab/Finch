@@ -37,6 +37,9 @@ end
 
 # Allocate, compute, or fetch all needed values
 function prepare_needed_values_fv_julia(entities, var, lorr, vors)
+    # Options
+    average_coefficients = false; # true to integrate and average coefficients over cells and faces.
+    
     # Only gather the pieces that are used. See the end of this function.
     if vors == "volume"
         # el, nodex, loc2glb, detJ, J
@@ -97,37 +100,34 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                 ######################################
                 if vors == "surface" && length(entities[i].derivs) == 0
                     nodesymbol = "facex"
-                    piece_needed[6] = true;
                 else
                     nodesymbol = "nodex"
-                    piece_needed[2] = true;
                 end
-                # cargs = "("*nodesymbol*"[coefi], 0, 0, time)";
-                # if config.dimension == 2
-                #     cargs = "("*nodesymbol*"[1, coefi], "*nodesymbol*"[2, coefi], 0, time)";
-                # elseif config.dimension == 3
-                #     cargs = "("*nodesymbol*"[1, coefi], "*nodesymbol*"[2, coefi], "*nodesymbol*"[3, coefi], time)";
-                # end
-                cargs = "("*nodesymbol*"[:,coefi], time, eid, fid)";
                 coef_index = get_coef_index(entities[i]);
                 
                 if vors == "volume"
-                    code *= cname * " = zeros(refel.Np);\n";
-                    # code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs * " end\n";
-                    code *= "for coefi = 1:refel.Np " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(coef_index)*"], "*string(entities[i].index)*", "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
-                    # Apply any needed derivative operators. Interpolate at quadrature points.
-                    if length(entities[i].derivs) > 0
-                        xyzchar = ["x","y","z"];
-                        for di=1:length(entities[i].derivs)
-                            code *= cname * " = RD"*string(entities[i].derivs[di])*" * " * cname * 
-                                    "; # Apply d/d"*xyzchar[entities[i].derivs[di]]*".\n";
+                    if average_coefficients
+                        code *= cname * " = zeros(refel.Np);\n";
+                        # code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs * " end\n";
+                        code *= "for coefi = 1:refel.Np " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(coef_index)*"], "*string(entities[i].index)*", "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
+                        # Apply any needed derivative operators. Interpolate at quadrature points.
+                        if length(entities[i].derivs) > 0
+                            xyzchar = ["x","y","z"];
+                            for di=1:length(entities[i].derivs)
+                                code *= cname * " = RD"*string(entities[i].derivs[di])*" * " * cname * 
+                                        "; # Apply d/d"*xyzchar[entities[i].derivs[di]]*".\n";
+                            end
+                            need_deriv_matrix = true;
+                            piece_needed[5] = true;
                         end
-                        need_deriv_matrix = true;
-                        piece_needed[5] = true;
+                        # integrate over cell
+                        code *= cname * " = (refel.wg .* detj)' * refel.Q * " * cname * "; # integrate over cell\n";
+                        piece_needed[4] = true;
+                        piece_needed[2] = true;
+                    else # just evaluate coefficient at center
+                        code *= cname * " = evaluate_coefficient(Finch.coefficients["*string(coef_index)*"], "*string(entities[i].index)*", fv_data.cellCenters[:,eid], time, eid, fid);\n";
                     end
-                    # integrate over cell
-                    code *= cname * " = (refel.wg .* detj)' * refel.Q * " * cname * "; # integrate over cell\n";
-                    piece_needed[4] = true;
+                    
                     
                 else # surface
                     # Apply any needed derivative operators. Interpolate at quadrature points.
@@ -141,23 +141,38 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                                     "; # Apply d/d"*xyzchar[entities[i].derivs[di]]*".\n";
                         end
                         code *= cname * " = " * cname * "[refel.face2local[frefelind[1]]]; # extract face values only.";
+                        # integrate over face
+                        if config.dimension == 1
+                            # in 1d there is only one face node
+                            code *= cname * " = " * cname * "[1]\n";
+                        else
+                            code *= cname * " = (refel.surf_wg[frefelind[1]] .* face_detJ)' * refel.surf_Q[frefelind[1]][:, refel.face2local[frefelind[1]]] * " * cname * " / area; # integrate over face\n";
+                            piece_needed[9] = true;
+                            piece_needed[10] = true;
+                        end
                         need_deriv_matrix = true;
                         piece_needed[[4,5,8]] .= true;
                         
                     else # no derivatives, only need surface nodes
-                        code *= cname * " = zeros(refel.Nfp[frefelind[1]]);\n";
-                        # code *= "for coefi = 1:refel.Nfp[frefelind[1]] " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs * " end\n";
-                        code *= "for coefi = 1:refel.Nfp[frefelind[1]] " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(coef_index)*"], "*string(entities[i].index)*", "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
-                        piece_needed[5] = true;
-                    end
-                    # integrate over face
-                    if config.dimension == 1
-                        # in 1d there is only one face node
-                        code *= cname * " = " * cname * "[1]\n";
-                    else
-                        code *= cname * " = (refel.surf_wg[frefelind[1]] .* face_detJ)' * refel.surf_Q[frefelind[1]][:, refel.face2local[frefelind[1]]] * " * cname * " / area; # integrate over face\n";
-                        piece_needed[9] = true;
-                        piece_needed[10] = true;
+                        if average_coefficients
+                            code *= cname * " = zeros(refel.Nfp[frefelind[1]]);\n";
+                            # code *= "for coefi = 1:refel.Nfp[frefelind[1]] " * cname * "[coefi] = (Finch.genfunctions["*string(cval)*"]).func" * cargs * " end\n";
+                            code *= "for coefi = 1:refel.Nfp[frefelind[1]] " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(coef_index)*"], "*string(entities[i].index)*", "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
+                            piece_needed[5] = true;
+                            piece_needed[6] = true;
+                            
+                            # integrate over face
+                            if config.dimension == 1
+                                # in 1d there is only one face node
+                                code *= cname * " = " * cname * "[1]\n";
+                            else
+                                code *= cname * " = (refel.surf_wg[frefelind[1]] .* face_detJ)' * refel.surf_Q[frefelind[1]][:, refel.face2local[frefelind[1]]] * " * cname * " / area; # integrate over face\n";
+                                piece_needed[9] = true;
+                                piece_needed[10] = true;
+                            end
+                        else # just evaluate coefficient at center
+                            code *= cname * " = evaluate_coefficient(Finch.coefficients["*string(coef_index)*"], "*string(entities[i].index)*", fv_data.faceCenters[:,fid], time, eid, fid);\n";
+                        end
                     end
                 end
                 
@@ -278,10 +293,8 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                 ######################################
                 if vors == "surface" && length(entities[i].derivs) == 0
                     nodesymbol = "facex"
-                    piece_needed[6] = true;
                 else
                     nodesymbol = "nodex"
-                    piece_needed[2] = true;
                 end
                 # cargs = "("*nodesymbol*"[coefi], 0, 0, time)";
                 # if config.dimension == 2
@@ -299,22 +312,28 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                 end
                 
                 if vors == "volume"
-                    code *= cname * " = zeros(refel.Np);\n";
-                    # code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.coefficients["*string(cval)*"]).value["*indstr*"].func" * cargs * " end\n";
-                    code *= "for coefi = 1:refel.Np " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(cval)*"], ["*indstr*"], "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
-                    # Apply any needed derivative operators. Interpolate at quadrature points.
-                    if length(entities[i].derivs) > 0
-                        xyzchar = ["x","y","z"];
-                        for di=1:length(entities[i].derivs)
-                            code *= cname * " = RD"*string(entities[i].derivs[di])*" * " * cname * 
-                                    "; # Apply d/d"*xyzchar[entities[i].derivs[di]]*".\n";
+                    if average_coefficients
+                        code *= cname * " = zeros(refel.Np);\n";
+                        # code *= "for coefi = 1:refel.Np " * cname * "[coefi] = (Finch.coefficients["*string(cval)*"]).value["*indstr*"].func" * cargs * " end\n";
+                        code *= "for coefi = 1:refel.Np " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(cval)*"], ["*indstr*"], "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
+                        # Apply any needed derivative operators. Interpolate at quadrature points.
+                        if length(entities[i].derivs) > 0
+                            xyzchar = ["x","y","z"];
+                            for di=1:length(entities[i].derivs)
+                                code *= cname * " = RD"*string(entities[i].derivs[di])*" * " * cname * 
+                                        "; # Apply d/d"*xyzchar[entities[i].derivs[di]]*".\n";
+                            end
+                            need_deriv_matrix = true;
+                            piece_needed[5] = true;
                         end
-                        need_deriv_matrix = true;
-                        piece_needed[5] = true;
+                        # integrate over cell
+                        code *= cname * " = (refel.wg .* detj)' * refel.Q * " * cname * "; # integrate over cell\n";
+                        piece_needed[4] = true;
+                        piece_needed[2] = true;
+                    else # just evaluate coefficient at center
+                        code *= cname * " = evaluate_coefficient(Finch.coefficients["*string(cval)*"], ["*indstr*"], fv_data.cellCenters[:,eid], time, eid, fid);\n";
                     end
-                    # integrate over cell
-                    code *= cname * " = (refel.wg .* detj)' * refel.Q * " * cname * "; # integrate over cell\n";
-                    piece_needed[4] = true;
+                    
                     
                 else # surface
                     # Apply any needed derivative operators. Interpolate at quadrature points.
@@ -328,23 +347,37 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                                     "; # Apply d/d"*xyzchar[entities[i].derivs[di]]*".\n";
                         end
                         code *= cname * " = " * cname * "[refel.face2local[frefelind[1]]]; # extract face values only.";
+                        # integrate over face
+                        if config.dimension == 1
+                            # in 1d there is only one face node
+                            code *= cname * " = " * cname * "[1]\n";
+                        else
+                            code *= cname * " = (refel.surf_wg[frefelind[1]] .* face_detJ)' * refel.surf_Q[frefelind[1]][:, refel.face2local[frefelind[1]]] * " * cname * " / area; # integrate over face\n";
+                            piece_needed[9] = true;
+                            piece_needed[10] = true;
+                        end
                         need_deriv_matrix = true;
                         piece_needed[[4,5,8]] .= true;
                         
                     else # no derivatives, only need surface nodes
-                        code *= cname * " = zeros(refel.Nfp[frefelind[1]]);\n";
-                        # code *= "for coefi = 1:refel.Nfp[frefelind[1]] " * cname * "[coefi] = (Finch.coefficients["*string(cval)*"]).value["*indstr*"].func" * cargs * " end\n";
-                        code *= "for coefi = 1:refel.Nfp[frefelind[1]] " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(cval)*"], ["*indstr*"], "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
-                        piece_needed[5] = true;
-                    end
-                    # integrate over face
-                    if config.dimension == 1
-                        # in 1d there is only one face node
-                        code *= cname * " = " * cname * "[1]\n";
-                    else
-                        code *= cname * " = (refel.surf_wg[frefelind[1]] .* face_detJ)' * refel.surf_Q[frefelind[1]][:, refel.face2local[frefelind[1]]] * " * cname * " / area; # integrate over face\n";
-                        piece_needed[9] = true;
-                        piece_needed[10] = true;
+                        if average_coefficients
+                            code *= cname * " = zeros(refel.Nfp[frefelind[1]]);\n";
+                            # code *= "for coefi = 1:refel.Nfp[frefelind[1]] " * cname * "[coefi] = (Finch.coefficients["*string(cval)*"]).value["*indstr*"].func" * cargs * " end\n";
+                            code *= "for coefi = 1:refel.Nfp[frefelind[1]] " * cname * "[coefi] = evaluate_coefficient(Finch.coefficients["*string(cval)*"], ["*indstr*"], "*nodesymbol*"[:,coefi], time, eid, fid) end\n";
+                            # integrate over face
+                            if config.dimension == 1
+                                # in 1d there is only one face node
+                                code *= cname * " = " * cname * "[1]\n";
+                            else
+                                code *= cname * " = (refel.surf_wg[frefelind[1]] .* face_detJ)' * refel.surf_Q[frefelind[1]][:, refel.face2local[frefelind[1]]] * " * cname * " / area; # integrate over face\n";
+                                piece_needed[9] = true;
+                                piece_needed[10] = true;
+                            end
+                            piece_needed[5] = true;
+                            piece_needed[6] = true;
+                        else # just evaluate coefficient at center
+                            code *= cname * " = evaluate_coefficient(Finch.coefficients["*string(cval)*"], ["*indstr*"], fv_data.faceCenters[:,fid], time, eid, fid);\n";
+                        end
                     end
                 end
                 
@@ -366,10 +399,10 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
             needed_pieces *= "nodex = grid.allnodes[:,loc2glb]; # node coordinates\n"
         end
         if piece_needed[4]
-            needed_pieces *= "detj = geo_factors.detJ[eid]; # geometric factors\n"
+            needed_pieces *= "detj = geo_facs.detJ[eid]; # geometric factors\n"
         end
         if piece_needed[5]
-            needed_pieces *= "J = geo_factors.J[eid]; # geometric factors\n"
+            needed_pieces *= "J = geo_facs.J[eid]; # geometric factors\n"
         end
         
         if need_deriv_matrix
@@ -430,7 +463,7 @@ end
         end
         if piece_needed[6]
             # needed_pieces *= "facex = fv_data.faceCenters[:, fid];  # face node coordinates\n"
-            needed_pieces *= "facex = grid_data.allnodes[:, grid_data.face2glb[:,1,fid]];  # face node coordinates\n"
+            needed_pieces *= "facex = grid.allnodes[:, grid.face2glb[:,1,fid]];  # face node coordinates\n"
         end
         if piece_needed[9]
             needed_pieces *= "face_detJ = geo_facs.face_detJ[fid];       # detJ on face\n"

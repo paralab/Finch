@@ -155,7 +155,10 @@ function exportMesh(filename, format=MSH_V2)
 end
 
 function finiteVolumeOrder(order)
-    # Not sure where to put these yet. Let's hand them over to FVSolver.
+    if config.dimension > 2
+        printerr("Sorry, higher order FV is not ready for 3D (TODO: build parent/child grid)\n Continuing with first order.");
+        return;
+    end
     (parent, child) = divide_parent_grid(grid_data, order);
     set_parent_and_child(parent, child, order);
 end

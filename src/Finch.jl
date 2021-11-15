@@ -241,6 +241,9 @@ function add_mesh(mesh)
     
     # If using FV, set up the FV_info
     if config.solver_type == FV
+        global fv_grid = grid_data;
+        global fv_geo_factors = geo_factors;
+        global fv_refel = refel;
         global fv_info = build_FV_info(grid_data);
     end
     

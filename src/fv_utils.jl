@@ -92,7 +92,7 @@ end
 # Interpolate nodal values from neighboring cells.
 # Returns an array of nodal values.
 function FV_cell_to_node(cell_values, node_values; dofs = 1)
-    Nnodes = size(grid_data.allnodes,2);
+    Nnodes = size(fv_grid.allnodes,2);
     if node_values === nothing
         node_values = zeros(Nnodes * dofs);
     end
@@ -125,16 +125,16 @@ end
 # Find cell averages from nodal values
 # Returns an array of cell values.
 function FV_node_to_cell(node_values, cell_values = nothing)
-    Ncells = size(grid_data.loc2glb,2);
+    Ncells = size(fv_grid.loc2glb,2);
     if cell_values === nothing
         cell_values = zeros(Ncells);
     end
     
     for ci=1:Ncells
         cell_values[ci] = 0;
-        nnode = length(grid_data.loc2glb[:,ci]);
+        nnode = length(fv_grid.loc2glb[:,ci]);
         for ni=1:nnode
-            cell_values[ci] += node_values[grid_data.loc2glb[ni, ci]];
+            cell_values[ci] += node_values[fv_grid.loc2glb[ni, ci]];
         end
         cell_values[ci] /= nnode;
     end
@@ -188,7 +188,14 @@ function FV_reconstruct_value_left_right(leftx, rightx, leftu, rightu, x; limite
         right = left;
         
     else
-        centerslope = (rightu[1] - leftu[1]) / norm(rightx[1] - leftx[1]);
+        center_dist = norm(rightx[1] - leftx[1]);
+        if center_dist < 1e-16
+            # This could also be a boundary.
+            centerslope = 0.0;
+        else
+            centerslope = (rightu[1] - leftu[1]) / center_dist;
+        end
+        
     end
     
     # If a limiter is specified, limit the slope
