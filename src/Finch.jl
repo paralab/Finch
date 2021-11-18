@@ -271,22 +271,22 @@ function set_parent_and_child(p_maps, c_grid, order)
     N = size(fv_grid.loc2glb, 2);
     for i=1:length(variables)
         if variables[i].location == CELL
-            if var.type == SCALAR
+            if variables[i].type == SCALAR
                 val_size = (1, N);
-            elseif var.type == VECTOR
+            elseif variables[i].type == VECTOR
                 val_size = (config.dimension, N);
-            elseif var.type == TENSOR
+            elseif variables[i].type == TENSOR
                 val_size = (config.dimension*config.dimension, N);
-            elseif var.type == SYM_TENSOR
+            elseif variables[i].type == SYM_TENSOR
                 val_size = (Int((config.dimension*(config.dimension+1))/2), N);
-            elseif var.type == VAR_ARRAY
-                if typeof(var.indexer) <: Array
+            elseif variables[i].type == VAR_ARRAY
+                if typeof(variables[i].indexer) <: Array
                     comps = 1;
-                    for j=1:length(var.indexer)
-                        comps *= length(var.indexer[j].range);
+                    for j=1:length(variables[i].indexer)
+                        comps *= length(variables[i].indexer[j].range);
                     end
-                elseif typeof(var.indexer) == Indexer
-                    comps = length(var.indexer.range);
+                elseif typeof(variables[i].indexer) == Indexer
+                    comps = length(variables[i].indexer.range);
                 else
                     comps = 1;
                 end

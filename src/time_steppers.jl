@@ -395,7 +395,7 @@ function reformat_for_stepper_fv_source(lhs, rhs, stepper)
         newlhs = copy(rhs); # copy just to set up the arrays right
         newrhs = copy(rhs);
         for vi=1:length(rhs);
-            (newlhs[vi], newrhs[vi]) = reformat_for_stepper_fv_flux(lhs[vi], rhs[vi], stepper);
+            (newlhs[vi], newrhs[vi]) = reformat_for_stepper_fv_source(lhs[vi], rhs[vi], stepper);
         end
     else
         # reformat depending on stepper type

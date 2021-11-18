@@ -7,6 +7,8 @@ export sp_parse, add_custom_op, add_custom_op_file, sym_var
 # See finch_import_symbols.jl for a list of all imported symbols.
 import ..Finch: @import_finch_symbols
 @import_finch_symbols()
+import ..Finch: reformat_for_stepper, reformat_for_stepper_fv, reformat_for_stepper_fv_flux, reformat_for_stepper_fv_source
+import ..Finch: build_symexpressions
 
 using SymEngine, LinearAlgebra
 
@@ -14,6 +16,37 @@ using SymEngine, LinearAlgebra
 struct SymOperator
     symbol::Symbol      # The name used in the input expression
     op                  # Function handle for the operator
+end
+
+struct CallbackPlaceholder
+    name::String
+    args::Array
+end
+Base.show(io::IO, x::CallbackPlaceholder) = print(io, to_string(x));
+function to_string(x::CallbackPlaceholder)
+    argstr = "";
+    for i=1:length(x.args)
+        if i>1
+            argstr *= ", ";
+        end
+        if typeof(x.args[i]) <: Array
+            if length(x.args[i]) == 1
+                argstr *= string(x.args[i][1]);
+            else
+                argstr *= "[";
+                for j=1:length(x.args[i])
+                    if j>1
+                        argstr *= ", ";
+                    end
+                    argstr *= string(x.args[i][j]);
+                end
+                argstr *= "]";
+            end
+        else
+            argstr *= string(x.args[i]);
+        end
+    end
+    return x.name*"("*argstr*")"
 end
 
 #### globals ########################
@@ -93,13 +126,13 @@ end
 # Returns a tuple of SymEngine expressions (lhs, rhs) for the equation lhs = rhs
 # lhs contains terms including the unknown variable
 # rhs contains terms without it
-function sp_parse(ex, var)
-    # debug = false;
+function sp_parse(ex, var; is_FV=false, is_flux=false)
     lhs = nothing;
     rhs = nothing;
     varcount = 1;
     timederiv = false;
-    # if debug println("expr = "*string(ex)); end
+    placeholders = [];
+    
     log_entry("SP expr = "*string(ex), 3);
     
     # Check that there are as many vars as exs
@@ -132,9 +165,12 @@ function sp_parse(ex, var)
         log_entry("SP symbolic indicies -> "*string(symex), 3);
     end
     
-    # Look for callbacks like CALLBACK_f(a,b,c) and pass to handler handle_callbacks(CALLBACK_f, [a, b, c])
-    symex = handle_callbacks(symex);
+    # Look for callbacks like CALLBACK_f(a,b,c), process their arguments, and replace them with placeholder vars
+    symex = handle_callbacks(symex, placeholders);
     log_entry("SP handle callbacks -> "*string(symex), 3);
+    for i=1:length(placeholders)
+        log_entry("    PLACEHOLDER_"*string(i)*": "*to_string(placeholders[i]), 3);
+    end
     
     # change some operators like ^ and / to broadcast versions .^ ./
     symex = broadcast_ops(symex);
@@ -224,27 +260,89 @@ function sp_parse(ex, var)
         end
     end
     
-    log_entry("SP volLHS = "*string(lhs), 3);
-    log_entry("SP volRHS = "*string(rhs), 3);
+    log_entry("SP LHS = "*string(lhs), 3);
+    log_entry("SP RHS = "*string(rhs), 3);
     if timederiv
         log_entry("SP dtLHS = "*string(dtlhs), 3);
         log_entry("SP dtRHS = "*string(dtrhs), 3);
         if has_surface
             log_entry("SP surfLHS = "*string(surflhs), 3);
             log_entry("SP surfRHS = "*string(surfrhs), 3);
-            return ((dtlhs,lhs), rhs, surflhs, surfrhs);
-        else
-            return ((dtlhs,lhs), rhs);
         end
         
     else
         if has_surface
             log_entry("SP surfLHS = "*string(surflhs), 3);
             log_entry("SP surfRHS = "*string(surfrhs), 3);
-            return (lhs, rhs, surflhs, surfrhs);
-        else
-            return (lhs, rhs);
         end
+    end
+    
+    # If needed, reformat for time stepper
+    if timederiv || is_FV
+        if is_FV
+            # There is an assumed Dt(u) added which is the only time derivative.
+            if is_flux
+                log_entry("flux, before modifying for time: "*string(lhs)*" - "*string(rhs));
+                (newlhs, newrhs) = reformat_for_stepper_fv_flux(lhs, rhs, config.stepper);
+                log_entry("flux, modified for time stepping: "*string(newlhs)*" + "*string(newrhs));
+            else # source
+                log_entry("source, before modifying for time: "*string(lhs)*" - "*string(rhs));
+                (newlhs, newrhs) = reformat_for_stepper_fv_source(lhs, rhs, config.stepper);
+                log_entry("source, modified for time stepping: "*string(newlhs)*" + "*string(newrhs));
+            end
+            # Parse Basic->Expr and insert placeholders
+            newlhs = basic_to_expr_and_place(newlhs, placeholders)
+            newrhs = basic_to_expr_and_place(newrhs, placeholders)
+            # Build a SymExpression for each of the pieces. 
+            (lhs_symexpr, rhs_symexpr) = build_symexpressions(var, newlhs, newrhs, remove_zeros=true);
+            lhs = lhs_symexpr;
+            rhs = rhs_symexpr;
+            
+        else # FE
+            if has_surface
+                log_entry("Weak form, before modifying for time: Dt("*string(dtlhs)*") + "*string(lhs)*" + surface("*string(surflhs)*") = "*string(rhs)*" + surface("*string(surfrhs)*")");
+                (newlhs, newrhs, newsurflhs, newsurfrhs) = reformat_for_stepper((dtlhs, lhs), rhs, surflhs, surfrhs, config.stepper);
+                log_entry("Weak form, modified for time stepping: "*string(newlhs)*" + surface("*string(newsurflhs)*") = "*string(newrhs)*" + surface("*string(newsurfrhs)*")");
+                # Parse Basic->Expr and insert placeholders
+                newlhs = basic_to_expr_and_place(newlhs, placeholders)
+                newrhs = basic_to_expr_and_place(newrhs, placeholders)
+                newsurflhs = basic_to_expr_and_place(newsurflhs, placeholders)
+                newsurfrhs = basic_to_expr_and_place(newsurfrhs, placeholders)
+                # Build a SymExpression for each of the pieces. 
+                (lhs_symexpr, rhs_symexpr, lhs_surf_symexpr, rhs_surf_symexpr) = build_symexpressions(var, newlhs, newrhs, newsurflhs, newsurfrhs, remove_zeros=true);
+                lhs = lhs_symexpr;
+                rhs = rhs_symexpr;
+                surflhs = lhs_surf_symexpr;
+                surfrhs = rhs_surf_symexpr;
+            else # no surface
+                log_entry("Weak form, before modifying for time: Dt("*string(dtlhs)*") + "*string(lhs)*" = "*string(rhs));
+                (newlhs, newrhs) = reformat_for_stepper((dtlhs, lhs), rhs, config.stepper);
+                log_entry("Weak form, modified for time stepping: "*string(newlhs)*" = "*string(newrhs));
+                # Parse Basic->Expr and insert placeholders
+                newlhs = basic_to_expr_and_place(newlhs, placeholders)
+                newrhs = basic_to_expr_and_place(newrhs, placeholders)
+                # Build a SymExpression for each of the pieces. 
+                (lhs_symexpr, rhs_symexpr) = build_symexpressions(var, newlhs, newrhs, remove_zeros=true);
+                lhs = lhs_symexpr;
+                rhs = rhs_symexpr;
+            end
+        end
+        
+    else #FE with no time derivative or surface
+        # Parse Basic->Expr and insert placeholders
+        lhs = basic_to_expr_and_place(lhs, placeholders)
+        rhs = basic_to_expr_and_place(rhs, placeholders)
+        # Build a SymExpression for each of the pieces. 
+        (lhs_symexpr, rhs_symexpr) = build_symexpressions(var, lhs, rhs, remove_zeros=true);
+        lhs = lhs_symexpr;
+        rhs = rhs_symexpr;
+    end
+    
+    # Returns
+    if has_surface
+        return (lhs, rhs, surflhs, surfrhs);
+    else
+        return (lhs, rhs);
     end
 end
 
@@ -408,89 +506,40 @@ function handle_indexers(ex)
     return ex;
 end
 
-# Turns callbackfun([a],[b],2) into noarray_callback(callbackfun, [[a],[b],2])
-function handle_callbacks(ex)
+# Turns callbackfun([a],[b],2) into PLACEHOLDER_i, processes the arguments ([a],[b],2), and stores in placeholders[i]
+function handle_callbacks(ex, placeholders)
     # Traverse the Expr looking for :call with "CALLBACK_"
     if typeof(ex) <:Array
         result = copy(ex);
         for i=1:length(ex)
-            result[i] = handle_callbacks(ex[i]);
+            result[i] = handle_callbacks(ex[i], placeholders);
         end
         return result;
         
     elseif typeof(ex) == Expr
         if ex.head === :call && occursin("CALLBACK_", string(ex.args[1]))
-            newex = Expr(:call, :noarray_callback);
+            
+            # build a placeholder var
+            pind = length(placeholders)+1;
+            phvar = symbols("PLACEHOLDER_"*string(pind));
+            # process the arguments
             for i=2:length(ex.args)
-                ex.args[i] = handle_callbacks(ex.args[i]);
+                ex.args[i] = apply_ops(ex.args[i]);
             end
-            append!(newex.args, ex.args);
-            ex = newex;
+            # build a callbackplaceholder struct
+            push!(placeholders, CallbackPlaceholder(string(ex.args[1]), ex.args[2:end]))
+            
+            #swap in the phvar
+            ex = phvar;
         else
             for i=1:length(ex.args)
-                ex.args[i] = handle_callbacks(ex.args[i]);
+                ex.args[i] = handle_callbacks(ex.args[i], placeholders);
             end
         end
     end
     
     return ex;
     
-end
-
-# Turns callbackfun([a],[b],2) into [callbackfun(a,b,2)]
-# This will be called when evaluating.
-# fun should be a SymEngine.SymFunction.
-# arg should be an array of arguments for fun.
-function noarray_callback(fun, arg...)
-    arg_len = zeros(Int, length(arg));
-    for i=1:length(arg)
-        arg_len[i] = length(arg[i]);
-    end
-    max_len = maximum(arg_len);
-    needs_array = false;
-    # ([a,b,c],[d],2) -> [[a,d,2],[b,d,2],[c,d,2]]
-    # ([a],[b],[3]) -> [[a,b,3]]
-    arg_sets = [];
-    for j=1:max_len
-        tmp = [];
-        for i=1:length(arg)
-            if typeof(arg[i]) <: Array
-                needs_array = true;
-                if length(arg[i]) == 1
-                    push!(tmp, arg[i][1]);
-                elseif length(arg[i]) == max_len
-                    push!(tmp, arg[i][j]);
-                else
-                    printerr("Unexpected arg set for callback function: "* string(fun)*"("*string(arg)*")")
-                    return nothing;
-                end
-            else
-                push!(tmp, arg[i]);
-            end
-        end
-        push!(arg_sets, tmp);
-    end
-    
-    if needs_array
-        if max_len == 1
-            tmp = Expr(:call, fun);
-            append!(tmp.args, arg_sets[1]);
-            result = [eval(tmp)];
-        else
-            result = [];
-            for i=1:max_len
-                tmp = Expr(:call, fun);
-                append!(tmp.args, arg_sets[i]);
-                push!(result, eval(tmp));
-            end
-        end
-    else
-        tmp = Expr(:call, fun);
-        append!(tmp.args, arg);
-        result = eval(tmp);
-    end
-    
-    return result;
 end
 
 function broadcast_ops(ex)
@@ -584,8 +633,7 @@ function get_sym_terms(ex)
     end
     # First expand it
     newex = expand(ex);
-    #println("expanded = "*string(newex));
-    #log_entry("expanded: "*latexify(newex));
+    log_entry("expanded: "*string(newex), 3);
     
     # Then separate the terms into an array
     return get_all_terms(newex);
@@ -595,8 +643,8 @@ function get_all_terms(ex)
     if typeof(ex) == Basic
         # convert to Expr, separate, convert to Basic
         expr = Meta.parse(string(ex));
-        #println("Expr = "*string(expr));
-        #dump(expr);
+        log_entry("Basic->Expr: "*string(expr), 3);
+        
         terms = get_all_terms(expr);
         #println("Exprterms = "*string(terms));
         bterms = Array{Basic,1}(undef,0);
@@ -840,6 +888,52 @@ function split_surf(terms, sz)
     end
     
     return (hassurf, nosurf);
+end
+
+# Parse Basic into Expr and insert placeholders
+# This works recursively so each piece in the array is parsed, then the Expr is traversed to swap placeholders.
+function basic_to_expr_and_place(ex, placeholders)
+    if typeof(ex) <: Array
+        exarray = [];
+        for i=1:length(ex)
+            push!(exarray, basic_to_expr_and_place(ex[i], placeholders));
+        end
+        return exarray;
+        
+    elseif typeof(ex) <: SymEngine.Basic
+        # ex is a SymEngine.Basic object
+        # First parse it into an Expr
+        jex = Meta.parse(string(ex));
+        # Then process it
+        newex = basic_to_expr_and_place(jex, placeholders);
+        
+        return newex;
+        
+    elseif typeof(ex) == Expr
+        for i=1:length(ex.args)
+            ex.args[i] = basic_to_expr_and_place(ex.args[i], placeholders)
+        end
+        return ex;
+        
+    elseif typeof(ex) == Symbol
+        # Here's where the replacement happens
+        str = string(ex);
+        if occursin("PLACEHOLDER_", str)
+            phind = parse(Int, str[13:end]);
+            ex = Meta.parse(to_string(placeholders[phind]));
+            
+            if typeof(ex) == Expr
+                for i=1:length(ex.args)
+                    ex.args[i] = basic_to_expr_and_place(ex.args[i], placeholders)
+                end
+            end
+        end
+        
+        return ex;
+        
+    else # could be a number or string or something
+        return ex;
+    end
 end
 
 function apply_negative(ex)

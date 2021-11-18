@@ -256,7 +256,8 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
         if !(source_rhs === nothing)
             #sourceargs = prepare_args(var, eid, 0, RHS, "volume", t, dt); # (var, e, nodex, loc2glb, refel, detj, J, t, dt)
             sourceargs = (var, eid, 0, fv_grid, fv_geo_factors, fv_info, refel, t, dt);
-            source = source_rhs.func(sourceargs) ./ fv_geo_factors.volume[eid];
+            # source = source_rhs.func(sourceargs) ./ fv_geo_factors.volume[eid];
+            source = source_rhs.func(sourceargs);
             # Add to global source vector
             sourcevec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] = source;
         end

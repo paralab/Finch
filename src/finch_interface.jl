@@ -353,41 +353,14 @@ function weakForm(var, wf)
     # This is the parsing step. It goes from an Expr to arrays of Basic
     result_exprs = sp_parse(wfex, wfvars);
     if length(result_exprs) == 4 # has surface terms
-        (lhs_expr, rhs_expr, lhs_surf_expr, rhs_surf_expr) = result_exprs;
+        (lhs_symexpr, rhs_symexpr, lhs_surf_symexpr, rhs_surf_symexpr) = result_exprs;
     else
-        (lhs_expr, rhs_expr) = result_exprs;
+        (lhs_symexpr, rhs_symexpr) = result_exprs;
     end
     
-    if typeof(lhs_expr) <: Tuple && length(lhs_expr) == 2 # has time derivative
-        if length(result_exprs) == 4 # has surface terms
-            log_entry("Weak form, before modifying for time: Dt("*string(lhs_expr[1])*") + "*string(lhs_expr[2])*" + surface("*string(lhs_surf_expr)*") = "*string(rhs_expr)*" + surface("*string(rhs_surf_expr)*")");
-            
-            (newlhs, newrhs, newsurflhs, newsurfrhs) = reformat_for_stepper(lhs_expr, rhs_expr, lhs_surf_expr, rhs_surf_expr, config.stepper);
-            
-            log_entry("Weak form, modified for time stepping: "*string(newlhs)*" + surface("*string(newsurflhs)*") = "*string(newrhs)*" + surface("*string(newsurfrhs)*")");
-            
-            lhs_expr = newlhs;
-            rhs_expr = newrhs;
-            lhs_surf_expr = newsurflhs;
-            rhs_surf_expr = newsurfrhs;
-            
-        else # time derivative, but no surface
-            log_entry("Weak form, before modifying for time: Dt("*string(lhs_expr[1])*") + "*string(lhs_expr[2])*" = "*string(rhs_expr));
-            
-            (newlhs, newrhs) = reformat_for_stepper(lhs_expr, rhs_expr, config.stepper);
-            
-            log_entry("Weak form, modified for time stepping: "*string(newlhs)*" = "*string(newrhs));
-            
-            lhs_expr = newlhs;
-            rhs_expr = newrhs;
-        end
-        
-    end
-    
-    # Here we build a SymExpression for each of the pieces. 
+    # Here we set a SymExpression for each of the pieces. 
     # This is an Expr tree that is passed to the code generator.
     if length(result_exprs) == 4 # has surface terms
-        (lhs_symexpr, rhs_symexpr, lhs_surf_symexpr, rhs_surf_symexpr) = build_symexpressions(wfvars, lhs_expr, rhs_expr, lhs_surf_expr, rhs_surf_expr, remove_zeros=true);
         set_symexpressions(var, lhs_symexpr, LHS, "volume");
         set_symexpressions(var, lhs_surf_symexpr, LHS, "surface");
         set_symexpressions(var, rhs_symexpr, RHS, "volume");
@@ -401,9 +374,8 @@ function weakForm(var, wf)
         log_entry("Latex equation:\n\t\t \\int_{K}"*symexpression_to_latex(lhs_symexpr)*
                     " dx + \\int_{\\partial K}"*symexpression_to_latex(lhs_surf_symexpr)*
                     " ds = \\int_{K}"*symexpression_to_latex(rhs_symexpr)*
-                    " dx + \\int_{\\partial K}"*symexpression_to_latex(rhs_surf_symexpr)*" ds");
+                    " dx + \\int_{\\partial K}"*symexpression_to_latex(rhs_surf_symexpr)*" ds", 3);
     else
-        (lhs_symexpr, rhs_symexpr) = build_symexpressions(wfvars, lhs_expr, rhs_expr, remove_zeros=true);
         set_symexpressions(var, lhs_symexpr, LHS, "volume");
         set_symexpressions(var, rhs_symexpr, RHS, "volume");
         
@@ -413,52 +385,6 @@ function weakForm(var, wf)
         log_entry("Latex equation:\n\t\t\$ \\int_{K}"*symexpression_to_latex(lhs_symexpr)*
                     " dx = \\int_{K}"*symexpression_to_latex(rhs_symexpr)*" dx");
     end
-    
-    # ########## This part simply makes a string for printing #############
-    # # make a string for the expression
-    # if typeof(lhs_expr[1]) <: Array
-    #     lhsstring = "";
-    #     rhsstring = "";
-    #     for i=1:length(lhs_expr)
-    #         lhsstring = lhsstring*"lhs"*string(i)*" = "*string(lhs_expr[i][1]);
-    #         rhsstring = rhsstring*"rhs"*string(i)*" = "*string(rhs_expr[i][1]);
-    #         for j=2:length(lhs_expr[i])
-    #             lhsstring = lhsstring*" + "*string(lhs_expr[i][j]);
-    #         end
-    #         for j=2:length(rhs_expr[i])
-    #             rhsstring = rhsstring*" + "*string(rhs_expr[i][j]);
-    #         end
-    #         if length(result_exprs) == 4
-    #             for j=1:length(lhs_surf_expr)
-    #                 lhsstring = lhsstring*" + surface("*string(lhs_surf_expr[j])*")";
-    #             end
-    #             for j=1:length(rhs_surf_expr)
-    #                 rhsstring = rhsstring*" + surface("*string(rhs_surf_expr[j])*")";
-    #             end
-    #         end
-    #         lhsstring = lhsstring*"\n";
-    #         rhsstring = rhsstring*"\n";
-    #     end
-    # else
-    #     lhsstring = "lhs = "*string(lhs_expr[1]);
-    #     rhsstring = "rhs = "*string(rhs_expr[1]);
-    #     for j=2:length(lhs_expr)
-    #         lhsstring = lhsstring*" + "*string(lhs_expr[j]);
-    #     end
-    #     for j=2:length(rhs_expr)
-    #         rhsstring = rhsstring*" + "*string(rhs_expr[j]);
-    #     end
-    #     if length(result_exprs) == 4
-    #         for j=1:length(lhs_surf_expr)
-    #             lhsstring = lhsstring*" + surface("*string(lhs_surf_expr[j])*")";
-    #         end
-    #         for j=1:length(rhs_surf_expr)
-    #             rhsstring = rhsstring*" + surface("*string(rhs_surf_expr[j])*")";
-    #         end
-    #     end
-    # end
-    # log_entry("Weak form, symbolic layer:\n\t"*string(lhsstring)*"\n"*string(rhsstring));
-    # ################ string ####################################
     
     # change symbolic layer into code layer
     (lhs_string, lhs_code) = generate_code_layer(lhs_symexpr, var, LHS, "volume", config.solver_type, language, gen_framework);
@@ -521,23 +447,8 @@ function flux(var, fex)
     log_entry("flux, input: "*string(fex));
     
     # The parsing step
-    (flhs_expr, frhs_expr) = sp_parse(symfex, symvars);
-    # Note that this automatically puts a (-) on all rhs terms. These need to be reversed for FV.
+    (lhs_symexpr, rhs_symexpr) = sp_parse(symfex, symvars, is_FV=true, is_flux=true);
     
-    # Modify the expressions according to time stepper.
-    # There is an assumed Dt(u) added which is the only time derivative.
-    log_entry("flux, before modifying for time: "*string(flhs_expr)*" - "*string(frhs_expr));
-    
-    (newflhs, newfrhs) = reformat_for_stepper_fv_flux(flhs_expr, frhs_expr, config.stepper);
-    
-    log_entry("flux, modified for time stepping: "*string(newflhs)*" + "*string(newfrhs));
-    
-    flhs_expr = newflhs;
-    frhs_expr = newfrhs;
-    
-    # Here we build a SymExpression for each of the pieces. 
-    # This is passed to the code generator.
-    (lhs_symexpr, rhs_symexpr) = build_symexpressions(symvars, flhs_expr, frhs_expr, remove_zeros=true);
     set_symexpressions(var, lhs_symexpr, LHS, "surface");
     set_symexpressions(var, rhs_symexpr, RHS, "surface");
     
@@ -586,23 +497,8 @@ function source(var, sex)
     log_entry("source, input: "*string(sex));
     
     # The parsing step
-    (slhs_expr, srhs_expr) = sp_parse(symsex, symvars);
-    # Note that this automatically puts a (-) on all rhs terms. These need to be reversed for FV.
+    (lhs_symexpr, rhs_symexpr) = sp_parse(symsex, symvars, is_FV=true);
     
-    # Modify the expressions according to time stepper.
-    # There is an assumed Dt(u) added which is the only time derivative.
-    log_entry("source, before modifying for time: "*string(slhs_expr)*" - "*string(srhs_expr));
-    
-    (newslhs, newsrhs) = reformat_for_stepper_fv_source(slhs_expr, srhs_expr, config.stepper);
-    
-    log_entry("source, modified for time stepping: "*string(newslhs)*" + "*string(newsrhs));
-    
-    slhs_expr = newslhs;
-    srhs_expr = newsrhs;
-    
-    # Here we build a SymExpression for each of the pieces. 
-    # This is passed to the code generator.
-    (lhs_symexpr, rhs_symexpr) = build_symexpressions(symvars, slhs_expr, srhs_expr, remove_zeros=true);
     set_symexpressions(var, lhs_symexpr, LHS, "volume");
     set_symexpressions(var, rhs_symexpr, RHS, "volume");
     

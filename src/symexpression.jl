@@ -228,7 +228,7 @@ function build_symexpressions(var, lhsvol, rhsvol, lhssurf=nothing, rhssurf=noth
     end
 end
 
-# Builds one symexpression from a SymEngine object
+# Builds one symexpression from a SymEngine object or an Expr
 function build_symexpression(var, ex, lorr, vors; remove_zero_in_array=false)
     if ex === nothing
         return nothing
@@ -263,6 +263,22 @@ function build_symexpression(var, ex, lorr, vors; remove_zero_in_array=false)
         
         return symex;
         
+    elseif typeof(ex) == Expr || typeof(ex) == Symbol || typeof(ex) <: Number
+        # Traverse it to find SymTerm leaves and build a SymExpression
+        (newex, sents) = extract_symentities(var, ex);
+        
+        # Replace some special operators with their real expressions
+        newex = replace_special_ops(newex);
+        
+        # If using FEM, reorder factors for easier generation
+        if config.solver_type == CG || config.solver_type == DG
+            newex = order_expression_for_fem(var, test_functions, newex);
+        end
+        
+        symex = SymExpression(newex, sents);
+        
+        return symex;
+        
     end
 end
 
@@ -280,9 +296,19 @@ function extract_symentities(var, ex)
                 append!(sents, subsents);
             end
         elseif ex.head === :if # a conditional like if a<b c else d end
-            # TODO
-        else
-            # What else could it be?
+            # This has three expr: one for a<b and a block for c and a block for d
+            for i=1:length(ex.args)
+                (subex, subsents) = extract_symentities(var, ex.args[i]);
+                newex.args[i] = subex;
+                append!(sents, subsents);
+            end
+            
+        else # There are a few other things it could be. Just process the args.
+            for i=1:length(ex.args)
+                (subex, subsents) = extract_symentities(var, ex.args[i]);
+                newex.args[i] = subex;
+                append!(sents, subsents);
+            end
         end
         
     elseif typeof(ex) == Symbol
