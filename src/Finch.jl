@@ -330,7 +330,7 @@ function add_test_function(v, type)
     end
     symvar = sym_var(string(v), type, components);
 
-    push!(test_functions, Finch.Coefficient(v, symvar, varind, type, NODAL, []););
+    push!(test_functions, Finch.Coefficient(v, symvar, varind, type, NODAL, [], false););
     log_entry("Set test function symbol: "*string(v)*" of type: "*type, 2);
 end
 
@@ -408,7 +408,7 @@ function add_variable(var)
 end
 
 # Adds a coefficient with either constant value or some generated function of (x,y,z,t)
-function add_coefficient(c, type, location, val, nfuns)
+function add_coefficient(c, type, location, val, nfuns, element_array=false)
     global coefficients;
     # The values of c will have the same array structure as val
     if typeof(val) <: Array
@@ -437,15 +437,32 @@ function add_coefficient(c, type, location, val, nfuns)
             push!(vals, genfunctions[end]);
         end
     end
-    components = length(vals);
+    # If element_array, the last index in size(vals) should be per element.
+    # c[n1, nel] for n1 components by nel elements.
+    if element_array
+        sz = size(vals);
+        components = 0;
+        for ind=1:length(sz)-1
+            components += sz[ind];
+        end
+        if components == 0
+            components = 1;
+        end
+    else
+        components = length(vals);
+    end
     
     symvar = sym_var(string(c), type, components);
 
     index = length(coefficients) + 1;
-    push!(coefficients, Coefficient(c, symvar, index, type, location, vals));
-
-    log_entry("Added coefficient "*string(c)*" : "*string(val), 2);
-
+    push!(coefficients, Coefficient(c, symvar, index, type, location, vals, element_array));
+    
+    if element_array
+        log_entry("Added coefficient "*string(c)*" : (array of elemental values)", 2);
+    else
+        log_entry("Added coefficient "*string(c)*" : "*string(val), 2);
+    end
+    
     return coefficients[end];
 end
 

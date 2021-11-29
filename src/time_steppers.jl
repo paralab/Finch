@@ -40,6 +40,18 @@ function init_stepper(x, stepper)
         
         return stepper;
         
+    elseif stepper.type == PECE
+        dxmin = abs(x[1,2]-x[1,1]); # TODO this only works for similar, square elements
+        if stepper.cfl == 0
+            stepper.cfl = 1;
+        end
+        stepper.dt = stepper.cfl*dxmin*dxmin;
+        stepper.Nsteps = ceil(prob.end_time/stepper.dt);
+        stepper.dt = prob.end_time/stepper.Nsteps;
+        stepper.stages = 1;
+        
+        return stepper;
+        
     elseif stepper.type == CRANK_NICHOLSON
         dxmin = abs(x[1,2]-x[1,1]); # TODO this only works for similar, square elements
         if stepper.cfl == 0
@@ -119,7 +131,7 @@ function reformat_for_stepper(lhs, rhs, stepper)
             newrhs = copy(rhs);
             append!(newrhs, lhs[1]);# dt*rhs + lhs1
             
-        elseif stepper == EULER_EXPLICIT # lhs1 = dt*rhs - dt*lhs2 + lhs1
+        elseif stepper == EULER_EXPLICIT || stepper == PECE # lhs1 = dt*rhs - dt*lhs2 + lhs1
             # # This version includes the lhs1 + dt*(  ) part
             # for i=1:length(lhs[2])
             #     lhs[2][i] = -lhs[2][i]*dt; # -dt*lhs2
@@ -235,7 +247,7 @@ function reformat_for_stepper(lhs, rhs, face_lhs, face_rhs,stepper)
             newfacerhs = copy(face_rhs);# dt*facerhs
             newfacelhs = copy(face_lhs);# dt*facelhs
             
-        elseif stepper == EULER_EXPLICIT # lhs1 = lhs1 + dt*rhs - dt*lhs2
+        elseif stepper == EULER_EXPLICIT || stepper == PECE # lhs1 = lhs1 + dt*rhs - dt*lhs2
             # # This version includes the lhs1 + dt*(  ) part
             # for i=1:length(lhs[2])
             #     lhs[2][i] = -lhs[2][i]*dt; # -dt*lhs2
@@ -361,7 +373,7 @@ function reformat_for_stepper_fv_flux(lhs, rhs, stepper)
         end
     else
         # reformat depending on stepper type
-        if stepper == EULER_EXPLICIT || stepper == RK4 || stepper == LSRK4
+        if stepper == EULER_EXPLICIT || stepper == RK4 || stepper == LSRK4 || stepper == PECE
             # du/dt = -lhs + rhs
             for i=1:length(lhs)
                 lhs[i] = -lhs[i];
@@ -399,7 +411,7 @@ function reformat_for_stepper_fv_source(lhs, rhs, stepper)
         end
     else
         # reformat depending on stepper type
-        if stepper == EULER_EXPLICIT || stepper == RK4 || stepper == LSRK4
+        if stepper == EULER_EXPLICIT || stepper == RK4 || stepper == LSRK4 || stepper == PECE
             # du/dt = -lhs + rhs
             for i=1:length(lhs)
                 lhs[i] = -lhs[i];

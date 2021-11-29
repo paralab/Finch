@@ -773,7 +773,7 @@ face_done = allocated_vecs[4];
     if !(source_rhs === nothing)
         
         sourceargs = (var, eid, 0, grid_data, geo_factors, fv_info, refel, t, dt);
-        source = source_rhs.func(sourceargs; "*index_args*") ./ geo_factors.volume[eid];
+        source = source_rhs.func(sourceargs; "*index_args*");
         
         # Add to global source vector
         sourcevec[index_offset:(index_offset + dofs_per_loop-1)] .= source;

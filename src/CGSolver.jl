@@ -183,6 +183,39 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                 place_sol_in_vars(var, sol, stepper);
                 post_step_function();
                 
+            elseif stepper.type == PECE
+                # Predictor (explicit Euler)
+                pre_step_function();
+                assemble_t += @elapsed(b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt; rhs_only = true, assemble_loops=assemble_func));
+                
+                linsolve_t += @elapsed(tmpvec = A\b);
+                
+                # At this point tmpvec holds the boundary values
+                # directly write them to the variable values and zero sol.
+                copy_bdry_vals_to_variables(var, tmpvec, grid_data, dofs_per_node, zero_vals=true);
+                
+                tmpvec = sol .+ stepper.dt .* tmpvec;
+                
+                copy_bdry_vals_to_vector(var, tmpvec, grid_data, dofs_per_node);
+                place_sol_in_vars(var, tmpvec, stepper);
+                post_step_function();
+                
+                # Corrector (implicit Euler)
+                pre_step_function();
+                assemble_t += @elapsed(b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t+stepper.dt, stepper.dt; rhs_only = true, assemble_loops=assemble_func));
+                
+                linsolve_t += @elapsed(tmpvec = A\b);
+                
+                # At this point tmpvec holds the boundary values
+                # directly write them to the variable values and zero sol.
+                copy_bdry_vals_to_variables(var, tmpvec, grid_data, dofs_per_node, zero_vals=true);
+                
+                sol = sol .+ stepper.dt .* tmpvec;
+                
+                copy_bdry_vals_to_vector(var, sol, grid_data, dofs_per_node);
+                place_sol_in_vars(var, sol, stepper);
+                post_step_function();
+                
             else # implicit methods include the dt part 
                 pre_step_function();
                 assemble_t += @elapsed(b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt; rhs_only = true, assemble_loops=assemble_func));

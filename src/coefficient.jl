@@ -11,6 +11,8 @@ struct Coefficient
     type::String            # constants for SCALAR, VECTOR, etc.
     location::String        # constant for NODAL, MODAL, CELL
     value::Array            # An array of either constant values(numbers) or genfunctions
+    
+    is_element_array::Bool  # Are the values specified for each element in an array?
 end
 
 # Returns the value of the coefficient for the specified component, coordinates and time.

@@ -159,6 +159,23 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
                 
                 post_step_function();
                 
+            elseif stepper.type == PECE
+                # Predictor (explicit Euler)
+                pre_step_function();
+                tmpsol = sol .+ stepper.dt .* assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func);
+                
+                copy_bdry_vals_to_vector(var, tmpsol, grid, dofs_per_node);
+                place_sol_in_vars(var, tmpsol, stepper);
+                post_step_function();
+                
+                # Corrector (implicit Euler)
+                pre_step_function();
+                sol = sol .+ stepper.dt .* assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t+stepper.dt, stepper.dt, assemble_loops=assemble_func);
+                
+                copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
+                place_sol_in_vars(var, sol, stepper);
+                post_step_function();
+                
             else
                 printerr("Only explicit time steppers for FV are ready. TODO")
                 return sol;
@@ -390,7 +407,8 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
             # Use source_rhs for RHS volume integral
             if !(source_rhs === nothing)
                 sourceargs = (var, eid, 0, fv_grid, fv_geo_factors, fv_info, fv_refel, t, dt);
-                source = source_rhs.func(sourceargs) ./ fv_geo_factors.volume[eid];
+                source = source_rhs.func(sourceargs);
+                # source = source_rhs.func(sourceargs) ./ fv_geo_factors.volume[eid];
                 # Add to global source vector
                 sourcevec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] = source;
             end
