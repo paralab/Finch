@@ -59,13 +59,7 @@ function simple_line_mesh(nx, bn, interval)
     
     mesh = MeshData(Nv, xv, ind, nel, el, etypes, numvert, invind, f2n, f2e, e2f, normals, bdryID); # MeshData struct
     
-    (refel, grid) = grid_from_mesh(mesh);
-    
-    # if bn == 2
-    #     add_boundary_ID_to_grid(2, x -> x >= interval[2], grid);
-    # end
-    
-    return (mesh, refel, grid);
+    return mesh;
 end
 
 #=
@@ -102,19 +96,6 @@ function simple_quad_mesh(nxy, bn, interval)
     normals = ones(2,Nf);       # normals of faces
     bdryID = zeros(Int, Nf);    # BID of faces (0=interior)
     
-    # if bn == 4
-    #     bids = [1,2,3,4]; # x=0, x=1, y=0, y=1
-    #     allbids = [1,2,3,4];
-    # elseif bn == 3
-    #     bids = [1,2,3]; # x=0 , x=1, y=0,1
-    #     allbids = [1,2,3,3];
-    # elseif bn == 2
-    #     bids = [1,2]; # x=0,1 , y=0,1
-    #     allbids = [1,1,2,2];
-    # else
-    #     bids = [1]; # everywhere
-    #     allbids = [1,1,1,1];
-    # end
     bids = [1]; # everywhere
     allbids = [1,1,1,1];
     
@@ -206,20 +187,7 @@ function simple_quad_mesh(nxy, bn, interval)
     
     mesh = MeshData(Nv, xv, ind, nel, el, etypes, numvert, invind, f2n, f2e, e2f, normals, bdryID); # MeshData struct
     
-    (refel, grid) = grid_from_mesh(mesh);
-    
-    if bn == 2
-        add_boundary_ID_to_grid(2, (x,y) -> (y <= interval[3]) || (y >= interval[4]), grid);
-    elseif bn == 3
-        add_boundary_ID_to_grid(2, (x,y) -> (x >= interval[2]), grid);
-        add_boundary_ID_to_grid(3, (x,y) -> ((y <= interval[3]) || (y >= interval[4])) && (x > interval[1] && x < interval[2]), grid);
-    elseif bn == 4
-        add_boundary_ID_to_grid(2, (x,y) -> (x >= interval[2]), grid);
-        add_boundary_ID_to_grid(3, (x,y) -> (y <= interval[3] && (x > interval[1] && x < interval[2])), grid);
-        add_boundary_ID_to_grid(4, (x,y) -> (y >= interval[4] && (x > interval[1] && x < interval[2])), grid);
-    end
-    
-    return (mesh, refel, grid);
+    return mesh;
 end
 
 #=
@@ -257,26 +225,6 @@ function simple_hex_mesh(nxyz, bn, interval)
     e2f = zeros(Int, 6,nel);    # element2face mapping
     normals = ones(3,Nf);       # normals of faces
     bdryID = zeros(Int, Nf);    # BID of faces (0=interior)
-    
-    # if bn == 6
-    #     bids = [1,2,3,4,5,6]; # all separate
-    #     allbids = [1,2,3,4,5,6];
-    # elseif bn == 5
-    #     bids = [1,2,3,4,5]; # combine z
-    #     allbids = [1,2,3,4,5,5];
-    # elseif bn == 4
-    #     bids = [1,2,3,4]; # combine y and z
-    #     allbids = [1,2,3,3,4,4];
-    # elseif bn == 3
-    #     bids = [1,2,3]; # combine x,y,z
-    #     allbids = [1,1,2,2,3,3];
-    # elseif bn == 2
-    #     bids = [1,2]; # x=0, other
-    #     allbids = [1,2,2,2,2,2];
-    # else
-    #     bids = [1]; # everywhere
-    #     allbids = [1,1,1,1,1,1];
-    # end
     
     bids = [1]; # everywhere
     allbids = [1,1,1,1,1,1];
@@ -428,38 +376,7 @@ function simple_hex_mesh(nxyz, bn, interval)
         end
     end
     
-    
     mesh = MeshData(Nv, xv, ind, nel, el, etypes, numvert, invind, f2n, f2e, e2f, normals, bdryID); # MeshData struct
     
-    (refel, grid) = grid_from_mesh(mesh);
-    
-    tiny = 1e-13;
-    if bn == 6
-        # bids = [1,2,3,4,5,6]; # all separate
-        add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny), grid);
-        add_boundary_ID_to_grid(3, (x,y,z) -> (y <= interval[3]+tiny), grid);
-        add_boundary_ID_to_grid(4, (x,y,z) -> (y >= interval[4]-tiny), grid);
-        add_boundary_ID_to_grid(5, (x,y,z) -> (z <= interval[5]+tiny), grid);
-        add_boundary_ID_to_grid(6, (x,y,z) -> (z >= interval[6]-tiny), grid);
-    elseif bn == 5
-        # bids = [1,2,3,4,5]; # combine z
-        add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny), grid);
-        add_boundary_ID_to_grid(3, (x,y,z) -> (y <= interval[3]+tiny), grid);
-        add_boundary_ID_to_grid(4, (x,y,z) -> (y >= interval[4]-tiny), grid);
-        add_boundary_ID_to_grid(5, (x,y,z) -> (z <= interval[5]+tiny) || (z >= interval[6]-tiny), grid);
-    elseif bn == 4
-        # bids = [1,2,3,4]; # combine y and z
-        add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]), grid);
-        add_boundary_ID_to_grid(3, (x,y,z) -> ((y <= interval[3]+tiny) || (y >= interval[4]-tiny)), grid);
-        add_boundary_ID_to_grid(4, (x,y,z) -> ((z <= interval[5]+tiny) || (z >= interval[6]-tiny)), grid);
-    elseif bn == 3
-        # bids = [1,2,3]; # combine x,y,z
-        add_boundary_ID_to_grid(2, (x,y,z) -> (y <= interval[3]+tiny) || (y >= interval[4]-tiny), grid);
-        add_boundary_ID_to_grid(3, (x,y,z) -> (z <= interval[5]+tiny) || (z >= interval[6]-tiny), grid);
-    elseif bn == 2
-        # bids = [1,2]; # x=0, other
-        add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny) || (y <= interval[3]+tiny) || (y >= interval[4]-tiny) || (z <= interval[5]+tiny) || (z >= interval[6]-tiny), grid);
-    end
-    
-    return (mesh, refel, grid)
+    return mesh
 end

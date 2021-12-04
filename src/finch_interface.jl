@@ -122,18 +122,24 @@ end
 function mesh(msh; elsperdim=5, bids=1, interval=[0,1])
     if msh == LINEMESH
         log_entry("Building simple line mesh with nx elements, nx="*string(elsperdim));
-        meshtime = @elapsed(add_mesh(simple_line_mesh(elsperdim.+1, bids, interval)));
-        log_entry("Grid building took "*string(meshtime)*" seconds");
+        meshtime = @elapsed(mshdat = simple_line_mesh(elsperdim.+1, bids, interval));
+        log_entry("Mesh building took "*string(meshtime)*" seconds");
         
     elseif msh == QUADMESH
+        if length(interval) == 2
+            interval = [interval[1], interval[2], interval[1], interval[2]];
+        end
         log_entry("Building simple quad mesh with nx*nx elements, nx="*string(elsperdim));
-        meshtime = @elapsed(add_mesh(simple_quad_mesh(elsperdim.+1, bids, interval)));
-        log_entry("Grid building took "*string(meshtime)*" seconds");
+        meshtime = @elapsed(mshdat = simple_quad_mesh(elsperdim.+1, bids, interval));
+        log_entry("Mesh building took "*string(meshtime)*" seconds");
         
     elseif msh == HEXMESH
+        if length(interval) == 2
+            interval = [interval[1], interval[2], interval[1], interval[2], interval[1], interval[2]];
+        end
         log_entry("Building simple hex mesh with nx*nx*nx elements, nx="*string(elsperdim));
-        meshtime = @elapsed(add_mesh(simple_hex_mesh(elsperdim.+1, bids, interval)));
-        log_entry("Grid building took "*string(meshtime)*" seconds");
+        meshtime = @elapsed(mshdat = simple_hex_mesh(elsperdim.+1, bids, interval));
+        log_entry("Mesh building took "*string(meshtime)*" seconds");
         
     else # msh should be a mesh file name
         # open the file and read the mesh data
@@ -141,8 +147,62 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1])
         log_entry("Reading mesh file: "*msh);
         meshtime = @elapsed(mshdat=read_mesh(mfile));
         log_entry("Mesh reading took "*string(meshtime)*" seconds");
-        add_mesh(mshdat);
         close(mfile);
+    end
+    
+    # Set this in Finch and build the corresponding Grid
+    add_mesh(mshdat);
+    
+    # If bids>1 were specified for built meshes, add them here
+    if bids > 1
+        if msh == LINEMESH
+            # already done in mesh_data
+            # if bn == 2
+            #     add_boundary_ID_to_grid(2, x -> (x >= interval[2]), grid_data);
+            # end
+            
+        elseif msh == QUADMESH
+            if bn == 2
+                add_boundary_ID_to_grid(2, (x,y) -> (y <= interval[3]) || (y >= interval[4]), grid_data);
+            elseif bn == 3
+                add_boundary_ID_to_grid(2, (x,y) -> (x >= interval[2]), grid_data);
+                add_boundary_ID_to_grid(3, (x,y) -> ((y <= interval[3]) || (y >= interval[4])) && (x > interval[1] && x < interval[2]), grid_data);
+            elseif bn == 4
+                add_boundary_ID_to_grid(2, (x,y) -> (x >= interval[2]), grid_data);
+                add_boundary_ID_to_grid(3, (x,y) -> (y <= interval[3] && (x > interval[1] && x < interval[2])), grid_data);
+                add_boundary_ID_to_grid(4, (x,y) -> (y >= interval[4] && (x > interval[1] && x < interval[2])), grid_data);
+            end
+            
+        elseif msh == HEXMESH
+            tiny = 1e-13;
+            if bn == 6
+                # bids = [1,2,3,4,5,6]; # all separate
+                add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny), grid_data);
+                add_boundary_ID_to_grid(3, (x,y,z) -> (y <= interval[3]+tiny), grid_data);
+                add_boundary_ID_to_grid(4, (x,y,z) -> (y >= interval[4]-tiny), grid_data);
+                add_boundary_ID_to_grid(5, (x,y,z) -> (z <= interval[5]+tiny), grid_data);
+                add_boundary_ID_to_grid(6, (x,y,z) -> (z >= interval[6]-tiny), grid_data);
+            elseif bn == 5
+                # bids = [1,2,3,4,5]; # combine z
+                add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny), grid_data);
+                add_boundary_ID_to_grid(3, (x,y,z) -> (y <= interval[3]+tiny), grid_data);
+                add_boundary_ID_to_grid(4, (x,y,z) -> (y >= interval[4]-tiny), grid_data);
+                add_boundary_ID_to_grid(5, (x,y,z) -> (z <= interval[5]+tiny) || (z >= interval[6]-tiny), grid_data);
+            elseif bn == 4
+                # bids = [1,2,3,4]; # combine y and z
+                add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]), grid_data);
+                add_boundary_ID_to_grid(3, (x,y,z) -> ((y <= interval[3]+tiny) || (y >= interval[4]-tiny)), grid_data);
+                add_boundary_ID_to_grid(4, (x,y,z) -> ((z <= interval[5]+tiny) || (z >= interval[6]-tiny)), grid_data);
+            elseif bn == 3
+                # bids = [1,2,3]; # combine x,y,z
+                add_boundary_ID_to_grid(2, (x,y,z) -> (y <= interval[3]+tiny) || (y >= interval[4]-tiny), grid_data);
+                add_boundary_ID_to_grid(3, (x,y,z) -> (z <= interval[5]+tiny) || (z >= interval[6]-tiny), grid_data);
+            elseif bn == 2
+                # bids = [1,2]; # x=0, other
+                add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny) || (y <= interval[3]+tiny) || (y >= interval[4]-tiny) || (z <= interval[5]+tiny) || (z >= interval[6]-tiny), grid_data);
+            end
+            
+        end
     end
 end
 
@@ -1175,8 +1235,12 @@ function finalize_finch()
     if use_cachesim
         CachesimOut.finalize();
     end
-    # anything else
+    # log
     close_log();
+    # # mpi
+    # if config.use_mpi
+    #     MPI.Finalize(); # If MPI is finalized, it cannot be reinitialized without restarting Julia
+    # end
     println("Finch has completed.");
 end
 

@@ -130,6 +130,25 @@ function init_finch(name="unnamedProject")
     global specified_Nsteps = 0;
     global use_specified_steps = false;
     global use_cachesim = false;
+    
+    # check for MPI and initialize
+    if @isdefined(MPI)
+        MPI.Init();
+        config.num_procs = MPI.Comm_size(MPI.COMM_WORLD);
+        if config.num_procs < 2
+            # If only one process, ignore MPI.
+            # MPI.Finalize();
+        else
+            config.use_mpi = true;
+            config.proc_rank = MPI.Comm_rank(MPI.COMM_WORLD);
+        end
+    end
+    
+    # check for thread availability
+    config.num_threads = Threads.nthreads();
+    if (config.num_threads > 1 || config.num_procs > 1) && config.proc_rank == 0
+        println("Initialized with "*string(config.num_procs)*" processes and "*string(config.num_threads)*" threads per proc.");
+    end
 end
 
 # Sets the code generation target
@@ -208,20 +227,30 @@ function set_matrix_free(max, tol)
 end
 
 # Adds a mesh and builds the full grid and reference elements.
-# Actually, the mesh object passed here could be either just a MeshData struct,
-# or a tuple of MeshData, Refel and Grid already built.
 function add_mesh(mesh)
-    if typeof(mesh) <: Tuple
-        global mesh_data = mesh[1];
-        global refel = mesh[2];
-        global grid_data = mesh[3];
+    global mesh_data = mesh;
+    global refel;
+    global grid_data;
+    
+    if config.use_mpi && config.num_procs > 1
+        if config.proc_rank == 0
+            # Partition the mesh and send the partition info to each proc to build their subgrids.
+            # For now, partition into the number of procs. This will be modified in the future.
+            np = config.num_procs;
+            epart = get_element_partitions(mesh, np);
+            
+        else # other ranks recieve the partition info
+            epart = fill(Cint(-1), mesh.nel);
+            
+        end
+        # Broadcast partition info to all
+        MPI.Bcast!(epart, 0, MPI.COMM_WORLD);
+        
+        # Each proc will build a subgrid containing only their elements and ghost neighbors.
+        (refel, grid_data) = partitioned_grid_from_mesh(mesh, epart);
         
     else
-        global mesh_data = mesh;
-        global refel;
-        global grid_data;
         (refel, grid_data) = grid_from_mesh(mesh_data);
-        
     end
     
     constantJ = true;

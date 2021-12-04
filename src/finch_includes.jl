@@ -10,27 +10,61 @@ using Random
 try
     using SymEngine
 catch e
-    println("Julia SymEngine is not yet installed. Installing now.");
-    using Pkg
-    Pkg.add("SymEngine")
-    using SymEngine
+    println("SymEngine package is not yet installed. It is required.\nWould you like to install now? y/n.");
+    response = readline();
+    if response=="Y" || response=="y"
+        using Pkg
+        Pkg.add("SymEngine")
+        using SymEngine
+    else
+        println("It is a required package. Exiting Finch.")
+    end
 end
 try
     using WriteVTK
 catch e
-    println("WriteVTK is not yet installed. Installing now.");
-    using Pkg
-    Pkg.add("WriteVTK")
-    using WriteVTK
+    println("WriteVTK package is not yet installed. It is optional.\nWould you like to install now? y/n.");
+    response = readline();
+    if response=="Y" || response=="y"
+        using Pkg
+        Pkg.add("WriteVTK")
+        using WriteVTK
+    else
+        println("Continuing without WriteVTK. Note that VTK output will not be possible.")
+    end
 end
-# try
-#     using Latexify
-# catch e
-#     println("Latexify is not yet installed. Installing now.");
-#     using Pkg
-#     Pkg.add("Latexify")
-#     using Latexify
-# end
+try
+    using MPI
+catch e
+    println("MPI package is not yet installed. It is optional.\nWould you like to install now? y/n.");
+    response = readline();
+    if response=="Y" || response=="y"
+        using Pkg
+        Pkg.add("MPI")
+        using MPI
+        println("Note that MPI may require some manual configuration to work properly.")
+        println("Now attempting to build the MPI package using an MPI implementation installed on your system.");
+        ENV["JULIA_MPI_BINARY"] = "system";
+        Pkg.build("MPI"; verbose=true);
+    else
+        println("Continuing without MPI.")
+    end
+end
+if @isdefined(MPI)
+    try
+        using METIS_jll
+    catch e
+        println("METIS_jll package is not yet installed. It is optional, but needed for effective MPI parallelization.\nWould you like to install now? y/n.");
+        response = readline();
+        if response=="Y" || response=="y"
+            using Pkg
+            Pkg.add("METIS_jll")
+            using METIS_jll: libmetis
+        else
+            println("Continuing without METIS_jll.")
+        end
+    end
+end
 ######################
 
 # include these first
@@ -52,6 +86,7 @@ include("recursive_ordering.jl");
 include("tiled_ordering.jl");
 include("ef_ordering.jl");
 include("bad_ordering.jl");
+include("partition.jl");
 
 include("general_utils.jl");
 include("function_utils.jl");

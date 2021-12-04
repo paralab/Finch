@@ -10,13 +10,13 @@ end
 
 mutable struct Finch_config
     # Domain
-    dimension::Int          # 1,2,3,4
+    dimension::Int          # 1,2,3
     geometry::String        # square, irregular
-    mesh_type::String       # unstructured, tree, grid
+    mesh_type::String       # unstructured, tree, uniform grid
 
     # FEM details
-    solver_type::String     # cg, dg, hdg
-    trial_function::String  # Legendre, nodal, modal
+    solver_type::String     # cg, dg, fv
+    trial_function::String  # Legendre
     test_function::String   # same as above
     elemental_nodes::String # uniform, gauss, lobatto (higher order node distribution within elements)
     quadrature::String      # uniform, gauss, lobatto (similar to above)
@@ -32,7 +32,15 @@ mutable struct Finch_config
     linalg_matfree_max::Int # max iters for matrix free
     linalg_matfree_tol::Float64 # tolerance for matrix free
     linalg_backend::String  # default, petsc, ?? (What to use for linear algebra)
+    
+    # Output
     output_format::String   # VTK, raw, custom (format for storing solutions)
+    
+    # Parallel details
+    use_mpi::Bool           # Is MPI available?
+    num_procs::Int;         # number of processes
+    proc_rank::Int;         # this proccess rank
+    num_threads::Int;       # number of available threads
     
     # Constructor builds a default config.
     Finch_config() = new(
@@ -54,6 +62,10 @@ mutable struct Finch_config
         1,
         1.0,
         DEFAULT_SOLVER,
-        VTK
+        VTK,
+        false,
+        1,
+        0,
+        1
     );
 end
