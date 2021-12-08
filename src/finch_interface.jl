@@ -162,12 +162,12 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1])
             # end
             
         elseif msh == QUADMESH
-            if bn == 2
+            if bids == 2
                 add_boundary_ID_to_grid(2, (x,y) -> (y <= interval[3]) || (y >= interval[4]), grid_data);
-            elseif bn == 3
+            elseif bids == 3
                 add_boundary_ID_to_grid(2, (x,y) -> (x >= interval[2]), grid_data);
                 add_boundary_ID_to_grid(3, (x,y) -> ((y <= interval[3]) || (y >= interval[4])) && (x > interval[1] && x < interval[2]), grid_data);
-            elseif bn == 4
+            elseif bids == 4
                 add_boundary_ID_to_grid(2, (x,y) -> (x >= interval[2]), grid_data);
                 add_boundary_ID_to_grid(3, (x,y) -> (y <= interval[3] && (x > interval[1] && x < interval[2])), grid_data);
                 add_boundary_ID_to_grid(4, (x,y) -> (y >= interval[4] && (x > interval[1] && x < interval[2])), grid_data);
@@ -175,29 +175,29 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1])
             
         elseif msh == HEXMESH
             tiny = 1e-13;
-            if bn == 6
+            if bids == 6
                 # bids = [1,2,3,4,5,6]; # all separate
                 add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny), grid_data);
                 add_boundary_ID_to_grid(3, (x,y,z) -> (y <= interval[3]+tiny), grid_data);
                 add_boundary_ID_to_grid(4, (x,y,z) -> (y >= interval[4]-tiny), grid_data);
                 add_boundary_ID_to_grid(5, (x,y,z) -> (z <= interval[5]+tiny), grid_data);
                 add_boundary_ID_to_grid(6, (x,y,z) -> (z >= interval[6]-tiny), grid_data);
-            elseif bn == 5
+            elseif bids == 5
                 # bids = [1,2,3,4,5]; # combine z
                 add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny), grid_data);
                 add_boundary_ID_to_grid(3, (x,y,z) -> (y <= interval[3]+tiny), grid_data);
                 add_boundary_ID_to_grid(4, (x,y,z) -> (y >= interval[4]-tiny), grid_data);
                 add_boundary_ID_to_grid(5, (x,y,z) -> (z <= interval[5]+tiny) || (z >= interval[6]-tiny), grid_data);
-            elseif bn == 4
+            elseif bids == 4
                 # bids = [1,2,3,4]; # combine y and z
                 add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]), grid_data);
                 add_boundary_ID_to_grid(3, (x,y,z) -> ((y <= interval[3]+tiny) || (y >= interval[4]-tiny)), grid_data);
                 add_boundary_ID_to_grid(4, (x,y,z) -> ((z <= interval[5]+tiny) || (z >= interval[6]-tiny)), grid_data);
-            elseif bn == 3
+            elseif bids == 3
                 # bids = [1,2,3]; # combine x,y,z
                 add_boundary_ID_to_grid(2, (x,y,z) -> (y <= interval[3]+tiny) || (y >= interval[4]-tiny), grid_data);
                 add_boundary_ID_to_grid(3, (x,y,z) -> (z <= interval[5]+tiny) || (z >= interval[6]-tiny), grid_data);
-            elseif bn == 2
+            elseif bids == 2
                 # bids = [1,2]; # x=0, other
                 add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny) || (y <= interval[3]+tiny) || (y >= interval[4]-tiny) || (z <= interval[5]+tiny) || (z >= interval[6]-tiny), grid_data);
             end
@@ -1241,7 +1241,9 @@ function finalize_finch()
     # if config.use_mpi
     #     MPI.Finalize(); # If MPI is finalized, it cannot be reinitialized without restarting Julia
     # end
-    println("Finch has completed.");
+    if config.proc_rank == 0
+        println("Finch has completed.");
+    end
 end
 
 ### Other specialized functions ###
@@ -1295,7 +1297,7 @@ function random_nodes(seed = 17)
 end
 
 function random_elements(seed = 17)
-    global elemental_order = random_order(mesh_data.nel, seed);
+    global elemental_order = random_order(size(grid_data.loc2glb,2), seed);
     log_entry("Reordered elements to random.", 2);
     random_nodes(seed);
 end

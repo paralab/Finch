@@ -24,6 +24,11 @@ function set_pre_step(fun) global pre_step_function = fun; end
 function set_post_step(fun) global post_step_function = fun; end
 ############################################################
 
+function init_solver()
+    global pre_step_function = default_pre_step;
+    global post_step_function = default_post_step;
+end
+
 function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=nothing, assemble_func=nothing)
     # If more than one variable
     if typeof(var) <: Array
@@ -41,11 +46,11 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
     end
     if fv_grid === nothing
         grid = grid_data;
-        nel = size(grid_data.loc2glb, 2);
+        nel = grid_data.nel_owned;
         nfaces = size(grid_data.face2element, 2);
     else
         grid = fv_grid;
-        nel = size(fv_grid.loc2glb, 2);
+        nel = fv_grid.nel_owned;
         nfaces = size(fv_grid.face2element, 2);
     end
     
@@ -64,6 +69,7 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
     if prob.time_dependent && !(stepper === nothing)
         log_entry("Beginning "*string(stepper.Nsteps)*" time steps.");
         t = 0;
+        if config.num_partitions > 1 exchange_ghosts(var, grid, 0); end
         sol = get_var_vals(var);
         
         # allocate storage used by steppers
@@ -77,7 +83,7 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
         start_t = Base.Libc.time();
         last2update = 0;
         last10update = 0;
-        print("Time stepping progress(%): 0");
+        if config.proc_rank == 0 print("Time stepping progress(%): 0"); end
         for i=1:stepper.Nsteps
             if stepper.stages > 1
                 # LSRK4 is a special case, low storage
@@ -94,6 +100,7 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
                         rktime = t + stepper.c[rki]*stepper.dt;
                         # p(i-1) is currently in u
                         
+                        if config.num_partitions > 1 exchange_ghosts(var, grid, i); end
                         pre_step_function();
                         
                         sol = assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, stime, stepper.dt, assemble_loops=assemble_func);
@@ -118,12 +125,13 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
                     # ki = rhs(t+ci*dt, x+dt*sum(aij*kj)))   j < i
                     
                     # will hold the final result
-                    sol = get_var_vals(var, sol);
+                    # sol = get_var_vals(var, sol);
                     # will be placed in var.values for each stage
                     tmpvals = sol;
                     for stage=1:stepper.stages
                         stime = t + stepper.c[stage]*stepper.dt;
                         
+                        if config.num_partitions > 1 exchange_ghosts(var, grid, i); end
                         pre_step_function();
                         
                         tmpki[:,stage] = assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, stime, stepper.dt, assemble_loops=assemble_func);
@@ -150,6 +158,7 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
                 end
                 
             elseif stepper.type == EULER_EXPLICIT
+                if config.num_partitions > 1 exchange_ghosts(var, grid, i); end
                 pre_step_function();
                 
                 sol = sol .+ stepper.dt .* assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func);
@@ -161,6 +170,7 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
                 
             elseif stepper.type == PECE
                 # Predictor (explicit Euler)
+                if config.num_partitions > 1 exchange_ghosts(var, grid, i); end
                 pre_step_function();
                 tmpsol = sol .+ stepper.dt .* assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func);
                 
@@ -169,6 +179,7 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
                 post_step_function();
                 
                 # Corrector (implicit Euler)
+                if config.num_partitions > 1 exchange_ghosts(var, grid, i); end
                 pre_step_function();
                 sol = sol .+ stepper.dt .* assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t+stepper.dt, stepper.dt, assemble_loops=assemble_func);
                 
@@ -187,29 +198,24 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
             
             t += stepper.dt;
             
-            progressPercent = Int(floor(i*100.0/stepper.Nsteps));
-            if progressPercent - last2update >= 2
-                last2update = progressPercent;
-                if progressPercent - last10update >= 10
-                    print(progressPercent);
-                    last10update = progressPercent;
-                else
-                    print(".");
+            if config.proc_rank == 0
+                progressPercent = Int(floor(i*100.0/stepper.Nsteps));
+                if progressPercent - last2update >= 2
+                    last2update = progressPercent;
+                    if progressPercent - last10update >= 10
+                        print(progressPercent);
+                        last10update = progressPercent;
+                    else
+                        print(".");
+                    end
                 end
             end
         end
-        println("");
+        if config.proc_rank == 0 println(""); end
+        if config.num_partitions > 1 exchange_ghosts(var, grid, 0); end
         end_t = Base.Libc.time();
         
         log_entry("Stepping took "*string(end_t-start_t)*" seconds.");
-        #log_entry("Stepping took "*string(end_t-start_t)*" seconds. ("*string(assemble_t)*" for assembly, "*string(linsolve_t)*" for linear solve)");
-        #display(sol);
-		# outfile = "linear_sol.txt"
-		# open(outfile, "w") do f
-  		# 	for ii in sol
-    	# 		println(f, ii)
-  		# 	end
-		# end # the file f is automatically closed after this block finishes
         return sol;
 
     else
@@ -251,7 +257,7 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
         return assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt);
     end
     
-    nel = size(fv_grid.loc2glb, 2);
+    nel = fv_grid.nel_owned;
     
     # Label things that were allocated externally
     sourcevec = allocated_vecs[1];
@@ -700,8 +706,9 @@ function insert_linear!(b, bel, glb, dof, Ndofs)
     end
 end
 
+# place the values in the variable value arrays
 function place_sol_in_vars(var, sol, stepper)
-    # place the values in the variable value arrays
+    nel = fv_grid.nel_owned;
     if typeof(var) <: Array
         tmp = 0;
         totalcomponents = 0;
@@ -712,9 +719,9 @@ function place_sol_in_vars(var, sol, stepper)
             components = var[vi].total_components;
             for compi=1:components
                 if stepper.type == EULER_EXPLICIT
-                    var[vi].values[compi,:] = sol[(compi+tmp):totalcomponents:end];
+                    var[vi].values[compi,1:nel] = sol[(compi+tmp):totalcomponents:end];
                 else 
-                    var[vi].values[compi,:] = sol[(compi+tmp):totalcomponents:end];
+                    var[vi].values[compi,1:nel] = sol[(compi+tmp):totalcomponents:end];
                 end
                 tmp = tmp + 1;
             end
@@ -723,16 +730,17 @@ function place_sol_in_vars(var, sol, stepper)
         components = var.total_components;
         for compi=1:components
             if stepper.type == EULER_EXPLICIT
-                var.values[compi,:] = sol[compi:components:end];
+                var.values[compi,1:nel] = sol[compi:components:end];
             else
-                var.values[compi,:] = sol[compi:components:end];
+                var.values[compi,1:nel] = sol[compi:components:end];
             end
         end
     end
 end
 
+# place the variable values in a vector
 function get_var_vals(var, vect=nothing)
-    # place the variable values in a vector
+    nel = fv_grid.nel_owned;
     if typeof(var) <: Array
         tmp = 0;
         totalcomponents = 0;
@@ -740,23 +748,23 @@ function get_var_vals(var, vect=nothing)
             totalcomponents = totalcomponents + var[vi].total_components;
         end
         if vect === nothing
-            vect = zeros(totalcomponents * length(var[1].values[1,:]));
+            vect = zeros(totalcomponents * nel);
         end
         
         for vi=1:length(var)
             components = var[vi].total_components;
             for compi=1:components
-                vect[(compi+tmp):totalcomponents:end] = var[vi].values[compi,:];
+                vect[(compi+tmp):totalcomponents:end] = var[vi].values[compi,1:nel];
                 tmp = tmp + 1;
             end
         end
     else
         components = var.total_components;
         if vect === nothing
-            vect = zeros(components * length(var.values[1,:]));
+            vect = zeros(components * nel);
         end
         for compi=1:components
-            vect[compi:components:end] = var.values[compi,:];
+            vect[compi:components:end] = var.values[compi,1:nel];
         end
     end
     

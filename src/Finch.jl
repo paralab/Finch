@@ -200,6 +200,7 @@ function set_solver(stype)
         sourcedir = @__DIR__
         add_custom_op_file(string(sourcedir)*"/fv_ops.jl");
     end
+    solver.init_solver();
 end
 
 # Sets the time stepper
@@ -227,16 +228,24 @@ function set_matrix_free(max, tol)
 end
 
 # Adds a mesh and builds the full grid and reference elements.
-function add_mesh(mesh)
+function add_mesh(mesh; partitions=0)
     global mesh_data = mesh;
     global refel;
     global grid_data;
     
-    if config.use_mpi && config.num_procs > 1
+    if partitions==0
+        np = config.num_procs; # By default each process gets a partition
+        config.num_partitions = np;
+        config.partition_index = config.proc_rank;
+    else
+        np = partitions; # If other partitioning strategies are desired.
+        config.num_partitions = np;
+        config.partition_index = mod(config.proc_rank, np); # This only makes sense if num_procs is a multiple of np.
+    end
+    if config.use_mpi && np > 1
         if config.proc_rank == 0
             # Partition the mesh and send the partition info to each proc to build their subgrids.
             # For now, partition into the number of procs. This will be modified in the future.
-            np = config.num_procs;
             epart = get_element_partitions(mesh, np);
             
         else # other ranks recieve the partition info
@@ -266,7 +275,17 @@ function add_mesh(mesh)
     global geo_factors = build_geometric_factors(refel, grid_data, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
     
     log_entry("Added mesh with "*string(mesh_data.nx)*" vertices and "*string(mesh_data.nel)*" elements.", 1);
-    log_entry("Full grid has "*string(size(grid_data.allnodes,2))*" nodes.", 2);
+    if np > 1
+        e_count = zeros(Int, np);
+        for ei=1:length(epart)
+            e_count[epart[ei]+1] += 1;
+        end
+        log_entry("Number of elements in each partition: "*string(e_count), 2);
+        
+    else
+        log_entry("Full grid has "*string(size(grid_data.allnodes,2))*" nodes.", 2);
+    end
+    
     
     # If using FV, set up the FV_info
     if config.solver_type == FV
@@ -276,14 +295,16 @@ function add_mesh(mesh)
         global fv_info = build_FV_info(grid_data);
     end
     
-    # Set elemental loop ordering to match the order from mesh for now.
-    global elemental_order = 1:mesh_data.nel;
+    # Set elemental loop ordering to match the order from the grid for now.
+    global elemental_order = 1:grid_data.nel_owned;
 end
 
 # Write the mesh to a MSH file
 function output_mesh(file, format)
-    write_mesh(file, format, mesh_data);
-    log_entry("Wrote mesh data to file.", 1);
+    if config.proc_rank == 0
+        write_mesh(file, format, mesh_data);
+        log_entry("Wrote mesh data to file.", 1);
+    end
 end
 
 function set_parent_and_child(p_maps, c_grid, order)
@@ -668,7 +689,8 @@ function add_reference_point(var, pos, val)
     # The stored pos is actually the index into glbvertex pointing to the closest vertex
     ind = [1,1];
     mindist = 12345;
-    for ei=1:mesh_data.nel
+    nel = size(grid_data.loc2glb,2);
+    for ei=1:nel
         for i=1:size(grid_data.glbvertex,1)
             d = 0;
             for comp=1:length(pos)

@@ -23,7 +23,7 @@ finch_symbols_to_import = [
     :SymExpression, :SymEntity, :CachesimOut,
     
     #Functions
-    :geometric_factors, :geometric_factors_face, :build_deriv_matrix, :evaluate_coefficient,
+    :geometric_factors, :geometric_factors_face, :build_deriv_matrix, :evaluate_coefficient, :exchange_ghosts,
     
     #Log
     :log_entry, :printerr,

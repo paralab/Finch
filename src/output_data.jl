@@ -116,7 +116,7 @@ end
 function output_values_vtk(vars, file, ascii)
     # Use the WriteVTK package.
     # First build MeshCell array
-    nel = size(grid_data.loc2glb,2);
+    nel = grid_data.nel_owned; # Only write owned elements
     if config.dimension == 1
         np_to_type = Dict([(2,3)]); # line
     elseif config.dimension == 2
@@ -126,6 +126,7 @@ function output_values_vtk(vars, file, ascii)
     end
     
     cells = Array{WriteVTK.MeshCell,1}(undef, nel);
+    nodes = fill(-2e20, size(grid_data.allnodes));
     for ei=1:nel
         nvertex = 0;
         for vi=1:length(grid_data.glbvertex[:,ei])
@@ -141,10 +142,26 @@ function output_values_vtk(vars, file, ascii)
         end
         cell_type = np_to_type[nvertex];
         cells[ei] = WriteVTK.MeshCell(VTKCellType(cell_type), grid_data.glbvertex[:,ei]);
+        nodes[:, grid_data.glbvertex[:,ei]] = grid_data.allnodes[:, grid_data.glbvertex[:,ei]];
     end
     
     # Initialize the file
-    vtkfile = vtk_grid(file, grid_data.allnodes, cells, ascii=ascii);
+    # For multiple partitions write a pvtk file
+    if config.num_procs > 1
+        # remove ghost nodes (they should have coordinates -2e20)
+        nextind = 1;
+        for ni=1:size(nodes,2)
+            if !(nodes[1,ni] == -2e20)
+                nodes[:,nextind] = nodes[:,ni];
+                nextind += 1;
+            end
+        end
+        nodes = nodes[:,1:nextind-1];
+        vtkfile = pvtk_grid(file, nodes, cells, ascii=ascii, part=config.proc_rank+1, nparts=config.num_procs);
+        vtkfile["partition"] = fill(config.partition_index, nel);
+    else
+        vtkfile = vtk_grid(file, grid_data.allnodes, cells, ascii=ascii);
+    end
     
     # Add values
     if typeof(vars) <: Array
@@ -152,20 +169,20 @@ function output_values_vtk(vars, file, ascii)
             if length(vars[vi].symvar) > 1
                 for ci=1:length(vars[vi].symvar)
                     compname = string(vars[vi].symbol) * "_" * string(ci);
-                    vtkfile[compname] = vars[vi].values[ci,:];
+                    vtkfile[compname] = vars[vi].values[ci,1:nel];
                 end
             else
-                vtkfile[string(vars[vi].symbol)] = vars[vi].values;
+                vtkfile[string(vars[vi].symbol)] = vars[vi].values[1:nel];
             end
         end
     else
         if length(vars.symvar) > 1
             for ci=1:length(vars.symvar)
                 compname = string(vars.symbol) * "_" * string(ci);
-                vtkfile[compname] = vars.values[ci,:];
+                vtkfile[compname] = vars.values[ci,1:nel];
             end
         else
-            vtkfile[string(vars.symbol)] = vars.values;
+            vtkfile[string(vars.symbol)] = vars.values[1:nel];
         end
     end
     

@@ -543,7 +543,7 @@ end
 b .= 0;
 
 Np = refel.Np;
-nel = mesh_data.nel;
+nel = size(grid_data.loc2glb,2);
 
 # Stiffness and mass are precomputed for uniform grid meshes
 precomputed_mass_stiffness = config.mesh_type == UNIFORM_GRID && config.geometry == SQUARE

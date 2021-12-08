@@ -41,6 +41,8 @@ mutable struct Finch_config
     num_procs::Int;         # number of processes
     proc_rank::Int;         # this proccess rank
     num_threads::Int;       # number of available threads
+    num_partitions::Int;    # number of mesh partitions
+    partition_index::Int;   # this process's partition
     
     # Constructor builds a default config.
     Finch_config() = new(
@@ -66,6 +68,8 @@ mutable struct Finch_config
         false,
         1,
         0,
-        1
+        1,
+        1,
+        0
     );
 end

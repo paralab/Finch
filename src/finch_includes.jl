@@ -87,6 +87,7 @@ include("tiled_ordering.jl");
 include("ef_ordering.jl");
 include("bad_ordering.jl");
 include("partition.jl");
+include("ghost_exchange.jl");
 
 include("general_utils.jl");
 include("function_utils.jl");

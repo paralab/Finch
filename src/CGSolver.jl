@@ -27,6 +27,11 @@ function set_pre_step(fun) global pre_step_function = fun; end
 function set_post_step(fun) global post_step_function = fun; end
 ############################################################
 
+function init_solver()
+    global pre_step_function = default_pre_step;
+    global post_step_function = default_post_step;
+end
+
 function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=nothing)
     if config.linalg_matrixfree
         return solve_matrix_free_sym(var, bilinear, linear, stepper);
@@ -50,7 +55,7 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
     N1 = size(grid_data.allnodes,2);
     Nn = dofs_per_node * N1;
     Np = refel.Np;
-    nel = mesh_data.nel;
+    nel = size(grid_data.loc2glb,2);
     
     # Allocate arrays that will be used by assemble
     # These vectors will hold the integrated values(one per cell).
@@ -339,7 +344,7 @@ function assemble(var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_p
     b .= 0;
     
     Np = refel.Np;
-    nel = mesh_data.nel;
+    nel = size(grid_data.loc2glb,2);
 
     # Stiffness and mass are precomputed for uniform grid meshes
     precomputed_mass_stiffness = config.mesh_type == UNIFORM_GRID && config.geometry == SQUARE
@@ -440,7 +445,7 @@ end
 # # assembles the A and b in Au=b
 # function assemble_rhs_only(var, linear, t=0.0, dt=0.0; keep_geometric_factors = false, saved_geometric_factors = nothing)
 #     Np = refel.Np;
-#     nel = mesh_data.nel;
+#     nel = size(grid_data.loc2glb,2);
 #     N1 = size(grid_data.allnodes,2);
 #     multivar = typeof(var) <: Array;
 #     maxvarindex = 0;

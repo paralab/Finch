@@ -26,6 +26,11 @@ function set_pre_step(fun) global pre_step_function = fun; end
 function set_post_step(fun) global post_step_function = fun; end
 ############################################################
 
+function init_solver()
+    global pre_step_function = default_pre_step;
+    global post_step_function = default_post_step;
+end
+
 function linear_solve(var, bilinear, linear, face_bilinear, face_linear, stepper=nothing)
     if config.dimension > 2
         printerr("DG solver only available for 1D and 2D. Surface quadrature under construction.")
@@ -247,7 +252,7 @@ end
 # assembles the A and b in Au=b
 function assemble(var, bilinear, linear, face_bilinear, face_linear, t=0.0, dt=0.0; rhs_only = false)
     Np = refel.Np;
-    nel = mesh_data.nel;
+    nel = size(grid_data.loc2glb,2);
     N1 = size(grid_data.allnodes,2);
     multivar = typeof(var) <: Array;
     maxvarindex = 0;
@@ -366,7 +371,7 @@ function assemble(var, bilinear, linear, face_bilinear, face_linear, t=0.0, dt=0
             end
             eid = grid_data.face2element[1,fid]; # element on side 1
             
-            faceBID = mesh_data.bdryID[fid]; # BID of face (0 for interior)
+            faceBID = grid_data.facebid[fid]; # BID of face (0 for interior)
             
             surfargs = (var, eid, fid, grid_data, geo_factors, refel, t, dt);
             

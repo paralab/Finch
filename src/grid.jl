@@ -24,12 +24,29 @@ struct Grid
     
     # When partitioning the grid, this stores the ghost info.
     is_subgrid::Bool                # Is this a partition of a greater grid?
+    nel_owned::Int                  # Number of elements owned by this partition
+    nel_ghost::Int                  # Number of ghost elements
     element_owner::Vector{Int}      # The rank of each ghost element's owner or -1 if locally owned
     grid2mesh::Vector{Int}          # Map from partition elements to global mesh element index
     
+    num_neighbor_partitions::Int        # number of partitions that share ghosts with this.
+    neighboring_partitions::Vector{Int} # IDs of neighboring partitions
+    ghost_counts::Vector{Int}           # How many ghosts for each neighbor
+    ghost_index::Vector{Array{Int}}   # Lists of ghost elements to send/recv for each neighbor
+    
     # constructors
-    Grid(a, b, c, d, e, f, g, h, i, j, k, l, m) = new(a, b, c, d, e, f, g, h, i, j, k, l, m, false, zeros(Int,0), zeros(Int,0)); # up to facebid only
-    Grid(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) = new(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p); # subgrid parts included
+    Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
+         face2element, facenormals, faceRefelInd, facebid) = 
+     new(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
+         face2element, facenormals, faceRefelInd, facebid, 
+         false, size(loc2glb,2), 0, zeros(Int,0), zeros(Int,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]); # up to facebid only
+     
+    Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
+         face2element, facenormals, faceRefelInd, facebid, 
+         ispartitioned, nel_owned, nel_ghost, element_owners, grid2mesh, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
+     new(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
+         face2element, facenormals, faceRefelInd, facebid, 
+         ispartitioned, nel_owned, nel_ghost, element_owners, grid2mesh, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
 end
 
 etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices for each type
@@ -298,8 +315,13 @@ function partitioned_grid_from_mesh(mesh, epart)
     element_status = fill(-1, mesh.nel); # 1 for ghosts, 0 for owned, -1 for other
     face_status = fill(-1, size(mesh.normals,2)); # 1 for face to ghosts, 0 for owned, -1 for other
     mesh2grid_face = fill(-1, size(mesh.normals,2)); # -1 if this face is not in the partition, otherwise the index of the grid face
+    num_neighbors = 0; # number of partitions neighboring this
+    neighbor_ids = zeros(Int,0); # ID of neighbors
+    ghost_counts = zeros(Int,0); # number of ghosts per neighbor
+    # ghost_inds = [zeros(Int,2,0)]; # local index of ghost elements
+    
     for ei=1:mesh.nel
-        if epart[ei] == config.proc_rank
+        if epart[ei] == config.partition_index
             nel_owned += 1;
             element_status[ei] = 0;
         end
@@ -372,7 +394,8 @@ function partitioned_grid_from_mesh(mesh, epart)
     
     # compute node coordinates
     tmpallnodes = zeros(dim, nel*refel.Np);
-    next_index = 1;
+    next_e_index = 1;
+    next_g_index = nel_owned+1; #index for next ghost
     t_nodes1 = Base.Libc.time();
     for ei=1:mesh.nel
         if element_status[ei] >= 0 # owned or ghost element
@@ -397,6 +420,14 @@ function partitioned_grid_from_mesh(mesh, epart)
             end
             
             # Add them to the tmp global nodes
+            if element_status[ei] == 0 # owned
+                next_index = next_e_index;
+                next_e_index += 1;
+            else # ghost
+                next_index = next_g_index;
+                next_g_index += 1;
+            end
+            
             tmpallnodes[1, ((next_index-1)*Np+1):(next_index*Np)] = e_x;
             if dim > 1
                 tmpallnodes[2, ((next_index-1)*Np+1):(next_index*Np)] = e_y;
@@ -409,11 +440,22 @@ function partitioned_grid_from_mesh(mesh, epart)
             loc2glb[:,next_index] = ((next_index-1)*Np+1):(next_index*Np);
             
             grid2mesh[next_index] = ei;
+            
+            # ghost info
             if element_status[ei] == 1 # ghost
                 element_owners[next_index] = epart[ei];
+                list_ind = 0;
+                for i=1:num_neighbors
+                    if neighbor_ids[i] == epart[ei]
+                        list_ind += i; # += used for scope of list_ind
+                    end
+                end
+                if list_ind == 0
+                    # A new neighbor is found
+                    num_neighbors += 1;
+                    push!(neighbor_ids, epart[ei]);
+                end
             end
-            
-            next_index += 1;
         end
     end
     t_nodes1 = Base.Libc.time() - t_nodes1;
@@ -433,6 +475,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     # vertices, faces and boundary
     # first make a map from mesh faces to grid faces
     next_e_index = 1;
+    next_g_index = nel_owned+1; #index for next ghost
     t_faces1 = Base.Libc.time();
     for ei=1:mesh.nel
         if element_status[ei] >= 0 # owned or ghost element
@@ -441,13 +484,21 @@ function partitioned_grid_from_mesh(mesh, epart)
             normals = mesh.normals[:,mfids];
             el_center = zeros(dim);
             
+            if element_status[ei] == 0 # owned
+                next_index = next_e_index;
+                next_e_index += 1;
+            else # ghost
+                next_index = next_g_index;
+                next_g_index += 1;
+            end
+            
             # vertices and center
             for ni=1:Np
-                el_center += allnodes[:,loc2glb[ni,next_e_index]];
+                el_center += allnodes[:,loc2glb[ni,next_index]];
                 
                 for vi=1:n_vert
-                    if is_same_node(mesh.nodes[:, mesh.elements[vi,ei]], allnodes[:,loc2glb[ni,next_e_index]], tol)
-                        glbvertex[vi, next_e_index] = loc2glb[ni,next_e_index];
+                    if is_same_node(mesh.nodes[:, mesh.elements[vi,ei]], allnodes[:,loc2glb[ni,next_index]], tol)
+                        glbvertex[vi, next_index] = loc2glb[ni,next_index];
                     end
                 end
             end
@@ -468,7 +519,7 @@ function partitioned_grid_from_mesh(mesh, epart)
             end
             
             for gfi=1:nfaces
-                tmpf2glb = loc2glb[refel.face2local[gfi], next_e_index];
+                tmpf2glb = loc2glb[refel.face2local[gfi], next_index];
                 
                 for mfi=1:nfaces
                     thisfaceind = meshfaces[mfi];
@@ -481,9 +532,9 @@ function partitioned_grid_from_mesh(mesh, epart)
                         # Move face2element[1] to face2element[2] and put this one in [1]
                         if (Gness == 2) f2glb[:, 2, gridfaceind] = f2glb[:, 1, gridfaceind]; end
                         f2glb[:, 1, gridfaceind] = tmpf2glb;
-                        element2face[gfi, next_e_index] = gridfaceind;
+                        element2face[gfi, next_index] = gridfaceind;
                         face2element[2, gridfaceind] = face2element[1, gridfaceind];
-                        face2element[1, gridfaceind] = next_e_index;
+                        face2element[1, gridfaceind] = next_index;
                         
                         # Find the normal for every face. The normal points from e1 to e2 or outward for boundary.
                         # Note that the normal stored in mesh_data could be pointing either way.
@@ -517,8 +568,6 @@ function partitioned_grid_from_mesh(mesh, epart)
                     end
                 end
             end
-            
-            next_e_index += 1;
         end
     end # element loop
     t_faces1 = Base.Libc.time() - t_faces1;
@@ -572,11 +621,87 @@ function partitioned_grid_from_mesh(mesh, epart)
         end
     end
     
+    # Form ghost pairs for send/recv
+    # First count how many pairs are needed for each neighbor
+    ghost_counts = zeros(Int, num_neighbors)
+    for fi=1:totalfaces
+        e1 = face2element[1,fi];
+        e2 = face2element[2,fi];
+        eg = e2;
+        eo = e1;
+        neigh = -1;
+        if element_owners[e1] < 0
+            if e2 > 0 && element_owners[e2] >= 0
+                # e1 owned, e2 ghost
+                neigh = element_owners[e2];
+            end
+        elseif e2 > 0 && element_owners[e2] < 0
+            # e2 owned, e1 ghost
+            eg = e1;
+            eo = e2;
+            neigh = element_owners[e1];
+        end
+        
+        if neigh >= 0 # It is a face between neighbors
+            list_ind = 0;
+            for ni=1:num_neighbors
+                if neighbor_ids[ni] == neigh;
+                    list_ind += ni; # += used for scope of list_ind
+                        break;
+                end
+            end
+            if list_ind > 0
+                ghost_counts[list_ind] += 1;
+            end
+        end
+    end
+    
+    # Then build the lists of ghost pairs for each neighbor
+    ghost_inds = Vector{Array{Int,2}}(undef, num_neighbors);
+    for ni=1:num_neighbors
+        ghost_inds[ni] = zeros(Int, 2, ghost_counts[ni]);
+    end
+    # Need to loop over mesh faces to be sure they are built in the same order on each partition
+    for i=1:length(mesh2grid_face)
+        fi = mesh2grid_face[i];
+        if fi > 0 # exists in this partition (at least one of e1,e2 are owned)
+            e1 = face2element[1,fi];
+            e2 = face2element[2,fi];
+            if element_owners[e1] >= 0 || (e2>0 && element_owners[e2] >= 0) # It is a face between owned and ghost
+                if element_owners[e1] >= 0 # e1 is ghost
+                    eg = e1; # ghost
+                    eo = e2; # owned
+                elseif element_owners[e2] >= 0 # e2 is ghost
+                    eg = e2;
+                    eo = e1;
+                end
+                list_ind = 0;
+                for ni=1:num_neighbors
+                    if neighbor_ids[ni] == element_owners[eg];
+                        list_ind += ni; # += used for scope of list_ind
+                    end
+                end
+                if list_ind > 0
+                    for j=1:ghost_counts[list_ind]
+                        if ghost_inds[list_ind][1,j] == 0
+                            ghost_inds[list_ind][:,j] = [eg, eo];
+                            break;
+                        end
+                    end
+                else
+                    # There was a problem...
+                    printerr("Problem with building ghost lists. Expect an error.")
+                end
+            end
+        end
+    end
+    
     t_grid_from_mesh = Base.Libc.time() - t_grid_from_mesh;
     log_entry("Total grid building time: "*string(t_grid_from_mesh), 2);
     
-    return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, 
-            f2glb, element2face, face2element, facenormals, faceRefelInd, facebid, true, element_owners, grid2mesh));
+    return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
+            face2element, facenormals, faceRefelInd, facebid, 
+            true, nel_owned, nel_ghost, element_owners, grid2mesh, num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
 end
 
 ### Utilities ###
