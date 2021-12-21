@@ -382,7 +382,7 @@ function linear_interp(x, c, u, dim)
         if abs(dx1[1])+abs(dx1[2]) > 1e-20
             # u + grad(u) . dx2
             if nx == 1
-                sol = [u[1] .+ (du/(dx1^2 + dx2^2) .* (dx1[1]*dx2[1] + dx1[2]*dx2[2]))];
+                sol = [u[1] + (du/(dx1[1]^2 + dx1[2]^2) * (dx1[1]*dx2[1] + dx1[2]*dx2[2]))];
             else
                 sol = zeros(nx);
                 for xi=1:nx

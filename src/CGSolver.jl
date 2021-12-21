@@ -58,8 +58,6 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
     nel = size(grid_data.loc2glb,2);
     
     # Allocate arrays that will be used by assemble
-    # These vectors will hold the integrated values(one per cell).
-    # They will later be combined.
     rhsvec = zeros(Nn);
     lhsmatI = zeros(Int, nel*dofs_per_node*Np*dofs_per_node*Np);
     lhsmatJ = zeros(Int, nel*dofs_per_node*Np*dofs_per_node*Np);
@@ -137,11 +135,36 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                     # will hold the final result
                     last_result = get_var_vals(var, last_result);
                     # will be placed in var.values for each stage
-                    # tmpvals = tmpresult;
                     # Storage for each stage
                     # tmpki = zeros(length(b), stepper.stages);
                     for stage=1:stepper.stages
                         stime = t + stepper.c[stage]*stepper.dt;
+                        
+                        # Update the values in vars to be used in this stage
+                        if stage > 1
+                            initialized_tmpresult = false;
+                            for j=1:stage
+                                if stepper.a[stage, j] > 0
+                                    if !initialized_tmpresult
+                                        initialized_tmpresult = true;
+                                        for k=1:length(last_result)
+                                            tmpresult[k] = last_result[k] + stepper.dt * stepper.a[stage, j] * tmpki[k,j];
+                                        end
+                                    else
+                                        for k=1:length(last_result)
+                                            tmpresult[k] += stepper.dt * stepper.a[stage, j] * tmpki[k,j];
+                                        end
+                                    end
+                                end
+                            end
+                            
+                            if initialized_tmpresult
+                                copy_bdry_vals_to_vector(var, tmpresult, grid_data, dofs_per_node);
+                                place_sol_in_vars(var, tmpresult, stepper);
+                            end
+                            post_step_function(); # seems weird, but imagine this is happening after stage-1
+                        end
+                        
                         pre_step_function();
                         
                         assemble_t += @elapsed(b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, stime, stepper.dt; rhs_only = true, assemble_loops=assemble_func));
@@ -152,17 +175,6 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                         # directly write them to the variable values and zero sol.
                         copy_bdry_vals_to_variables(var, tmpki[:,stage], grid_data, dofs_per_node, zero_vals=true);
                         
-                        tmpresult = get_var_vals(var, tmpresult);
-                        for j=1:(stage-1)
-                            if stepper.a[stage, j] > 0
-                                tmpresult += stepper.dt * stepper.a[stage, j] .* tmpki[:,j];
-                            end
-                        end
-                        if stage < stepper.stages
-                            copy_bdry_vals_to_vector(var, tmpresult, grid_data, dofs_per_node);
-                            place_sol_in_vars(var, tmpresult, stepper);
-                            post_step_function();
-                        end
                     end
                     for stage=1:stepper.stages
                         last_result += stepper.dt * stepper.b[stage] .* tmpki[:, stage];

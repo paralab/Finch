@@ -3,20 +3,22 @@
 =#
 
 mutable struct Stepper
-    type;       # The constant for the stepper type
-    Nsteps;     # number of steps
-    dt;         # step size
-    cfl;        # CFL number
-    stages;     # how many stages
-    a;          # for RK steppers
-    b;          # for RK steppers
-    c;          # for RK steppers
+    type::String;       # The constant for the stepper type
+    implicit::Bool;     # implicit or explicit
+    Nsteps::Int;        # number of steps
+    dt::Float64;        # step size
+    cfl::Float64;       # CFL number
+    stages::Int;        # how many stages
+    a::Array{Float64};  # for RK steppers
+    b::Array{Float64};  # for RK steppers
+    c::Array{Float64};  # for RK steppers
     
-    Stepper(t, c) = new(t, 0, 0, c, 0, [], [], []);
+    Stepper(t, c) = new(t, false, 0, 0, c, 0, [], [], []);
 end
 
 function init_stepper(x, stepper)
     if stepper.type == EULER_EXPLICIT
+        stepper.implicit = false;
         dxmin = abs(x[1,2]-x[1,1]); # TODO this only works for similar, square elements
         if stepper.cfl == 0
             stepper.cfl = 0.25;
@@ -29,6 +31,7 @@ function init_stepper(x, stepper)
         return stepper;
         
     elseif stepper.type == EULER_IMPLICIT
+        stepper.implicit = true;
         dxmin = abs(x[1,2]-x[1,1]); # TODO this only works for similar, square elements
         if stepper.cfl == 0
             stepper.cfl = 1;
@@ -41,6 +44,7 @@ function init_stepper(x, stepper)
         return stepper;
         
     elseif stepper.type == PECE
+        stepper.implicit = false;
         dxmin = abs(x[1,2]-x[1,1]); # TODO this only works for similar, square elements
         if stepper.cfl == 0
             stepper.cfl = 1;
@@ -53,6 +57,7 @@ function init_stepper(x, stepper)
         return stepper;
         
     elseif stepper.type == CRANK_NICHOLSON
+        stepper.implicit = true;
         dxmin = abs(x[1,2]-x[1,1]); # TODO this only works for similar, square elements
         if stepper.cfl == 0
             stepper.cfl = 0.25;
@@ -65,6 +70,7 @@ function init_stepper(x, stepper)
         return stepper;
         
     elseif stepper.type == LSRK4
+        stepper.implicit = false;
         dxmin = abs(x[1,2]-x[1,1]); # TODO this only works for similar, square elements
         if stepper.cfl == 0
             stepper.cfl = 0.1;
@@ -80,6 +86,7 @@ function init_stepper(x, stepper)
         return stepper;
         
     elseif stepper.type == RK4
+        stepper.implicit = false;
         dxmin = abs(x[1,2]-x[1,1]); # TODO this only works for similar, square elements
         if stepper.cfl == 0
             stepper.cfl = 0.1;

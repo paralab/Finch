@@ -312,10 +312,10 @@ function set_parent_and_child(p_maps, c_grid, order)
     global fv_grid = c_grid;
     dim = config.dimension;
     nfaces = size(fv_grid.element2face,1);
-    global fv_refel = refel = build_refel(dim, 1, nfaces, config.elemental_nodes);
+    global fv_refel = build_refel(dim, 1, nfaces, config.elemental_nodes);
     global fv_geo_factors = build_geometric_factors(fv_refel, fv_grid, do_face_detj=true, do_vol_area=true, constant_jacobian=true);
     global fv_info = build_FV_info(fv_grid, order);
-    log_entry("FCreated parent-child grid with "*string(size(c_grid.allnodes,2))*" nodes and "*string(size(c_grid.loc2glb,2))*" elements.", 2);
+    log_entry("Created parent-child grid with "*string(size(c_grid.allnodes,2))*" nodes and "*string(size(c_grid.loc2glb,2))*" elements.", 2);
     
     # If CELL variables exist, resize their values
     N = size(fv_grid.loc2glb, 2);

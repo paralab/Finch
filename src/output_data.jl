@@ -19,13 +19,18 @@ function output_values_raw(vars, file)
 end
 
 function output_values_csv(vars, file)
+    if config.solver_type == FV
+        grid = fv_grid;
+    else
+        grid = grid_data;
+    end
     # columns will be like x, y, z, u1,...
     if typeof(vars) <: Array
         N = size(vars[1].values, 2); # number of points (must be same for all vars)
         if vars[1].location == CELL
             x = fv_info.cellCenters;
         else
-            x = grid_data.allnodes;
+            x = grid.allnodes;
         end
         
         # header
@@ -72,7 +77,7 @@ function output_values_csv(vars, file)
         if vars.location == CELL
             x = fv_info.cellCenters;
         else
-            x = grid_data.allnodes;
+            x = grid.allnodes;
         end
         dim = size(x,1);
         
@@ -114,9 +119,14 @@ function output_values_csv(vars, file)
 end
 
 function output_values_vtk(vars, file, ascii)
+    if config.solver_type == FV
+        grid = fv_grid;
+    else
+        grid = grid_data;
+    end
     # Use the WriteVTK package.
     # First build MeshCell array
-    nel = grid_data.nel_owned; # Only write owned elements
+    nel = grid.nel_owned; # Only write owned elements
     if config.dimension == 1
         np_to_type = Dict([(2,3)]); # line
     elseif config.dimension == 2
@@ -126,23 +136,23 @@ function output_values_vtk(vars, file, ascii)
     end
     
     cells = Array{WriteVTK.MeshCell,1}(undef, nel);
-    nodes = fill(-2e20, size(grid_data.allnodes));
+    nodes = fill(-2e20, size(grid.allnodes));
     for ei=1:nel
         nvertex = 0;
-        for vi=1:length(grid_data.glbvertex[:,ei])
-            if grid_data.glbvertex[vi,ei] > 0
+        for vi=1:length(grid.glbvertex[:,ei])
+            if grid.glbvertex[vi,ei] > 0
                 nvertex = nvertex+1;
             else
                 break;
             end
         end
         if nvertex < 2
-            printerr("Found element with too few vertices when writing VTK output: el="*string(ei)*", vertexmap="*string(grid_data.glbvertex[:,ei]));
+            printerr("Found element with too few vertices when writing VTK output: el="*string(ei)*", vertexmap="*string(grid.glbvertex[:,ei]));
             return;
         end
         cell_type = np_to_type[nvertex];
-        cells[ei] = WriteVTK.MeshCell(VTKCellType(cell_type), grid_data.glbvertex[:,ei]);
-        nodes[:, grid_data.glbvertex[:,ei]] = grid_data.allnodes[:, grid_data.glbvertex[:,ei]];
+        cells[ei] = WriteVTK.MeshCell(VTKCellType(cell_type), grid.glbvertex[:,ei]);
+        nodes[:, grid.glbvertex[:,ei]] = grid.allnodes[:, grid.glbvertex[:,ei]];
     end
     
     # Initialize the file
@@ -160,7 +170,7 @@ function output_values_vtk(vars, file, ascii)
         vtkfile = pvtk_grid(file, nodes, cells, ascii=ascii, part=config.proc_rank+1, nparts=config.num_procs);
         vtkfile["partition"] = fill(config.partition_index, nel);
     else
-        vtkfile = vtk_grid(file, grid_data.allnodes, cells, ascii=ascii);
+        vtkfile = vtk_grid(file, grid.allnodes, cells, ascii=ascii);
     end
     
     # Add values

@@ -138,6 +138,20 @@ function divide_parent_grid(grid, order)
     faceRefelInd = zeros(Int, 2, Ncfaces);
     facebid = zeros(Int, Ncfaces);
     
+    if grid.is_subgrid
+        nel_owned = grid.nel_owned * nchildren;
+        nel_ghost = grid.nel_ghost * nchildren;
+        nface_owned = 0; # TBD
+        nface_ghost = 0; # TBD
+        element_owner = fill(-1, Nchildren); # same owner as parent
+        grid2mesh = fill(-1, Nchildren); # This will now refer to the parent element in the mesh.
+        
+        num_neighbor_partitions = grid.num_neighbor_partitions;
+        neighboring_partitions = grid.neighboring_partitions;
+        ghost_counts = grid.ghost_counts .* nchildren;
+        ghost_index = fill(zeros(Int,2,0), num_neighbor_partitions); # TBD
+    end
+    
     for i=1:nbids
         if dim==1
             bdry[i] = zeros(Int, length(grid.bdry[i])); # same number
@@ -616,8 +630,51 @@ function divide_parent_grid(grid, order)
         printerr("Sorry, higher order FV is not ready for 3D (TODO: build parent/child grid)");
     end
     
+    if grid.is_subgrid
+        # element owner is same as parent
+        for i=1:Nparent
+            for j=1:nchildren
+                ei = p2c[j,i];
+                element_owner[ei] = grid.element_owner[i];
+                grid2mesh[ei] = grid.grid2mesh[i];
+            end
+        end
+        
+        # Count owned/ghost faces
+        for fi=1:Ncfaces
+            e1 = face2element[1,fi];
+            e2 = face2element[2,fi];
+            if element_owner[e1] == -1
+                nface_owned += 1;
+            elseif e2 > 0 && element_owner[e2] == -1
+                nface_owned += 1;
+            else
+                nface_ghost += 1;
+            end
+        end
+        
+        # Build ghost indices for exchange
+        # Loop over parent ghost indices and add their children in the p2c order
+        # This should be the same for both partitions, but needs to be checked.
+        for i=1:grid.num_neighbor_partitions
+            for j=1:grid.ghost_counts[i]
+                gij=grid.ghost_index[i][1,j];
+                oij=grid.ghost_index[i][2,j];
+                block = zeros(Int, 2, nchildren);
+                for ei=1:nchildren
+                    block[:,ei] = [p2c[ei,gij], p2c[ei,oij]];
+                end
+                ghost_index[i] = hcat(ghost_index[i], block);
+            end
+        end
+        
+        child_grid = Grid(allnodes, bdry, bdryface, bdrynorm, bids, loc2glb, loc2glb, face2glb, element2face, face2element, facenormals, faceRefelInd, facebid, 
+                            true, nel_owned, nel_ghost, nface_owned, nface_ghost, element_owner, grid2mesh, num_neighbor_partitions, neighboring_partitions, ghost_counts, ghost_index);
+        
+    else # not a subgrid
+        child_grid = Grid(allnodes, bdry, bdryface, bdrynorm, bids, loc2glb, loc2glb, face2glb, element2face, face2element, facenormals, faceRefelInd, facebid);
+    end
     
-    child_grid = Grid(allnodes, bdry, bdryface, bdrynorm, bids, loc2glb, loc2glb, face2glb, element2face, face2element, facenormals, faceRefelInd, facebid);
     tmp_parent_maps = ParentMaps(c2p, p2c, p2f, p2n, zeros(Int,0,0)); # no patches built yet
     
     # Normal vectors may be pointing the wrong way. Reorient them.

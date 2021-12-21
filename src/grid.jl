@@ -26,6 +26,8 @@ struct Grid
     is_subgrid::Bool                # Is this a partition of a greater grid?
     nel_owned::Int                  # Number of elements owned by this partition
     nel_ghost::Int                  # Number of ghost elements
+    nface_owned::Int                # Number of faces owned by this partition
+    nface_ghost::Int                # Number of ghost faces that are not owned
     element_owner::Vector{Int}      # The rank of each ghost element's owner or -1 if locally owned
     grid2mesh::Vector{Int}          # Map from partition elements to global mesh element index
     
@@ -39,14 +41,14 @@ struct Grid
          face2element, facenormals, faceRefelInd, facebid) = 
      new(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
-         false, size(loc2glb,2), 0, zeros(Int,0), zeros(Int,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]); # up to facebid only
+         false, size(loc2glb,2), 0,size(face2element,2), 0, zeros(Int,0), zeros(Int,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]); # up to facebid only
      
     Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
-         ispartitioned, nel_owned, nel_ghost, element_owners, grid2mesh, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
+         ispartitioned, nel_owned, nel_ghost, nface_owned, nface_ghost, element_owners, grid2mesh, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
      new(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
-         ispartitioned, nel_owned, nel_ghost, element_owners, grid2mesh, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
+         ispartitioned, nel_owned, nel_ghost, nface_owned, nface_ghost, element_owners, grid2mesh, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
 end
 
 etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices for each type
@@ -309,7 +311,8 @@ function partitioned_grid_from_mesh(mesh, epart)
     nfaces = etypetonf[mesh.etypes[1]]; # faces per elements
     
     # Count the owned faces and owned/ghost elements
-    totalfaces = 0;
+    owned_faces = 0;
+    ghost_faces = 0;
     nel_owned = 0;
     nel_ghost = 0;
     element_status = fill(-1, mesh.nel); # 1 for ghosts, 0 for owned, -1 for other
@@ -320,17 +323,20 @@ function partitioned_grid_from_mesh(mesh, epart)
     ghost_counts = zeros(Int,0); # number of ghosts per neighbor
     # ghost_inds = [zeros(Int,2,0)]; # local index of ghost elements
     
+    # Set element status: owned, ghost, or other
     for ei=1:mesh.nel
         if epart[ei] == config.partition_index
             nel_owned += 1;
             element_status[ei] = 0;
         end
     end
+    
+    # Find owned faces and ghost elements
     for fi=1:size(mesh.normals,2)
         e1 = mesh.face2element[1,fi];
         e2 = mesh.face2element[2,fi];
         if element_status[e1] == 0 || (e2 > 0 && element_status[e2] == 0)
-            totalfaces += 1;
+            owned_faces += 1;
             if !(element_status[e1] == 0)
                 if element_status[e1] == -1
                     nel_ghost += 1;
@@ -346,10 +352,24 @@ function partitioned_grid_from_mesh(mesh, epart)
             else
                 face_status[fi] = 0;
             end
-            mesh2grid_face[fi] = totalfaces;
+            mesh2grid_face[fi] = owned_faces;
         end
     end
     nel = nel_owned + nel_ghost;
+    
+    # Now that ghosts are known, add their faces that are not owned
+    for ei=1:mesh.nel
+        if element_status[ei] == 1
+            for i=1:size(mesh.element2face,1)
+                fi = mesh.element2face[i,ei];
+                if fi > 0 && mesh2grid_face[fi] < 0 # a valid ghost face that is not owned
+                    ghost_faces += 1;
+                    mesh2grid_face[fi] = owned_faces + ghost_faces;
+                end
+            end
+        end
+    end
+    totalfaces = owned_faces + ghost_faces;
     
     if dim == 1
         facenvtx = 1
@@ -380,14 +400,14 @@ function partitioned_grid_from_mesh(mesh, epart)
         push!(bdryfc, zeros(Int,0));
         push!(bdrynorm, zeros(config.dimension,0));
     end
-    loc2glb = zeros(Int, Np, nel)       # local to global index map for each element's nodes
-    glbvertex = zeros(Int, nvtx, nel);     # local to global for vertices
+    loc2glb = zeros(Int, Np, nel)           # local to global index map for each element's nodes
+    glbvertex = zeros(Int, nvtx, nel);      # local to global for vertices
     f2glb = zeros(Int, refel.Nfp[1], Gness, totalfaces);  # face node local to global
-    element2face = zeros(Int, nfaces, nel);  # element to face map
-    face2element = zeros(Int, 2, totalfaces);  # face to element map
-    facenormals = zeros(dim, totalfaces); # normal vectors for every face
+    element2face = zeros(Int, nfaces, nel); # element to face map
+    face2element = zeros(Int, 2, totalfaces); # face to element map
+    facenormals = zeros(dim, totalfaces);   # normal vectors for every face
     faceRefelInd = zeros(Int, 2, totalfaces); # Index in refel for this face for elements on both sides
-    facebid = zeros(Int, totalfaces); # BID of each face
+    facebid = zeros(Int, totalfaces);       # BID of each face
     
     element_owners = fill(-1, nel) # partition number of each ghost, or -1 for owned elements
     grid2mesh = zeros(Int, nel); # maps partition elements to global mesh elements
@@ -554,7 +574,7 @@ function partitioned_grid_from_mesh(mesh, epart)
                         mbid = mesh.bdryID[thisfaceind];
                         gbid = indexin([mbid], bids)[1];
                         nfacenodes = length(tmpf2glb);
-                        if !(gbid === nothing) # This is a boundary face
+                        if !(gbid === nothing) && gridfaceind <= owned_faces # This is a boundary face of an owned element
                             append!(bdry[gbid], tmpf2glb);
                             push!(bdryfc[gbid], gridfaceind);
                             facebid[gridfaceind] = gbid;
@@ -624,7 +644,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     # Form ghost pairs for send/recv
     # First count how many pairs are needed for each neighbor
     ghost_counts = zeros(Int, num_neighbors)
-    for fi=1:totalfaces
+    for fi=1:owned_faces
         e1 = face2element[1,fi];
         e2 = face2element[2,fi];
         eg = e2;
@@ -664,7 +684,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     # Need to loop over mesh faces to be sure they are built in the same order on each partition
     for i=1:length(mesh2grid_face)
         fi = mesh2grid_face[i];
-        if fi > 0 # exists in this partition (at least one of e1,e2 are owned)
+        if fi > 0  && fi <= owned_faces # exists in this partition and at least one of e1,e2 are owned
             e1 = face2element[1,fi];
             e2 = face2element[2,fi];
             if element_owners[e1] >= 0 || (e2>0 && element_owners[e2] >= 0) # It is a face between owned and ghost
@@ -701,7 +721,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     
     return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
-            true, nel_owned, nel_ghost, element_owners, grid2mesh, num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
+            true, nel_owned, nel_ghost, owned_faces, ghost_faces, element_owners, grid2mesh, num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
 end
 
 ### Utilities ###

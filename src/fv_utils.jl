@@ -200,8 +200,8 @@ function FV_reconstruct_value_left_right(leftx, rightx, leftu, rightu, x; limite
     
     # If a limiter is specified, limit the slope
     if !(limiter == "none")
-        left_r = leftslope > 1e-6 ? centerslope / leftslope : 1;
-        right_r = rightslope > 1e-6 ? centerslope / rightslope : 1;
+        left_r = abs(leftslope) > 1e-10 ? centerslope / leftslope : 1;
+        right_r = abs(rightslope) > 1e-10 ? centerslope / rightslope : 1;
         
         left_phi = 2;
         right_phi = 2;
@@ -212,10 +212,8 @@ function FV_reconstruct_value_left_right(leftx, rightx, leftu, rightu, x; limite
         
         if length(leftu) > 1
             left = (1-left_phi*0.5)*leftu[1] + (left_phi*0.5)*left;
-            left = (1-left_phi*0.5)*leftu[1] + (left_phi*0.5)*left;
         end
         if length(rightu) > 1
-            right = (1-right_phi*0.5)*rightu[1] + (right_phi*0.5)*right;
             right = (1-right_phi*0.5)*rightu[1] + (right_phi*0.5)*right;
         end
     end

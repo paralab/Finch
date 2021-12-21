@@ -83,6 +83,7 @@ const NEUMANN = "Neumann";
 const ROBIN = "Robin";
 const NO_BC = "No BC";
 const FLUX = "flux";
+const SYMMETRIC = "symmetric";
 
 # variables
 const SCALAR = "scalar";
