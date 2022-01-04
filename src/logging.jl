@@ -15,7 +15,7 @@ function set_log_level(lev)
 end
 
 # Prints an error to the log as well as the output and if fatal, exits with code 1
-function printerr(msg, fatal=false)
+function printerr(msg; fatal=false)
     log_entry("Error: "*msg, 0);
     println("Error: "*msg);
     if fatal

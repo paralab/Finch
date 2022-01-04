@@ -151,14 +151,22 @@ end
 
 # Write an array to a binary file.
 # Return number of bytes written.
-function write_binary_array(f, a)
+function write_binary_array(f, a, with_counts=false)
     Nbytes = 0;
+    if with_counts
+        write(f, Int64(length(a)));
+        if length(a) > 0 && isbits(a[1])
+            write(f, Int64(sizeof(a[1])));
+        else # empty aray or array of arrays has element size = 0
+            write(f, Int64(0));
+        end
+    end
     for i=1:length(a)
         if isbits(a[i])
             write(f, a[i]);
             Nbytes += sizeof(a[i]);
         else
-            Nbytes += write_binary_array(f,a[i]);
+            Nbytes += write_binary_array(f,a[i], with_counts);
         end
     end
     return Nbytes;
@@ -166,18 +174,155 @@ end
 
 # Assumes that the struct only has isbits->true types or arrays.
 # Returns number of bytes written.
-function write_binary_struct(f, s)
+# with_counts=true will add number of pieces and size of pieces before each piece.(Int64, Int64)
+function write_binary_struct(f, s, with_counts=false)
     Nbytes = 0;
     for fn in fieldnames(typeof(s))
         comp = getfield(s, fn);
         if isbits(comp)
+            if with_counts
+                write(f, Int64(1));
+                write(f, Int64(sizeof(comp)));
+            end
             write(f, comp);
             Nbytes += sizeof(comp)
         else
-            Nbytes += write_binary_array(f,comp);
+            Nbytes += write_binary_array(f,comp, with_counts);
         end
     end
     return Nbytes;
+end
+
+# Write the grid to a binary file intended to be imported in C++
+# This includes various extra numbers to size the arrays.
+function write_grid_to_file(file, grid)
+    # various numbers
+    write(file, Int(size(grid.allnodes,1)));    # dimension
+    write(file, Int(size(grid.loc2glb,2)));     # This is local nel (owned + ghost)
+    write(file, Int(size(grid.allnodes,2)));    # nnodes
+    
+    write(file, Int(size(grid.loc2glb,1)));     # nodes per element
+    write(file, Int(size(grid.glbvertex,1)));   # vertices per element
+    write(file, Int(size(grid.element2face,1)));# faces per element
+    
+    write(file, Int(size(grid.face2element,2)));# nfaces
+    write(file, Int(size(grid.face2glb,1)));    # nodes per face
+    
+    # Now the data in grid
+    write_binary_array(file, grid.allnodes, true);
+    write_binary_array(file, grid.bdry, true);
+    write_binary_array(file, grid.bdryface, true);
+    write_binary_array(file, grid.bdrynorm, true);
+    write_binary_array(file, grid.bids, true);
+    write_binary_array(file, grid.loc2glb, true);
+    write_binary_array(file, grid.glbvertex, true);
+    write_binary_array(file, grid.face2glb, true);
+    write_binary_array(file, grid.element2face, true);
+    write_binary_array(file, grid.face2element, true);
+    write_binary_array(file, grid.facenormals, true);
+    write_binary_array(file, grid.faceRefelInd, true);
+    write_binary_array(file, grid.facebid, true);
+    
+    write(file, Int(grid.is_subgrid));
+    write(file, grid.nel_owned);
+    write(file, grid.nel_ghost);
+    write(file, grid.nface_owned);
+    write(file, grid.nface_ghost);
+    write(file, grid.nnodes_shared);
+    write_binary_array(file, grid.grid2mesh, true);
+    
+    if grid.nel_ghost == 0 # FE only
+        write_binary_array(file, grid.partition2global, true);
+    end
+    
+    if grid.nel_ghost > 0 # FV only
+        write_binary_array(file, grid.element_owner, true);
+        write(file, grid.num_neighbor_partitions);
+        write_binary_array(file, grid.neighboring_partitions, true);
+        write_binary_array(file, grid.ghost_counts, true);
+        write_binary_array(file, grid.ghost_index, true);
+    end
+    
+end
+
+# Write the refel to a binary file intended to be imported in C++
+function write_refel_to_file(file, refel)
+    write(file, refel.dim);     # dimension
+    write(file, refel.N);       # order
+    write(file, refel.Np);      # number of nodes
+    write(file, refel.Nqp);     # number of quadrature points
+    write(file, refel.Nfaces);  # number of faces
+    write_binary_array(file, refel.Nfp, true); # number of face points per face
+    # nodes and vandermonde
+    write_binary_array(file, refel.r, true);
+    write_binary_array(file, refel.wr, true);
+    write_binary_array(file, refel.g, true);
+    write_binary_array(file, refel.wg, true);
+    write_binary_array(file, refel.V, true);
+    write_binary_array(file, refel.gradV, true);
+    write_binary_array(file, refel.invV, true);
+    write_binary_array(file, refel.Vg, true);
+    write_binary_array(file, refel.gradVg, true);
+    write_binary_array(file, refel.invVg, true);
+    # quadrature matrices
+    write_binary_array(file, refel.Q, true);
+    write_binary_array(file, refel.Qr, true);
+    write_binary_array(file, refel.Qs, true);
+    write_binary_array(file, refel.Qt, true);
+    write_binary_array(file, refel.Ddr, true);
+    write_binary_array(file, refel.Dds, true);
+    write_binary_array(file, refel.Ddt, true);
+    
+    # surface versions
+    write_binary_array(file, refel.face2local, true);
+    write_binary_array(file, refel.surf_r, true);
+    write_binary_array(file, refel.surf_wr, true);
+    write_binary_array(file, refel.surf_g, true);
+    write_binary_array(file, refel.surf_wg, true);
+    write_binary_array(file, refel.surf_V, true);
+    write_binary_array(file, refel.surf_gradV, true);
+    write_binary_array(file, refel.surf_Vg, true);
+    write_binary_array(file, refel.surf_gradVg, true);
+    
+    write_binary_array(file, refel.surf_Q, true);
+    write_binary_array(file, refel.surf_Qr, true);
+    write_binary_array(file, refel.surf_Qs, true);
+    write_binary_array(file, refel.surf_Qt, true);
+    write_binary_array(file, refel.surf_Ddr, true);
+    write_binary_array(file, refel.surf_Dds, true);
+    write_binary_array(file, refel.surf_Ddt, true);
+end
+
+# Write the geometric factors to a binary file intended to be imported in C++
+function write_geometric_factors_to_file(file, geofacs)
+    if size(geofacs.detJ,1) > 1
+        write(file, Int8(1)); # Constant jacobian
+    else
+        write(file, Int8(0)); # NOT Constant jacobian
+    end
+    
+    # number of elements
+    write(file, Int(size(geofacs.detJ, 2)));
+    # number of values per element
+    write(file, Int(size(geofacs.detJ, 1)));
+    
+    write_binary_array(file, geofacs.detJ, true);
+    
+    for i=1:length(geofacs.J)
+        write_binary_array(file, geofacs.J[i].rx, true);
+        write_binary_array(file, geofacs.J[i].ry, true);
+        write_binary_array(file, geofacs.J[i].rz, true);
+        write_binary_array(file, geofacs.J[i].sx, true);
+        write_binary_array(file, geofacs.J[i].sy, true);
+        write_binary_array(file, geofacs.J[i].sz, true);
+        write_binary_array(file, geofacs.J[i].tx, true);
+        write_binary_array(file, geofacs.J[i].ty, true);
+        write_binary_array(file, geofacs.J[i].tz, true);
+    end
+    
+    write_binary_array(file, geofacs.volume, true);
+    write_binary_array(file, geofacs.area, true);
+    write_binary_array(file, geofacs.face_detJ, true);
 end
 
 end # module

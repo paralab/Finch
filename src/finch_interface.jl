@@ -16,7 +16,7 @@ export generateFor, useLog, domain, solverType, functionSpace, trialSpace, testS
 # Begin configuration setting functions
 
 function generateFor(lang; filename=project_name, header="", params=nothing)
-    outputDirPath = pwd()*"/"*uppercasefirst(filename);
+    outputDirPath = pwd()*"/"*filename;
     if !isdir(outputDirPath)
         mkdir(outputDirPath);
     end
@@ -148,6 +148,9 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1])
         meshtime = @elapsed(mshdat=read_mesh(mfile));
         log_entry("Mesh reading took "*string(meshtime)*" seconds");
         close(mfile);
+        # Assume an irregular mesh
+        config.geometry = IRREGULAR;
+        config.mesh_type = UNSTRUCTURED;
     end
     
     # Set this in Finch and build the corresponding Grid

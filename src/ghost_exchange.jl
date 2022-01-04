@@ -15,7 +15,7 @@ function exchange_ghosts(var, grid, tag=0)
     if config.solver_type == FV
         return exchange_ghosts_fv(var, grid, tag);
     else
-        printerr("Ghost exchange not ready for "*config.solver_type, true)
+        printerr("Ghost exchange not ready for "*config.solver_type, fatal=true)
     end
 end
 

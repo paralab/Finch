@@ -262,7 +262,15 @@ function add_mesh(mesh; partitions=0)
         (refel, grid_data) = grid_from_mesh(mesh_data);
     end
     
-    constantJ = true;
+    # regular parallel sided elements or simplexes have constant Jacobians, so only store one value per element.
+    if ((config.geometry == SQUARE && config.mesh_type == UNIFORM_GRID) ||
+        config.dimension == 1 ||
+        (config.dimension == 2 && refel.Nfaces == 3) ||
+        (config.dimension == 3 && refel.Nfaces == 4) )
+        constantJ = true;
+    else
+        constantJ = false;
+    end
     do_faces = false;
     do_vol = false;
     if config.solver_type == DG || config.solver_type == FV

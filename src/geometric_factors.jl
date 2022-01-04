@@ -26,11 +26,11 @@ Stores all of the geometric factors for the grid.
 =#
 struct GeometricFactors
     J::Array{Jacobian,1}        # Jacobian for each element
-    detJ::Array{Float64,1}      # Determinant of Jacobian for each element
+    detJ::Array{Float64}      # Determinant of Jacobian for each element
     
     # These below are only computed if needed, otherwise empty arrays
     volume::Array{Float64,1}    # Volume of each element (used by FV)
-    face_detJ::Array{Float64,1} # Determinant of Jacobian for each face (used by DG and FV)
+    face_detJ::Array{Float64} # Determinant of Jacobian for each face (used by DG and FV)
     area::Array{Float64,1}      # Area of each face (used by FV)
 end
 
@@ -40,12 +40,19 @@ function copy(j::Jacobian)
 end
 
 # Construct the geometric factors from a grid+refel
-function build_geometric_factors(refel, grid; do_face_detj=false, do_vol_area=false, constant_jacobian=true)
+function build_geometric_factors(refel, grid; do_face_detj=false, do_vol_area=false, constant_jacobian=false)
     nel = size(grid.loc2glb, 2);
     totalfaces = size(grid.facenormals, 2);
     dim = size(grid.allnodes, 1);
+    nodes_per_element = refel.Np;
+    qnodes_per_element = refel.Nqp;
     
-    detJ = zeros(nel);
+    if constant_jacobian
+        detJ = zeros(1, nel);
+    else
+        detJ = zeros(qnodes_per_element, nel);
+    end
+    
     J = Array{Jacobian,1}(undef, nel);
     
     if do_vol_area
@@ -62,7 +69,11 @@ function build_geometric_factors(refel, grid; do_face_detj=false, do_vol_area=fa
         
         (e_detJ, e_J) = geometric_factors(refel, xe, constantJ=constant_jacobian);
         
-        detJ[e] = e_detJ[1];
+        if constant_jacobian
+            detJ[e] = e_detJ;
+        else
+            detJ[:,e] = e_detJ;
+        end
         J[e] = e_J;
         
         if do_vol_area
@@ -117,10 +128,10 @@ function geometric_factors(refel, pts; constantJ = false)
         
     elseif refel.dim == 2
         if refel.Nfaces == 3 # triangle
-            xr = refel.Ddr*pts[1,:];
-            xs = refel.Dds*pts[1,:];
-            yr = refel.Ddr*pts[2,:];
-            ys = refel.Dds*pts[2,:];
+            xr = refel.Qr*pts[1,:];
+            xs = refel.Qs*pts[1,:];
+            yr = refel.Qr*pts[2,:];
+            ys = refel.Qs*pts[2,:];
             
         else # quad
             (xr, xs) = tensor_grad2(refel.Dg, pts[1,:][:]);
@@ -145,20 +156,20 @@ function geometric_factors(refel, pts; constantJ = false)
         
     else
         if refel.Nfaces == 4 # tetrahedron
-            xr = refel.Ddr*pts[1,:];
-            xs = refel.Dds*pts[1,:];
-            xt = refel.Ddt*pts[1,:];
-            yr = refel.Ddr*pts[2,:];
-            ys = refel.Dds*pts[2,:];
-            yt = refel.Ddt*pts[2,:];
-            zr = refel.Ddr*pts[3,:];
-            zs = refel.Dds*pts[3,:];
-            zt = refel.Ddt*pts[3,:];
+            xr = refel.Qr*pts[1,:];
+            xs = refel.Qs*pts[1,:];
+            xt = refel.Qt*pts[1,:];
+            yr = refel.Qr*pts[2,:];
+            ys = refel.Qs*pts[2,:];
+            yt = refel.Qt*pts[2,:];
+            zr = refel.Qr*pts[3,:];
+            zs = refel.Qs*pts[3,:];
+            zt = refel.Qt*pts[3,:];
             
         else # hexahedron
-            (xr, xs, xt) = tensor_grad3(refel.Dr, pts[1,:][:]);
-            (yr, ys, yt) = tensor_grad3(refel.Dr, pts[2,:][:]);
-            (zr, zs, zt) = tensor_grad3(refel.Dr, pts[3,:][:]);
+            (xr, xs, xt) = tensor_grad3(refel.Dg, pts[1,:][:]);
+            (yr, ys, yt) = tensor_grad3(refel.Dg, pts[2,:][:]);
+            (zr, zs, zt) = tensor_grad3(refel.Dg, pts[3,:][:]);
         end
         
         if constantJ

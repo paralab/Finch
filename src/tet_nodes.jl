@@ -14,7 +14,7 @@ function tetrahedron_refel_nodes!(refel)
     (r, s, t) = tetrahedron_equilateral_to_rst(eqx,eqy,eqz);
     
     # Adjust things within 1e-15 of the -1 boundaries to be exactly -1 and close to 0 to be 0
-    tet_snap_to_bdry!(r, s, t, 1e-15);
+    tet_snap_to_bdry!(r, s, t, 1e-14);
     
     refel.r = zeros(refel.Np,3);
     refel.wr = zeros(refel.Np);
@@ -39,6 +39,10 @@ function tetrahedron_refel_nodes!(refel)
                         get_face2local_map(refel.r, tf3),
                         get_face2local_map(refel.r, tf4)];
     
+    # Surface quadrature nodes/weights are not ready. TODO
+    if config.solver_type == DG
+        printerr("Surface quadrature for tets is not ready. Sorry.", fatal=true);
+    end
 end
 
 # Purpose  : Compute (x,y,z) nodes in equilateral tetrahedron for polynomial of order N  
@@ -280,24 +284,25 @@ end
 function tet_snap_to_bdry!(r, s, t, tol)
     n = length(r);
     for i=1:n
+        allowance = [1,1,1];
         if abs(r[i]+1) < tol
             r[i] = -1;
+            allowance[1] = 0;
         end
         if abs(s[i]+1) < tol
             s[i] = -1;
+            allowance[2] = 0;
         end
         if abs(t[i]+1) < tol
             t[i] = -1;
+            allowance[3] = 0;
         end
         
-        if abs(r[i]) < tol
-            r[i] = 0;
-        end
-        if abs(s[i]) < tol
-            s[i] = 0;
-        end
-        if abs(t[i]) < tol
-            t[i] = 0;
+        if abs(r[i] + s[i] + t[i] + 1) < tol
+            offset = r[i] + s[i] + t[i] + 1;
+            r[i] -= offset * allowance[1]/sum(allowance);
+            s[i] -= offset * allowance[2]/sum(allowance);
+            t[i] -= offset * allowance[3]/sum(allowance);
         end
     end
 end

@@ -23,32 +23,38 @@ struct Grid
     facebid::Array{Int,1}           # BID of each face (0=interior face)
     
     # When partitioning the grid, this stores the ghost info.
+    # Items specifying (for solver type) will be empty/0 for other types.
     is_subgrid::Bool                # Is this a partition of a greater grid?
     nel_owned::Int                  # Number of elements owned by this partition
-    nel_ghost::Int                  # Number of ghost elements
+    nel_ghost::Int                  # Number of ghost elements (for FV)
     nface_owned::Int                # Number of faces owned by this partition
-    nface_ghost::Int                # Number of ghost faces that are not owned
-    element_owner::Vector{Int}      # The rank of each ghost element's owner or -1 if locally owned
+    nface_ghost::Int                # Number of ghost faces that are not owned (for FV)
+    nnodes_shared::Int              # Number of nodes shared with another partition (for CG)
+    element_owner::Vector{Int}      # The rank of each ghost element's owner or -1 if locally owned (for FV)
     grid2mesh::Vector{Int}          # Map from partition elements to global mesh element index
+    partition2global::Vector{Int}   # Global index of nodes (for CG,DG)
     
     num_neighbor_partitions::Int        # number of partitions that share ghosts with this.
     neighboring_partitions::Vector{Int} # IDs of neighboring partitions
-    ghost_counts::Vector{Int}           # How many ghosts for each neighbor
-    ghost_index::Vector{Array{Int}}   # Lists of ghost elements to send/recv for each neighbor
+    ghost_counts::Vector{Int}           # How many ghost elements for each neighbor (for FV)
+    ghost_index::Vector{Array{Int}}   # Lists of ghost elements to send/recv for each neighbor (for FV)
     
     # constructors
     Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid) = 
      new(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
-         false, size(loc2glb,2), 0,size(face2element,2), 0, zeros(Int,0), zeros(Int,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]); # up to facebid only
+         false, size(loc2glb,2), 0,size(face2element,2), 0, 0, zeros(Int,0), zeros(Int,0), 
+         zeros(Int,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]); # up to facebid only
      
     Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
-         ispartitioned, nel_owned, nel_ghost, nface_owned, nface_ghost, element_owners, grid2mesh, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
+         ispartitioned, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_shared, element_owners, 
+         grid2mesh, partition2global, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
      new(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
-         ispartitioned, nel_owned, nel_ghost, nface_owned, nface_ghost, element_owners, grid2mesh, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
+         ispartitioned, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_shared, element_owners, 
+         grid2mesh, partition2global, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
 end
 
 etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices for each type
@@ -181,11 +187,11 @@ function grid_from_mesh(mesh)
         if dim == 1
             test_same_face = is_same_node;
         elseif dim == 2
-            # test_same_face = is_same_line;
-            test_same_face = is_same_face_center;
+            test_same_face = is_same_line;
+            # test_same_face = is_same_face_center; # doesn't always work?
         elseif dim == 3
-            # test_same_face = is_same_plane;
-            test_same_face = is_same_face_center;
+            test_same_face = is_same_plane;
+            # test_same_face = is_same_face_center; # doesn't always work?
         end
         
         for gfi=1:nfaces
@@ -315,9 +321,12 @@ function partitioned_grid_from_mesh(mesh, epart)
     ghost_faces = 0;
     nel_owned = 0;
     nel_ghost = 0;
+    nnodes_owned = 0; # number of nodes NOT shared with a partition of lower index
+    nnodes_shared = 0; # number of nodes shared with a partition of lower index
     element_status = fill(-1, mesh.nel); # 1 for ghosts, 0 for owned, -1 for other
     face_status = fill(-1, size(mesh.normals,2)); # 1 for face to ghosts, 0 for owned, -1 for other
     mesh2grid_face = fill(-1, size(mesh.normals,2)); # -1 if this face is not in the partition, otherwise the index of the grid face
+    partition2global = zeros(Int,0); # global index of nodes
     num_neighbors = 0; # number of partitions neighboring this
     neighbor_ids = zeros(Int,0); # ID of neighbors
     ghost_counts = zeros(Int,0); # number of ghosts per neighbor
@@ -355,7 +364,12 @@ function partitioned_grid_from_mesh(mesh, epart)
             mesh2grid_face[fi] = owned_faces;
         end
     end
-    nel = nel_owned + nel_ghost;
+    if config.solver_type == FV
+        nel = nel_owned + nel_ghost;
+    else
+        nel = nel_owned;
+    end
+    
     
     # Now that ghosts are known, add their faces that are not owned
     for ei=1:mesh.nel
@@ -369,7 +383,11 @@ function partitioned_grid_from_mesh(mesh, epart)
             end
         end
     end
-    totalfaces = owned_faces + ghost_faces;
+    if config.solver_type == FV
+        totalfaces = owned_faces + ghost_faces;
+    else
+        totalfaces = owned_faces;
+    end
     
     if dim == 1
         facenvtx = 1
@@ -381,7 +399,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     log_entry("Building reference element: "*string(dim)*"D, order="*string(ord)*", nfaces="*string(nfaces), 3);
     refel = build_refel(dim, ord, nfaces, config.elemental_nodes);
     
-    if config.solver_type == DG # || config.solver_type == FV ????
+    if config.solver_type == DG
         Gness = 2;
     else
         Gness = 1;
@@ -418,7 +436,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     next_g_index = nel_owned+1; #index for next ghost
     t_nodes1 = Base.Libc.time();
     for ei=1:mesh.nel
-        if element_status[ei] >= 0 # owned or ghost element
+        if element_status[ei] == 0 || (element_status[ei] == 1 && config.solver_type == FV)# owned or (ghost && FV) element
             # Find this element's nodes
             n_vert = etypetonv[mesh.etypes[ei]];
             e_vert = mesh.nodes[1:dim, mesh.elements[1:n_vert, ei]];
@@ -487,10 +505,11 @@ function partitioned_grid_from_mesh(mesh, epart)
         (allnodes, loc2glb) = remove_duplicate_nodes(tmpallnodes, loc2glb, tol=tol);
         t_nodes1 = Base.Libc.time() - t_nodes1;
         log_entry("Remove duplicate nodes: "*string(t_nodes1), 3);
-        
     else
         allnodes = tmpallnodes; # DG grid is already made
     end
+    node_owner_index = fill(config.partition_index, size(allnodes, 2)); # will be set to lowest partition index that has each node
+    node_shared_flag = zeros(Bool, size(allnodes, 2)); # When a node is shared by another partition, flag it (1)
     
     # vertices, faces and boundary
     # first make a map from mesh faces to grid faces
@@ -498,7 +517,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     next_g_index = nel_owned+1; #index for next ghost
     t_faces1 = Base.Libc.time();
     for ei=1:mesh.nel
-        if element_status[ei] >= 0 # owned or ghost element
+        if element_status[ei] == 0 || (element_status[ei] == 1 && config.solver_type == FV)# owned or (ghost && FV) element
             n_vert = etypetonv[mesh.etypes[ei]];
             mfids = mesh.element2face[:,ei];
             normals = mesh.normals[:,mfids];
@@ -542,11 +561,11 @@ function partitioned_grid_from_mesh(mesh, epart)
                 tmpf2glb = loc2glb[refel.face2local[gfi], next_index];
                 
                 for mfi=1:nfaces
-                    thisfaceind = meshfaces[mfi];
-                    gridfaceind = mesh2grid_face[thisfaceind]; # the face index in the grid
-                    if gridfaceind > 0 && test_same_face(mesh.nodes[:,mesh.face2vertex[:,thisfaceind]], allnodes[:, tmpf2glb], tol)
+                    meshfaceind = meshfaces[mfi];
+                    gridfaceind = mesh2grid_face[meshfaceind]; # the face index in the grid
+                    if gridfaceind > 0 && test_same_face(mesh.nodes[:,mesh.face2vertex[:,meshfaceind]], allnodes[:, tmpf2glb], tol)
                         # This mesh face corresponds to this tmpf2glb face
-                        # Put the tmpf2glb map into f2glb at the mesh index(thisfaceind).
+                        # Put the tmpf2glb map into f2glb at the mesh index(meshfaceind).
                         # Move the f2glb[:,1,ind] to f2glb[:,2,ind] first if DG (Gness==2)
                         # Set element2face according to gfi(not mfi)
                         # Move face2element[1] to face2element[2] and put this one in [1]
@@ -555,6 +574,23 @@ function partitioned_grid_from_mesh(mesh, epart)
                         element2face[gfi, next_index] = gridfaceind;
                         face2element[2, gridfaceind] = face2element[1, gridfaceind];
                         face2element[1, gridfaceind] = next_index;
+                        
+                        # What partition owns the element on the other side of the face?
+                        # If it has a lower index, update the node_owner_index for each node on the face.
+                        (me1,me2) = mesh.face2element[:,meshfaceind];
+                        if me2*me1 > 0 # not a boundary
+                            owner1 = epart[me1];
+                            owner2 = epart[me2];
+                            min_owner = min(owner1, owner2);
+                            for noi=1:length(tmpf2glb)
+                                if min_owner < node_owner_index[tmpf2glb[noi]]
+                                    node_owner_index[tmpf2glb[noi]] = min_owner;
+                                end
+                                if !(owner1 == owner2)
+                                    node_shared_flag[tmpf2glb[noi]] = 1;
+                                end
+                            end
+                        end
                         
                         # Find the normal for every face. The normal points from e1 to e2 or outward for boundary.
                         # Note that the normal stored in mesh_data could be pointing either way.
@@ -571,7 +607,7 @@ function partitioned_grid_from_mesh(mesh, epart)
                         facenormals[:, gridfaceind] = thisnormal;
                         
                         # Copy boundary info: bdry, bdryface, bdrynorm
-                        mbid = mesh.bdryID[thisfaceind];
+                        mbid = mesh.bdryID[meshfaceind];
                         gbid = indexin([mbid], bids)[1];
                         nfacenodes = length(tmpf2glb);
                         if !(gbid === nothing) && gridfaceind <= owned_faces # This is a boundary face of an owned element
@@ -641,90 +677,207 @@ function partitioned_grid_from_mesh(mesh, epart)
         end
     end
     
+    #### FV ONLY ####
     # Form ghost pairs for send/recv
     # First count how many pairs are needed for each neighbor
-    ghost_counts = zeros(Int, num_neighbors)
-    for fi=1:owned_faces
-        e1 = face2element[1,fi];
-        e2 = face2element[2,fi];
-        eg = e2;
-        eo = e1;
-        neigh = -1;
-        if element_owners[e1] < 0
-            if e2 > 0 && element_owners[e2] >= 0
-                # e1 owned, e2 ghost
-                neigh = element_owners[e2];
-            end
-        elseif e2 > 0 && element_owners[e2] < 0
-            # e2 owned, e1 ghost
-            eg = e1;
-            eo = e2;
-            neigh = element_owners[e1];
-        end
-        
-        if neigh >= 0 # It is a face between neighbors
-            list_ind = 0;
-            for ni=1:num_neighbors
-                if neighbor_ids[ni] == neigh;
-                    list_ind += ni; # += used for scope of list_ind
-                        break;
-                end
-            end
-            if list_ind > 0
-                ghost_counts[list_ind] += 1;
-            end
-        end
-    end
-    
-    # Then build the lists of ghost pairs for each neighbor
-    ghost_inds = Vector{Array{Int,2}}(undef, num_neighbors);
-    for ni=1:num_neighbors
-        ghost_inds[ni] = zeros(Int, 2, ghost_counts[ni]);
-    end
-    # Need to loop over mesh faces to be sure they are built in the same order on each partition
-    for i=1:length(mesh2grid_face)
-        fi = mesh2grid_face[i];
-        if fi > 0  && fi <= owned_faces # exists in this partition and at least one of e1,e2 are owned
+    if config.solver_type == FV
+        ghost_counts = zeros(Int, num_neighbors)
+        for fi=1:owned_faces
             e1 = face2element[1,fi];
             e2 = face2element[2,fi];
-            if element_owners[e1] >= 0 || (e2>0 && element_owners[e2] >= 0) # It is a face between owned and ghost
-                if element_owners[e1] >= 0 # e1 is ghost
-                    eg = e1; # ghost
-                    eo = e2; # owned
-                elseif element_owners[e2] >= 0 # e2 is ghost
-                    eg = e2;
-                    eo = e1;
+            eg = e2;
+            eo = e1;
+            neigh = -1;
+            if element_owners[e1] < 0
+                if e2 > 0 && element_owners[e2] >= 0
+                    # e1 owned, e2 ghost
+                    neigh = element_owners[e2];
                 end
+            elseif e2 > 0 && element_owners[e2] < 0
+                # e2 owned, e1 ghost
+                eg = e1;
+                eo = e2;
+                neigh = element_owners[e1];
+            end
+            
+            if neigh >= 0 # It is a face between neighbors
                 list_ind = 0;
                 for ni=1:num_neighbors
-                    if neighbor_ids[ni] == element_owners[eg];
+                    if neighbor_ids[ni] == neigh;
                         list_ind += ni; # += used for scope of list_ind
+                            break;
                     end
                 end
                 if list_ind > 0
-                    for j=1:ghost_counts[list_ind]
-                        if ghost_inds[list_ind][1,j] == 0
-                            ghost_inds[list_ind][:,j] = [eg, eo];
-                            break;
-                        end
-                    end
-                else
-                    # There was a problem...
-                    printerr("Problem with building ghost lists. Expect an error.")
+                    ghost_counts[list_ind] += 1;
                 end
             end
         end
-    end
+        
+        # Then build the lists of ghost pairs for each neighbor
+        ghost_inds = Vector{Array{Int,2}}(undef, num_neighbors);
+        for ni=1:num_neighbors
+            ghost_inds[ni] = zeros(Int, 2, ghost_counts[ni]);
+        end
+        # Need to loop over mesh faces to be sure they are built in the same order on each partition
+        for i=1:length(mesh2grid_face)
+            fi = mesh2grid_face[i];
+            if fi > 0  && fi <= owned_faces # exists in this partition and at least one of e1,e2 are owned
+                e1 = face2element[1,fi];
+                e2 = face2element[2,fi];
+                if element_owners[e1] >= 0 || (e2>0 && element_owners[e2] >= 0) # It is a face between owned and ghost
+                    if element_owners[e1] >= 0 # e1 is ghost
+                        eg = e1; # ghost
+                        eo = e2; # owned
+                    elseif element_owners[e2] >= 0 # e2 is ghost
+                        eg = e2;
+                        eo = e1;
+                    end
+                    list_ind = 0;
+                    for ni=1:num_neighbors
+                        if neighbor_ids[ni] == element_owners[eg];
+                            list_ind += ni; # += used for scope of list_ind
+                        end
+                    end
+                    if list_ind > 0
+                        for j=1:ghost_counts[list_ind]
+                            if ghost_inds[list_ind][1,j] == 0
+                                ghost_inds[list_ind][:,j] = [eg, eo];
+                                break;
+                            end
+                        end
+                    else
+                        # There was a problem...
+                        printerr("Problem with building ghost lists. Expect an error.")
+                    end
+                end
+            end
+        end
+    end#### FV ONLY ####
+    
+    #### FE ONLY ####
+    # Build the nodal partition to global map.
+    # This requires finding the number of nodes for all lower number partitions, which is a significant task.
+    # Have all processes gather their partition index and owned node counts.
+    partition2global = zeros(size(allnodes,2)); # zero means it hasn't been determined yet
+    if config.solver_type == CG || config.solver_type == DG
+        nnodes_owned = size(allnodes, 2); # Start with all
+        nnodes_shared = 0;
+        nnodes_claimed = 0; # owned, but shared by another partition.
+        for ni=1:size(allnodes, 2)
+            if node_owner_index[ni] < config.partition_index
+                nnodes_shared += 1;
+            elseif node_shared_flag[ni] > 0
+                nnodes_claimed += 1;
+            end
+        end
+        nnodes_owned -= nnodes_shared;
+        
+        p_data = zeros(Int, config.num_procs * 3);
+        p_data_in = MPI.UBuffer(p_data, 3, config.num_procs, MPI.Datatype(Int));
+        p_data_out = [config.partition_index, nnodes_owned, nnodes_claimed];
+        MPI.Allgather!(p_data_out, p_data_in, MPI.COMM_WORLD);
+        
+        # Determine the starting index of this partition's nodes
+        start_offset = 0;
+        nodes_per_partition = zeros(Int, config.num_partitions);
+        claimed_nodes_per_proc = zeros(Int, config.num_procs);
+        total_claimed_node_size = 0;
+        for proc_i = 1:config.num_procs
+            nodes_per_partition[p_data[(proc_i-1)*3+1]+1] = p_data[(proc_i-1)*3+2];
+            claimed_nodes_per_proc[proc_i] = p_data[(proc_i-1)*3+3];
+            total_claimed_node_size += p_data[(proc_i-1)*3+3];
+        end
+        for part_i = 1:(config.partition_index)
+            start_offset += nodes_per_partition[part_i];
+        end
+        
+        # The global index for owned nodes will simply add the start_offset
+        next_index = start_offset+1;
+        for ni=1:size(allnodes, 2)
+            if node_owner_index[ni] == config.partition_index
+                partition2global[ni] = next_index;
+                next_index += 1;
+            end
+        end
+        
+        # Now only the shared nodes' global indices have not been set.
+        # ...
+        # This is inefficient, but let's collect all of the shared nodes coords and indices.
+        # Then each process will search for their shared nodes and set the global index.
+        # The buffer must be total_claimed_node_size * (dimension+1)
+        chunk_sizes = claimed_nodes_per_proc .* (config.dimension + 1);
+        displacements = zeros(Int, config.num_procs);
+        d = 0;
+        for proc_i=1:config.num_procs
+            displacements[proc_i] = d;
+            d += claimed_nodes_per_proc[proc_i] * (config.dimension + 1);
+        end
+        p_data = zeros(total_claimed_node_size * (config.dimension + 1));
+        p_data_in = MPI.VBuffer(p_data, chunk_sizes, displacements, MPI.Datatype(Float64));
+        p_data_out = zeros((config.dimension + 1), nnodes_claimed);
+        next_index = 1;
+        for ni=1:size(allnodes, 2)
+            if node_shared_flag[ni] > 0 && node_owner_index[ni] == config.partition_index
+                p_data_out[1:config.dimension, next_index] = allnodes[:,ni];
+                p_data_out[config.dimension+1, next_index] = partition2global[ni];
+                next_index += 1;
+            end
+        end
+        MPI.Allgatherv!(p_data_out, p_data_in, MPI.COMM_WORLD);
+        
+        if config.proc_rank == 0
+            println(p_data);
+        end
+        
+        # Now search for shared coordinates and set the global index
+        for ni=1:size(allnodes, 2)
+            if node_owner_index[ni] < config.partition_index
+                these_coords = allnodes[:,ni];
+                found_index = -1; # will be set to the index when found
+                for proc_i=1:config.num_procs
+                    p_offset = displacements[proc_i] + 1;
+                    for nj=1:claimed_nodes_per_proc[proc_i]
+                        n_offset = p_offset + (nj-1) * (config.dimension + 1);
+                        those_coords = p_data[n_offset:(n_offset+config.dimension-1)];
+                        # Are they the same node?
+                        if sum(abs.(these_coords-those_coords)) < 1e-12
+                            found_index = p_data[n_offset+config.dimension];
+                            break;
+                        end
+                    end
+                    if found_index > 0
+                        break;
+                    end
+                end
+                if found_index < 0
+                    printerr("Didn't find a global index for "*string(ni)*" owned by "*string(node_owner_index[ni]), fatal=true);
+                end
+                partition2global[ni] = Int(found_index);
+            end
+        end
+        
+    end#### FE ONLY ####
     
     t_grid_from_mesh = Base.Libc.time() - t_grid_from_mesh;
     log_entry("Total grid building time: "*string(t_grid_from_mesh), 2);
     
-    return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
+    if config.solver_type == FV
+        return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
-            true, nel_owned, nel_ghost, owned_faces, ghost_faces, element_owners, grid2mesh, num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
+            true, nel_owned, nel_ghost, owned_faces, ghost_faces, 0, element_owners, grid2mesh, zeros(Int,0), 
+            num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
+    else
+        return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
+            face2element, facenormals, faceRefelInd, facebid, 
+            true, nel_owned, 0, owned_faces, 0, nnodes_shared, zeros(Int,0), grid2mesh, partition2global, 
+            num_neighbors, neighbor_ids, zeros(Int,0), [zeros(Int,0)]));
+    end
 end
 
+#########################################################################
 ### Utilities ###
+#########################################################################
 
 function collectBIDs(mesh)
     bids = [];
@@ -1124,14 +1277,33 @@ function hex_refel_to_xyz(r, s, t, v)
 end
 
 function tetrahedron_refel_to_xyz(r, s, t, v)
-    d = v[:,1];
-    A = [v[:,2].-d v[:,3].-d v[:,4].-d];
+    # Check the orientation of the vertices.
+    # If they don't match refel, the jacobian will be bad.
+    # (p2-p1) X (p3-p1) points toward p4
+    # If not, swap p3 and p4
+    p1 = v[:,1];
+    p2 = v[:,2];
+    p3 = v[:,3];
+    p4 = v[:,4];
+    e1 = p2 - p1;
+    e2 = p3 - p1;
+    e1xe2 = [e1[2]*e2[3] - e1[3]*e2[2], e1[3]*e2[1] - e1[1]*e2[3], e1[1]*e2[2] - e1[2]*e2[1]];
+    # If dist(p1+e1xe2, p4) < dist(p1-e1xe2, p4), it is pointing toward p4
+    d1 = (p4[1] - (p1[1]+e1xe2[1]))^2 + (p4[2] - (p1[2]+e1xe2[2]))^2 + (p4[3] - (p1[3]+e1xe2[3]))^2;
+    d2 = (p4[1] - (p1[1]-e1xe2[1]))^2 + (p4[2] - (p1[2]-e1xe2[2]))^2 + (p4[3] - (p1[3]-e1xe2[3]))^2;
+    if d1 > d2
+        #3 and 4 need to be swapped
+        p3 = v[:,4];
+        p4 = v[:,3];
+    end
+    
+    A = [p2-p1   p3-p1   p4-p1];
     
     np = length(r);
     mv = zeros(3,np);
     for i=1:np
         tmp = [(r[i]+1)/2, (s[i]+1)/2, (t[i]+1)/2];
-        mv[:,i] = A*tmp + d;
+        mv[:,i] = A*tmp + p1;
     end
     
     x = mv[1,:]
@@ -1163,6 +1335,25 @@ function is_same_face_center(l1, l2, tol)
     center2 = center2 ./ n2;
     
     return is_same_node(center1, center2, tol);
+end
+
+# Returns the distance between face centers.
+function face_center_distance(l1, l2)
+    n1 = size(l1,2);
+    n2 = size(l2,2);
+    center1 = zeros(size(l1,1));
+    center2 = zeros(size(l2,1));
+    for i=1:n1
+        center1 = center1 .+ l1[:,i];
+    end
+    center1 = center1 ./ n1;
+    
+    for i=1:n2
+        center2 = center2 .+ l2[:,i];
+    end
+    center2 = center2 ./ n2;
+    
+    return sum(abs.(center1 - center2));
 end
 
 # Returns true if the two node lists have at least two of the same nodes.

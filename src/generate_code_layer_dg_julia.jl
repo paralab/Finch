@@ -426,7 +426,7 @@ function prepare_needed_values_dg_julia(entities, var, lorr, vors)
             needed_pieces *= 
 "
 # Note on derivative matrices:
-# RQn are vandermond matrices for the derivatives of the basis functions
+# RQn are quadrature matrices for the derivatives of the basis functions
 # with Jacobian factors. They are made like this.
 # |RQ1|   | rx sx tx || Qx |
 # |RQ2| = | ry sy ty || Qy |

@@ -225,8 +225,8 @@ function refel_nodes!(refel, nodetype)
                     fwg[k] = refel.wg1d[i] * refel.wg1d[j];
                 end
             end
-            refel.surf_wr = [fwr, fwr, fwr, fwr];
-            refel.surf_wg = [fwg, fwg, fwg, fwg];
+            refel.surf_wr = [fwr, fwr, fwr, fwr, fwr, fwr];
+            refel.surf_wg = [fwg, fwg, fwg, fwg, fwg, fwg];
         end
         
     else
