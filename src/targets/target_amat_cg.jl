@@ -33,31 +33,24 @@ and thus quadrature can be done for each term separately.
 function generate_external_code_layer(var, entities, terms, lorr, vors)
     # If multiple procs, only rank 0 does this
     if config.num_procs == 1 || config.proc_rank == 0
-        # This can be divided up into smaller functions however you wish.
         # The whole body of code is stored in a string that will be inserted in the 
         # appropriate function during file writing.
         code = "";
         
-        # Determine if derivative matrices will be required
-        need_derivs = false;
-        for i=1:length(entities)
-            if length(entities[i].derivs) > 0
-                need_derivs = true;
-                break;
-            end
-        end
-        if need_derivs
-            code *= amattarget_build_derivative_matrices(lorr, vors);
-            code *= "\n";
-        end
-        
+        # Prepare needed values.
         # Allocate/Evaluate or fetch the values for each needed entity.
         # Note: This could be staged and interleaved with the calculation part for complex problems. TODO
-        code *= amattarget_prepare_needed_values(entities, var, lorr, vors);
+        (prepcode, to_delete) = amattarget_prepare_needed_values(entities, var, lorr, vors);
+        code *= prepcode;
         code *= "\n";
         
         # Form the final elemental calculation
         code *= amattarget_make_elemental_computation(terms, var, lorr, vors);
+        
+        # Delete things
+        for d in to_delete
+            code *= "        delete [] " * d * ";\n";
+        end
         
         return code;
         
@@ -282,11 +275,8 @@ function amat_number_to_function(name, val)
     return cpp_functional(indent, name, args, argtypes, ret, rettype, captures, content);
 end
 
-function amat_genfunction_to_string(genfun; xsym=:(x[0]), ysym=:(x[1]), zsym=:(x[2]))
-    newex = amat_swap_symbol(:x, xsym, genfun.expr); # swap x for xsym
-    newex = amat_swap_symbol(:y, ysym, newex); # swap y for ysym
-    newex = amat_swap_symbol(:z, zsym, newex); # swap z for zsym
-    newex = amat_swap_symbol(:pi, :M_PI, newex); # swap pi for M_PI
+function amat_genfunction_to_string(genfun)
+    newex = amat_swap_symbol(:pi, :M_PI, genfun.expr); # swap pi for M_PI
     newex = amat_change_math_ops(newex); # change operators to match C++
     s = string(newex);
     ns = replace(s, r"([\d)])([(A-Za-z])" => s"\1*\2"); # explicitly multiply with "*" (2*x not 2x)
@@ -704,6 +694,7 @@ int main(int argc, char* argv[]) {
 #include "constraintRecord.hpp"
 #include "enums.hpp"
 #include "maps.hpp"
+#include "solve.hpp"
 
 #include "finch_mesh.hpp"
 #include "finch_geometry.hpp"
@@ -747,15 +738,31 @@ function amat_genfunction_file()
     file = add_generated_file("finch_functions.cpp", dir="src");
     hfile = add_generated_file("finch_functions.hpp", dir="include");
     
+    function_defs = "";
+    indent = "";
+    args = ["x", "y", "z", "t", "nid"];
+    argtypes = ["const double", "const double", "const double", "const double", "const unsigned long"];
+    rettype = "double";
+    function_declarations = "";
+    for i = 1:length(genfunctions)
+        str = amat_genfunction_to_string(genfunctions[i]);
+        fun = ["return "*str*";"];
+        
+        lines = cpp_function_def(indent, "finch::"*genfunctions[i].name, args, argtypes, rettype, fun);
+        for j=1:length(lines)
+            function_defs *= lines[j] * "\n";
+        end
+        
+        function_declarations *= "    double "*genfunctions[i].name*"(const double x, const double y, const double z, const double t, const unsigned long nid);\n";
+    end
+    
     content = """
 /*
 Genfunctions for things like coefficients, boundary conditions etc.
 */
 #include "finch_functions.hpp"
 
-double finch::genfunction_0(const double x, const double y, const double z, const double t, const unsigned long nid){
-    return sin(2 * M_PI * x) * sin(3 * M_PI * y) * sin(4 * M_PI * z);
-}
+$function_defs
 """
     println(file, content);
     
@@ -767,7 +774,7 @@ Genfunctions for things like coefficients, boundary conditions etc.
 #include <math.h>
 
 namespace finch{
-    double genfunction_0(const double x, const double y, const double z, const double t, const unsigned long nid);
+$function_declarations
 }
 """
     println(hfile, content);
@@ -777,28 +784,49 @@ end
 # This file has the elemental matrix and vector assembly code.
 function amat_pde_file(LHS_vol, LHS_surf, RHS_vol, RHS_surf, var)
     file = add_generated_file("finch_pde.cpp", dir="src");
-    hfile = add_generated_file("finch_pde.hpp", dir="include");
+    # hfile = add_generated_file("finch_pde.hpp", dir="include");
     
-    content = """
-/*
-Functions for computing the elemental matrix and vector.
-*/
-#pragma once
-#include "finch_mesh.hpp"
-#include <string>
+    dofs_per_node = 0;
+    dof_names = [];
+    if typeof(var) <:Array
+        dofs_per_node = length(var[1].symvar);
+        for i=1:length(var.symvar)
+            push!(dof_names, string(var[1].symvar[i]));
+        end
+        for vi=2:length(var)
+            dofs_per_node = dofs_per_node + length(var[vi].symvar);
+            for i=1:length(var.symvar)
+                push!(dof_names, string(var[vi].symvar[i]));
+            end
+        end
+    else
+        dofs_per_node = length(var.symvar);
+        for i=1:length(var.symvar)
+            push!(dof_names, string(var.symvar[i]));
+        end
+    end
+    sdofs_per_node = string(dofs_per_node);
+    
+#     content = """
+# /*
+# Functions for computing the elemental matrix and vector.
+# */
+# #pragma once
+# #include "finch_mesh.hpp"
+# #include <string>
 
-namespace finch{
-    namespace pde{
+# namespace finch{
+#     namespace pde{
         
-        void compute_elemetal_matrix(const finch::Mesh mesh, const unsigned int eid, double* ke);
+#         void compute_elemetal_matrix(const finch::Mesh mesh, const unsigned int eid, double* ke);
         
-        void compute_elemental_vector(const finch::Mesh mesh, const unsigned int eid, double* be);
+#         void compute_elemental_vector(const finch::Mesh mesh, const unsigned int eid, double* be);
         
-    }
-}
-""";
+#     }
+# }
+# """;
     
-    println(hfile, content)
+#     println(hfile, content)
     
     content = """
 /*
@@ -808,100 +836,24 @@ These are to be included directly in the main file.
 namespace finch{
     // The function parameters must not change because this may be called by amat.
     void compute_elemental_matrix(unsigned int eid, double* ke, double* xe){
-        int dofs_per_node = 1;
+        int dofs_per_node = $sdofs_per_node;
         int nnodes = frefel.nnodes;
         int nqnodes = frefel.nqnodes;
         int dim = fmesh.dimension;
-        // for(int ni=0; ni<nnodes; ni++){
-        //     unsigned long global_nid = (fmesh.loc2glb[eid][ni]-1);
-        //     for(int di=0; di<nnodes; di++){
-        //         xe[ni*dim+di] = fmesh.allnodes[global_nid*dim+di];
-        //     }
-        // }
         double detj = geo_factors.detJ[eid][0];
         
-        // Build derivative matrices
-        double *RQ1 = new double[frefel.nnodes * frefel.nqnodes];
-        double *RQ2 = new double[frefel.nnodes * frefel.nqnodes];
-        double *RQ3 = new double[frefel.nnodes * frefel.nqnodes];
-        for(int row=0; row<nqnodes; row++){
-            for(int col=0; col<nnodes; col++){
-                int idx = row*nnodes + col;
-                // NOTE all of the geo factors should use index [row] rather than [0] for non-constant J
-                RQ1[idx] = geo_factors.rx[eid][0] * frefel.Qr[idx] + geo_factors.sx[eid][0] * frefel.Qs[idx] + geo_factors.tx[eid][0] * frefel.Qt[idx];
-                RQ2[idx] = geo_factors.ry[eid][0] * frefel.Qr[idx] + geo_factors.sy[eid][0] * frefel.Qs[idx] + geo_factors.ty[eid][0] * frefel.Qt[idx];
-                RQ3[idx] = geo_factors.rz[eid][0] * frefel.Qr[idx] + geo_factors.sz[eid][0] * frefel.Qs[idx] + geo_factors.tz[eid][0] * frefel.Qt[idx];
-            }
-        }
-        
-        if(dofs_per_node > 1){
-            //TODO interleave dofs
-        }else{
-            // Q' * diag(refel.wg * geo_factors * coef_at_g) * Q
-            // It will be a combination of terms looking like Q'DQ 
-            // Perhaps do it piecewise? piece = (row * d * col) + ...
-            for(int row=0; row<nnodes; row++){
-                for(int col=0; col<nnodes; col++){
-                    ke[row*nnodes + col] = 0.0;
-                }
-            }
-            for(int i=0; i<nqnodes; i++){
-                for(int row=0; row<nnodes; row++){
-                    for(int col=0; col<nnodes; col++){
-                        ke[row*nnodes + col] -= RQ1[i*nqnodes + row] * frefel.wg[i] * detj * RQ1[i*nqnodes + col] +
-                                                RQ2[i*nqnodes + row] * frefel.wg[i] * detj * RQ2[i*nqnodes + col] +
-                                                RQ3[i*nqnodes + row] * frefel.wg[i] * detj * RQ3[i*nqnodes + col];
-                    }
-                }
-            }
-        }
-        
-        delete [] RQ1;
-        delete [] RQ2;
-        delete [] RQ3;
+$LHS_vol
     }
             
     void compute_elemental_vector(const unsigned int eid, const double t, double* be){
         double x, y, z;
-        int dofs_per_node = 1;
+        int dofs_per_node = $sdofs_per_node;
         int nnodes = frefel.nnodes;
         int nqnodes = frefel.nqnodes;
         int dim = fmesh.dimension;
-        double detj = geo_factors.detJ[eid][0]; // constant jacobian
+        double detj = geo_factors.detJ[eid][0];
         
-        // compute coefficients
-        double *coef_f_1 = new double[nnodes];
-        for(int ni=0; ni<nnodes; ni++){
-            int nid = (fmesh.loc2glb[eid][ni]-1);
-            x = fmesh.allnodes[nid*dim];
-            y = fmesh.allnodes[nid*dim+1];
-            z = fmesh.allnodes[nid*dim+2];
-            
-            // Here is an expression of x, y, z, t
-            // coef_f_1[ni] = sin(2 * M_PI * x) * sin(3 * M_PI * y) * sin(4 * M_PI * z);
-            coef_f_1[ni] = finch::genfunction_0(x, y, z, t, nid);
-        }
-        // Interpolate to quadrature points
-        double *Qcoef_f_1 = new double[nqnodes];
-        for(int row=0; row<nqnodes; row++){
-            Qcoef_f_1[row] = 0.0;
-            for(int col=0; col<nnodes; col++){
-                Qcoef_f_1[row] += frefel.Q[row*nnodes + col] * coef_f_1[col];
-            }
-        }
-        
-        // Combine the terms of b while doing quadrature with test function.
-        for(int row=0; row<nnodes; row++){
-            be[row] = 0.0;
-        }
-        for(int col=0; col<nqnodes; col++){
-            for(int row=0; row<nnodes; row++){
-                be[row] += frefel.Q[col*nnodes + row] * frefel.wg[col] * detj * Qcoef_f_1[col];
-            }
-        }
-        
-        delete [] coef_f_1;
-        delete [] Qcoef_f_1;
+$RHS_vol
     }
 }
 """;
@@ -914,12 +866,46 @@ function amat_boundary_file(var)
     file = add_generated_file("finch_bdry.cpp", dir="src");
     hfile = add_generated_file("finch_bdry.hpp", dir="include");
     
+    bids = prob.bid[1,:];
+    default_bc = "0.0";
+    
+    bid_select = "";
+    # TODO: This assumes one scalar variable only
+    for b in bids
+        sb = string(b);
+        bid_select *= "    if(bid == $sb){\n"
+        
+        bid_select *= "        // BC type: "*prob.bc_type[var.index, b]*"\n"
+        bfunc = prob.bc_func[var.index, b];
+        if typeof(bfunc[1]) <: Number
+            bid_select *= "        return "*string(bfunc[1])*";\n"
+        elseif typeof(bfunc[1]) == GenFunction
+            if config.dimension == 1
+                bid_select *= "        return finch::"*string(bfunc[1].name)*"(x[0], 0.0, 0.0, 0.0, nid);\n"
+            elseif config.dimension == 2
+                bid_select *= "        return finch::"*string(bfunc[1].name)*"(x[0], x[1], 0.0, 0.0, nid);\n"
+            else
+                bid_select *= "        return finch::"*string(bfunc[1].name)*"(x[0], x[1], x[2], 0.0, nid);\n"
+            end
+            
+        else
+            println("unexpected BC value: "*string(bfunc[1]));
+        end
+        
+        bid_select *= "    }else ";
+    end
+    bid_select *= 
+"    {
+        return $default_bc ; // default value for missing BC
+    }";
+    
     content = """
 /*
 Functions for evaluating boundary conditions.
 */
 #pragma once
 #include <string>
+#include "finch_functions.hpp"
 
 namespace finch{
     double evaluate_bc(const double* x, const int bid, const unsigned long nid);
@@ -938,9 +924,7 @@ Functions for evaluating boundary conditions.
 #include "finch_bdry.hpp"
 
 double finch::evaluate_bc(const double* x, const int bid, const unsigned long nid){
-    double value = 0.0;
-    // TODO
-    return value;
+$bid_select
 }
 """;
     
@@ -1095,6 +1079,7 @@ set(EIGEN_HEADER_DIR .)
 add_executable("""*project_name*" "*project_name*"""/src/"""*project_name*""".cpp """*project_name*"""/include/"""*project_name*""".hpp \${INCLUDE_FILES} \${SOURCE_FILES})
 target_include_directories("""*project_name*""" PUBLIC include)
 target_include_directories("""*project_name*""" PUBLIC """*project_name*"""/include)
+target_include_directories("""*project_name*""" PUBLIC examples/include)
 target_include_directories("""*project_name*""" PRIVATE \${MPI_INCLUDE_PATH})
 target_include_directories("""*project_name*""" PRIVATE \${EIGEN_HEADER_DIR})
 if(USE_GPU)
@@ -1160,25 +1145,461 @@ end
 ###########################################################################################################
 
 # If needed, build derivative matrices
-function amattarget_build_derivative_matrices(lorr, vors)
-    
-    return "//TODO";
+function amattarget_build_derivative_matrices()
+    row_ind = "row";
+    if length(geo_factors.J[1].rx) == 1 # constant jacobian
+        row_ind = "0";
+    end
+    if config.dimension == 1
+        todelete = ["RQ1"];
+        code = 
+"
+        // Build derivative matrices:
+        // RQn are quadrature matrices for the derivatives of the basis functions
+        // with Jacobian factors. They are made like this.
+        // |RQ1|   | rx || Qx |
+
+        double *RQ1 = new double[frefel.nnodes * frefel.nqnodes];
+        for(int row=0; row<nqnodes; row++){
+            for(int col=0; col<nnodes; col++){
+                int idx = row*nnodes + col;
+                RQ1[idx] = geo_factors.rx[eid]["*row_ind*"] * frefel.Qr[idx];
+            }
+        }
+";
+    elseif config.dimension == 2
+        todelete = ["RQ1", "RQ2"];
+        code = 
+"
+        // Build derivative matrices:
+        // RQn are quadrature matrices for the derivatives of the basis functions
+        // with Jacobian factors. They are made like this.
+        // |RQ1|   | rx sx|| Qx |
+        // |RQ2| = | ry sy|| Qy |
+
+        double *RQ1 = new double[frefel.nnodes * frefel.nqnodes];
+        double *RQ2 = new double[frefel.nnodes * frefel.nqnodes];
+        for(int row=0; row<nqnodes; row++){
+            for(int col=0; col<nnodes; col++){
+                int idx = row*nnodes + col;
+                RQ1[idx] = geo_factors.rx[eid]["*row_ind*"] * frefel.Qr[idx] + geo_factors.sx[eid]["*row_ind*"] * frefel.Qs[idx];
+                RQ2[idx] = geo_factors.ry[eid]["*row_ind*"] * frefel.Qr[idx] + geo_factors.sy[eid]["*row_ind*"] * frefel.Qs[idx];
+            }
+        }
+";
+    elseif config.dimension == 3
+        todelete = ["RQ1", "RQ2", "RQ3"];
+        code = 
+"
+        // Build derivative matrices:
+        // RQn are quadrature matrices for the derivatives of the basis functions
+        // with Jacobian factors. They are made like this.
+        // |RQ1|   | rx sx tx || Qx |
+        // |RQ2| = | ry sy ty || Qy |
+        // |RQ3|   | rz sz tz || Qz |
+        
+        double *RQ1 = new double[frefel.nnodes * frefel.nqnodes];
+        double *RQ2 = new double[frefel.nnodes * frefel.nqnodes];
+        double *RQ3 = new double[frefel.nnodes * frefel.nqnodes];
+        for(int row=0; row<nqnodes; row++){
+            for(int col=0; col<nnodes; col++){
+                int idx = row*nnodes + col;
+                RQ1[idx] = geo_factors.rx[eid]["*row_ind*"] * frefel.Qr[idx] + geo_factors.sx[eid]["*row_ind*"] * frefel.Qs[idx] + geo_factors.tx[eid]["*row_ind*"] * frefel.Qt[idx];
+                RQ2[idx] = geo_factors.ry[eid]["*row_ind*"] * frefel.Qr[idx] + geo_factors.sy[eid]["*row_ind*"] * frefel.Qs[idx] + geo_factors.ty[eid]["*row_ind*"] * frefel.Qt[idx];
+                RQ3[idx] = geo_factors.rz[eid]["*row_ind*"] * frefel.Qr[idx] + geo_factors.sz[eid]["*row_ind*"] * frefel.Qs[idx] + geo_factors.tz[eid]["*row_ind*"] * frefel.Qt[idx];
+            }
+        }
+";
+    end
+    return (code, todelete);
 end
 
 # Allocate, compute, or fetch all needed values
 function amattarget_prepare_needed_values(entities, var, lorr, vors)
+    to_delete = []; # arrays allocated with new that need deletion
+    used_names = []; # Don't want to duplicate variables
+    code = "";
+    coef_loop = "";
+    coef_interp = "";
+    coef_interp_names = [];
     
-    return "//TODO";
+    # Determine if derivative matrices will be required
+    need_derivs = false;
+    for i=1:length(entities)
+        if length(entities[i].derivs) > 0
+            need_derivs = true;
+            break;
+        end
+    end
+    if need_derivs
+        (dcode, todel) = amattarget_build_derivative_matrices();
+        code *= dcode;
+        append!(to_delete, todel);
+    end
+    
+    for i=1:length(entities)
+        cname = CodeGenerator.make_entity_name(entities[i]);
+        # Make sure it hasn't been prepared yet.
+        # Since entities with the same name should have the same value, just skip.
+        for used in used_names
+            if used == cname
+                continue;
+            end
+        end
+        push!(used_names, cname);
+        if CodeGenerator.is_test_function(entities[i])
+            # Assign it a transpose quadrature matrix
+            if length(entities[i].derivs) > 0
+                xyzchar = ["x","y","z"];
+                for di=1:length(entities[i].derivs)
+                    code *= "        double * " * cname * " = RQ"*string(entities[i].derivs[di])*"; // d/d"*xyzchar[entities[i].derivs[di]]*" of test function\n";
+                end
+            else
+                code *= "        double * " * cname * " = frefel.Q; // test function.\n";
+            end
+        elseif CodeGenerator.is_unknown_var(entities[i], var) && lorr == LHS
+            if length(entities[i].derivs) > 0
+                xyzchar = ["x","y","z"];
+                for di=1:length(entities[i].derivs)
+                    code *= "        double * " * cname * " = RQ"*string(entities[i].derivs[di])*"; // d/d"*xyzchar[entities[i].derivs[di]]*" of trial function\n";
+                end
+            else
+                code *= "        double * " * cname * " = frefel.Q; // trial function.\n";
+            end
+        else
+            # Is coefficient(number or function) or variable(array)?
+            (ctype, cval) = CodeGenerator.get_coef_val(entities[i]);
+            if ctype == -1
+                # It was a special symbol like dt. These should already be available.
+            elseif ctype == 0
+                # It was a number. Do nothing.
+            elseif ctype == 1 # a constant wrapped in a coefficient
+                # This generates something like: double coef_k_i = 4;
+                if length(entities[i].derivs) > 0
+                    code *= "        double " * cname * " = 0.0; // NOTE: derivative applied to constant coefficient = 0\n";
+                else
+                    code *= "        double " * cname * " = " * string(cval) * ";\n";
+                end
+                
+            elseif ctype == 2 # a coefficient function
+                if vors == "volume"
+                    push!(to_delete, "NODAL"*cname);
+                    push!(to_delete, cname);
+                    code *= "        double* NODAL"*cname*" = new double[nnodes]; // value at nodes\n"; # at nodes
+                    code *= "        double* "*cname*" = new double[nqnodes];     // value at quadrature points\n"; # at quadrature points
+                    push!(coef_interp_names, cname);
+                    coef_loop *= "            NODAL"*cname*"[ni] = finch::genfunction_"*string(cval)*"(x, y, z, t, nid);\n";
+                    # Apply any needed derivative operators. Interpolate at quadrature points.
+                        # for(int row=0; row<nqnodes; row++){
+                        #     Qcoef_f_1[row] = 0.0;
+                        #     for(int col=0; col<nnodes; col++){
+                        #         Qcoef_f_1[row] += frefel.Q[row*nnodes + col] * coef_f_1[col];
+                        #     }
+                        # }
+                    if length(entities[i].derivs) > 0
+                        coef_interp *= "                "*cname * "[row] += RQ"*string(entities[i].derivs[di])*"[row*nnodes + col] * NODAL"*cname*"[col];\n";
+                    else
+                        coef_interp *= "                "*cname * "[row] += frefel.Q[row*nnodes + col] * NODAL"*cname*"[col];\n";
+                    end
+                else
+                    #TODO surface
+                end
+                
+            elseif ctype == 3 # a known variable value
+                # This should only occur for time dependent problems
+                # Use the values from the previous time step
+                if vors == "volume"
+                    push!(to_delete, cname);
+                    push!(to_delete, "NODAL"*cname);
+                    code *= "        double* NODAL"*cname*" = new double[nnodes]; // value at nodes\n"; # at nodes
+                    code *= "        double* "*cname*" = new double[nqnodes];     // value at quadrature points\n"; # at quadrature points
+                    push!(coef_interp_names, cname);
+                    coef_loop *= "            NODAL"*cname*"[ni] = 0.0; // TODO extract variable values\n";
+                    # Apply any needed derivative operators. Interpolate at quadrature points.
+                    if length(entities[i].derivs) > 0
+                        coef_interp *= "                "*cname * "[row] += RQ"*string(entities[i].derivs[di])*"[row*nnodes + col] * NODAL"*cname*"[col];\n";
+                    else
+                        coef_interp *= "                "*cname * "[row] += frefel.Q[row*nnodes + col] * NODAL"*cname*"[col];\n";
+                    end
+                else
+                    #TODO surface
+                end
+                
+            end
+        end # if coefficient
+    end # entity loop
+    
+    # Loop to compute coefficients at nodes
+    if length(coef_loop) > 2
+        code *= 
+"
+        // Loop to compute coefficients at nodes.
+        for(int ni=0; ni<nnodes; ni++){
+            int nid = (fmesh.loc2glb[eid][ni]-1);
+            x = fmesh.allnodes[nid*dim];
+            y = fmesh.allnodes[nid*dim+1];
+            z = fmesh.allnodes[nid*dim+2];
+            
+"*coef_loop*"
+        }
+";
+    
+        # Interpolate
+        zerocode = "";
+        for cn in coef_interp_names
+            zerocode *= "            "*cn*"[row] = 0.0;\n";
+        end
+        code *= 
+"
+        // Interpolate at quadrature points and apply derivatives if needed.
+        for(int row=0; row<nqnodes; row++){
+"*zerocode*"
+            for(int col=0; col<nnodes; col++){
+"*coef_interp*"
+            }
+        }
+";
+    end
+    
+    return (code, to_delete);
 end
 
 function amattarget_make_elemental_computation(terms, var, lorr, vors)
+    # Here is where I make some assumption about the form of the expression.
+    # Since it was expanded by the parser it should look like a series of terms: t1 + t2 + t3...
+    # Where each term is multiplied by one test function component, and if LHS, involves one unknown component.
+    # The submatrix modified by a term is determined by these, so go through the terms and divide them
+    # into their submatrix expressions. 
+    # Each term will look something like 
+    # LHS: test_part * diagm(weight_part .* coef_part) * trial_part
+    # RHS: test_part * (weight_part .* coef_part)
+    code = "";
     
-    return "//TODO";
+    dofs_per_node = 0;
+    dof_names = [];
+    if typeof(var) <:Array
+        dofs_per_node = length(var[1].symvar);
+        for i=1:length(var.symvar)
+            push!(dof_names, string(var[1].symvar[i]));
+        end
+        for vi=2:length(var)
+            dofs_per_node = dofs_per_node + length(var[vi].symvar);
+            for i=1:length(var.symvar)
+                push!(dof_names, string(var[vi].symvar[i]));
+            end
+        end
+    else
+        dofs_per_node = length(var.symvar);
+        for i=1:length(var.symvar)
+            push!(dof_names, string(var.symvar[i]));
+        end
+    end
+    
+    # For constant jacobian, this step can be skipped
+    detj_update = "";
+    if length(geo_factors.J[1].rx) > 1 # not constant jacobian
+        if lorr==LHS
+            if vors == "volume"
+                detj_update = "detj = geo_factors.detJ[eid][i];";
+            else
+               #TODO 
+            end
+        else
+            if vors == "volume"
+                detj_update = "detj = geo_factors.detJ[eid][col];";
+            else
+               #TODO 
+            end
+        end
+    end
+    
+    # Separate the factors of each term into test, trial, coef and form the calculation
+    if dofs_per_node > 1
+        # # Submatrices or subvectors for each component
+        # if lorr == LHS
+        #     submatrices = Array{String, 2}(undef, dofs_per_node, dofs_per_node);
+        # else # RHS
+        #     submatrices = Array{String, 1}(undef, dofs_per_node);
+        # end
+        # for smi=1:length(submatrices)
+        #     submatrices[smi] = "";
+        # end
+        
+        # if typeof(var) <: Array
+        #     for vi=1:length(var) # variables
+        #         # Process the terms for this variable
+        #         for ci=1:length(terms[vi]) # components
+        #             for i=1:length(terms[vi][ci])
+        #                 (term_result, test_ind, trial_ind) = generate_term_calculation_cg_julia(terms[vi][ci][i], var, lorr, vors);
+                        
+        #                 # println(terms)
+        #                 # println(terms[vi])
+        #                 # println(terms[vi][ci])
+        #                 # println(terms[vi][ci][i])
+        #                 # println(term_result * " : "*string(test_ind)*", "*string(trial_ind))
+                        
+        #                 # Find the appropriate submatrix for this term
+        #                 submati = offset_ind[vi] + test_ind;
+        #                 submatj = trial_ind;
+        #                 if lorr == LHS
+        #                     submat_ind = submati + dofs_per_node * (submatj-1);
+        #                 else
+        #                     submat_ind = submati;
+        #                 end
+                        
+                        
+        #                 if length(submatrices[submat_ind]) > 1
+        #                     submatrices[submat_ind] *= " .+ " * term_result;
+        #                 else
+        #                     submatrices[submat_ind] = term_result;
+        #                 end
+        #             end
+        #         end
+                
+        #     end # vi
+            
+        # else # only one variable
+        #     # Process the terms for this variable
+        #     for ci=1:length(terms) # components
+        #         for i=1:length(terms[ci])
+        #             (term_result, test_ind, trial_ind) = generate_term_calculation_cg_julia(terms[ci][i], var, lorr, vors);
+                    
+        #             # Find the appropriate submatrix for this term
+        #             if lorr == LHS
+        #                 submat_ind = test_ind + dofs_per_node * (trial_ind-1);
+        #             else
+        #                 submat_ind = test_ind;
+        #             end
+                    
+        #             if length(submatrices[submat_ind]) > 1
+        #                 submatrices[submat_ind] *= " + " * term_result;
+        #             else
+        #                 submatrices[submat_ind] = term_result;
+        #             end
+        #         end
+        #     end
+            
+        # end
+        
+        # # Put the submatrices together into element_matrix or element_vector
+        # if lorr == LHS
+        #     for emi=1:dofs_per_node
+        #         for emj=1:dofs_per_node
+        #             if length(submatrices[emi, emj]) > 1
+        #                 rangei = "("*string(emi-1)*"*refel.Np + 1):("*string(emi)*"*refel.Np)";
+        #                 rangej = "("*string(emj-1)*"*refel.Np + 1):("*string(emj)*"*refel.Np)";
+        #                 code *= "element_matrix["*rangei*", "*rangej*"] = " * submatrices[emi,emj] * "\n";
+        #             end
+        #         end
+        #     end
+        #     code *= "return element_matrix;\n"
+            
+        # else # RHS
+        #     for emi=1:dofs_per_node
+        #         if length(submatrices[emi]) > 1
+        #             rangei = "("*string(emi-1)*"*refel.Np + 1):("*string(emi)*"*refel.Np)";
+        #             code *= "element_vector["*rangei*"] = " * submatrices[emi] * "\n";
+        #         end
+        #     end
+        #     code *= "return element_vector;\n"
+        # end
+        
+    else # one dof
+        terms = terms[1];
+        
+        # Zero the output
+        if lorr == LHS
+            code *= 
+        "
+        // zero the output
+        for(int row=0; row<nnodes; row++){
+            for(int col=0; col<nnodes; col++){
+                ke[row*nnodes + col] = 0.0;
+            }
+        }
+        ";
+        else
+            code *= 
+        "
+        // zero the output
+        for(int row=0; row<nnodes; row++){
+            be[row] = 0.0;
+        }
+        ";
+        end
+        
+        #process each term
+        result = "";
+        for i=1:length(terms)
+            (term_result, test_ind, trial_ind) = amattarget_generate_term_calculation(terms[i], var, lorr, vors);
+            
+            if i > 1
+                result *= " + " * term_result;
+            else
+                result = term_result;
+            end
+        end
+        
+        if lorr == LHS
+            code *= 
+"
+        // compute the elemental matrix
+        for(int i=0; i<nqnodes; i++){
+            for(int row=0; row<nnodes; row++){
+                for(int col=0; col<nnodes; col++){
+                    "*detj_update*"
+                    ke[row*nnodes + col] += "* result *";
+                }
+            }
+        }
+";
+        else
+            code *= 
+"
+        // compute the elemental vector
+        for(int col=0; col<nqnodes; col++){
+            for(int row=0; row<nnodes; row++){
+                "*detj_update*"
+                be[row] += "* result *";
+            }
+        }
+";
+        end
+    end
+    
+    return code;
 end
 
-function amattarget_generate_term_calculation(term, var, lorr)
+function amattarget_generate_term_calculation(term, var, lorr, vors)
     
-    return "//TODO";
+    result = "";
+    test_ind = 1;
+    trial_ind = 1;
+    
+    if lorr == LHS
+        (test_part, trial_part, coef_part, test_ind, trial_ind) = CodeGenerator.separate_factors(term, var);
+        # LHS: test_part * diagm(weight_part .* coef_part) * trial_part
+        # RQ1[i*nqnodes + row] * frefel.wg[i] * detj * RQ1[i*nqnodes + col]
+        if !(coef_part === nothing)
+            result = string(amat_change_math_ops(CodeGenerator.replace_entities_with_symbols(test_part))) * "[i*nqnodes + row] * frefel.wg[i] * detj * (" * 
+                    string(amat_change_math_ops(CodeGenerator.replace_entities_with_symbols(coef_part, index="i"))) * ") * " * 
+                    string(amat_change_math_ops(CodeGenerator.replace_entities_with_symbols(trial_part))) * "[i*nqnodes + col]";
+        else # no coef_part
+            result = string(amat_change_math_ops(CodeGenerator.replace_entities_with_symbols(test_part))) * "[i*nqnodes + row] * frefel.wg[i] * detj * " * 
+                    string(amat_change_math_ops(CodeGenerator.replace_entities_with_symbols(trial_part))) * "[i*nqnodes + col]";
+        end
+    else
+        (test_part, trial_part, coef_part, test_ind, trial_ind) = CodeGenerator.separate_factors(term);
+        # RHS: test_part * (weight_part .* coef_part)
+        if !(coef_part === nothing)
+            result = string(amat_change_math_ops(CodeGenerator.replace_entities_with_symbols(test_part))) * "[col*nnodes + row] * frefel.wg[col] * detj * " * 
+                    string(amat_change_math_ops(CodeGenerator.replace_entities_with_symbols(coef_part, index="col"))) * "";
+        else
+            result = string(amat_change_math_ops(CodeGenerator.replace_entities_with_symbols(test_part))) * " * frefel.wg[col] * detj";
+        end
+    end
+    
+    return (result, test_ind, trial_ind);
 end
 
 ###########################################################################################################

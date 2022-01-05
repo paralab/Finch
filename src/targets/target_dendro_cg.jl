@@ -1448,7 +1448,7 @@ function dendrotarget_prepare_needed_values(entities, var, lorr, vors)
     coef_loop = "";
     coef_interp = "";
     for i=1:length(entities)
-        cname = CodeGenerator.make_coef_name(entities[i]);
+        cname = CodeGenerator.make_entity_name(entities[i]);
         if CodeGenerator.is_test_function(entities[i])
             # Assign it a transpose quadrature matrix
             if length(entities[i].derivs) > 0

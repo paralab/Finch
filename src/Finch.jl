@@ -606,7 +606,7 @@ end
 function add_boundary_condition(var, bid, type, ex, nfuns)
     global prob;
     # make sure the arrays are big enough
-    if size(prob.bc_func)[1] < var_count || size(prob.bc_func,2) < bid
+    if size(prob.bc_func, 1) < var_count || size(prob.bc_func, 2) < bid
         if !(grid_data===nothing)
             nbid = length(grid_data.bids);
         else
