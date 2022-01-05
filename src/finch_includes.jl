@@ -7,38 +7,57 @@ using Random
 ######################
 # NOTE: This is not a long term solution.
 # Once the package is set up, we can put this dependency in the .toml
+force_package_install = true;
+need_restart = false;
 try
     using SymEngine
 catch e
-    println("SymEngine package is not yet installed. It is required.\nWould you like to install now? y/n.");
-    response = readline();
-    if response=="Y" || response=="y"
+    if force_package_install
+        println("SymEngine package is not yet installed. Installing now.");
         using Pkg
         Pkg.add("SymEngine")
         using SymEngine
+        
     else
-        println("It is a required package. Exiting Finch.")
+        println("SymEngine package is not yet installed. It is required.\nWould you like to install now? y/n.");
+        response = readline();
+        if response=="Y" || response=="y"
+            using Pkg
+            Pkg.add("SymEngine")
+            using SymEngine
+        else
+            println("It is a required package. Exiting Finch.")
+        end
     end
+    
 end
 try
     using WriteVTK
 catch e
-    println("WriteVTK package is not yet installed. It is optional.\nWould you like to install now? y/n.");
-    response = readline();
-    if response=="Y" || response=="y"
+    if force_package_install
+        println("WriteVTK package is not yet installed. Installing now.");
         using Pkg
         Pkg.add("WriteVTK")
         using WriteVTK
+        
     else
-        println("Continuing without WriteVTK. Note that VTK output will not be possible.")
+        println("WriteVTK package is not yet installed. It is optional.\nWould you like to install now? y/n.");
+        response = readline();
+        if response=="Y" || response=="y"
+            using Pkg
+            Pkg.add("WriteVTK")
+            using WriteVTK
+        else
+            println("Continuing without WriteVTK. Note that VTK output will not be possible.")
+        end
     end
+    
 end
 try
     using MPI
 catch e
-    println("MPI package is not yet installed. It is optional.\nWould you like to install now? y/n.");
-    response = readline();
-    if response=="Y" || response=="y"
+    if force_package_install
+        println("MPI package is not yet installed. Installing now.");
         using Pkg
         Pkg.add("MPI")
         using MPI
@@ -46,24 +65,54 @@ catch e
         println("Now attempting to build the MPI package using an MPI implementation installed on your system.");
         ENV["JULIA_MPI_BINARY"] = "system";
         Pkg.build("MPI"; verbose=true);
+        need_restart = true;
+        
     else
-        println("Continuing without MPI.")
+        println("MPI package is not yet installed. It is optional.\nWould you like to install now? y/n.");
+        response = readline();
+        if response=="Y" || response=="y"
+            using Pkg
+            Pkg.add("MPI")
+            using MPI
+            println("Note that MPI may require some manual configuration to work properly.")
+            println("Now attempting to build the MPI package using an MPI implementation installed on your system.");
+            ENV["JULIA_MPI_BINARY"] = "system";
+            Pkg.build("MPI"; verbose=true);
+            need_restart = true;
+        else
+            println("Continuing without MPI.")
+        end
     end
+    
 end
 if @isdefined(MPI)
     try
         using METIS_jll
     catch e
-        println("METIS_jll package is not yet installed. It is optional, but needed for effective MPI parallelization.\nWould you like to install now? y/n.");
-        response = readline();
-        if response=="Y" || response=="y"
+        if force_package_install
+            println("METIS_jll package is not yet installed. Installing now.");
             using Pkg
             Pkg.add("METIS_jll")
             using METIS_jll: libmetis
+            
         else
-            println("Continuing without METIS_jll.")
+            println("METIS_jll package is not yet installed. It is optional, but needed for effective MPI parallelization.\nWould you like to install now? y/n.");
+            response = readline();
+            if response=="Y" || response=="y"
+                using Pkg
+                Pkg.add("METIS_jll")
+                using METIS_jll: libmetis
+            else
+                println("Continuing without METIS_jll.")
+            end
         end
+        
     end
+end
+
+if need_restart
+    println("Julia may need to restart to use newly installed packages. Exiting now. Please run again.")
+    exit(0);
 end
 ######################
 

@@ -826,10 +826,6 @@ function partitioned_grid_from_mesh(mesh, epart)
         end
         MPI.Allgatherv!(p_data_out, p_data_in, MPI.COMM_WORLD);
         
-        if config.proc_rank == 0
-            println(p_data);
-        end
-        
         # Now search for shared coordinates and set the global index
         for ni=1:size(allnodes, 2)
             if node_owner_index[ni] < config.partition_index

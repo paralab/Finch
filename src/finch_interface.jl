@@ -17,7 +17,7 @@ export generateFor, useLog, domain, solverType, functionSpace, trialSpace, testS
 
 function generateFor(lang; filename=project_name, header="", params=nothing)
     outputDirPath = pwd()*"/"*filename;
-    if !isdir(outputDirPath)
+    if config.proc_rank == 0 && !isdir(outputDirPath)
         mkdir(outputDirPath);
     end
     framew = 0;
