@@ -65,7 +65,7 @@ catch e
         println("Now attempting to build the MPI package using an MPI implementation installed on your system.");
         ENV["JULIA_MPI_BINARY"] = "system";
         Pkg.build("MPI"; verbose=true);
-        need_restart = true;
+        global need_restart = true;
         
     else
         println("MPI package is not yet installed. It is optional.\nWould you like to install now? y/n.");
@@ -78,7 +78,7 @@ catch e
             println("Now attempting to build the MPI package using an MPI implementation installed on your system.");
             ENV["JULIA_MPI_BINARY"] = "system";
             Pkg.build("MPI"; verbose=true);
-            need_restart = true;
+            global need_restart = true;
         else
             println("Continuing without MPI.")
         end

@@ -9,7 +9,7 @@ export generateFor, useLog, domain, solverType, functionSpace, trialSpace, testS
         variableTransform, transformVariable,
         weakForm, fluxAndSource, flux, source, assemblyLoops,
         exportCode, importCode, printLatex,
-        solve, cachesimSolve, finalize_finch, cachesim, output_values,
+        evalInitialConditions, solve, cachesimSolve, finalize_finch, cachesim, output_values,
         morton_nodes, hilbert_nodes, tiled_nodes, morton_elements, hilbert_elements, 
         tiled_elements, ef_nodes, random_nodes, random_elements
 
@@ -899,6 +899,7 @@ function printLatex(var)
 end
 
 # Evaluate all of the initial conditions
+function evalInitialConditions() eval_initial_conditions(); end # Just for consistent style because this is also an internal function
 function eval_initial_conditions()
     dim = config.dimension;
 
