@@ -646,51 +646,6 @@ int main(int argc, char* argv[]) {
     stMat->profile_dump(std::cout);
     #endif
     
-    // export data in vtk format
-    std::ofstream outfile;
-    char fname[256];
-    sprintf(fname, \""""*project_name*"""\"_%d_%d.vtk", rank, size);
-    unsigned int nnodes_local = mesh.get_nLocalNodes();
-    unsigned long * local2GlobalMap = mesh.get_local2GlobalMap();
-    
-    outfile.open(fname);
-    outfile << "# vtk DataFile Version 2.0 " << std::endl;
-    outfile << \""""*project_name*"""\" << std::endl;
-    outfile << "ASCII" << std::endl;
-    outfile << "DATASET UNSTRUCTURED_GRID" << std::endl;
-    outfile << "POINTS " << nnodes_local << " float" << std::endl;
-    for (unsigned int nid = 0; nid < nnodes_local; nid++) {
-        const double x = mesh.get_x(nid);
-        const double y = mesh.get_y(nid);
-        const double z = mesh.get_z(nid);
-        outfile << x << "  " << y << "  " << z << std::endl;
-    }
-    unsigned int size_cell_list = nelem_owned * 9;
-    outfile << "CELLS " << nelem_owned << " " << size_cell_list << std::endl;
-    for (unsigned int eid = 0; eid < nelem_owned; eid++){
-        outfile << "8 " << localMap[eid][0] << " " << localMap[eid][1] << " "
-            << localMap[eid][2] << " " << localMap[eid][3] << " "
-            << localMap[eid][4] << " " << localMap[eid][5] << " "
-            << localMap[eid][6] << " " << localMap[eid][7] << std::endl;
-    }
-    outfile << "CELL_TYPES " << nelem_owned << std::endl;
-    for (unsigned int eid = 0; eid < nelem_owned; eid++){
-        outfile << "12" << std::endl;
-    } */
-    /* outfile << "POINT_DATA " << nnodes_local << std::endl;
-    outfile << "VECTORS " << "displacement " << "float " << std::endl;
-    std::vector<PetscInt> indices (NDOF_PER_NODE);
-    std::vector<PetscScalar> values (NDOF_PER_NODE);
-    for (unsigned int nid = 0; nid < nnodes_local; nid++){
-        const unsigned long gNodeId = local2GlobalMap[nid];
-        for (unsigned int did = 0; did < NDOF_PER_NODE; did++){
-                indices[did] = gNodeId * NDOF_PER_NODE + did;
-        }
-        VecGetValues(out, NDOF_PER_NODE, indices.data(), values.data());
-        outfile << values[0] << " " << values[1] << " " << values[2] << std::endl;
-    } */
-    //outfile.close();
-    
     for (unsigned int eid = 0; eid < fmesh.nel_local; eid++) {
         delete[] globalMap[eid];
     }
