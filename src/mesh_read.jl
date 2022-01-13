@@ -1,6 +1,6 @@
 #=
 #
-# Reads a .msh file and builds a MeshData struct
+# Reads a mesh file and builds a MeshData struct
 =#
 export read_mesh
 
@@ -13,25 +13,33 @@ etypetodim= [1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3]; # dimensi
 # Returns a MeshData struct
 function read_mesh(file)
     # Determine the MSH format version
-    msh_version = 2;
+    mesh_file_type = 0; # 1=msh_v2, 2=msh_v4, 3=medit
     while !eof(file)
         line = readline(file);
         if occursin("\$MeshFormat", line)
             # Check if the MSH version is old(2) or new(4)
             vals = split(readline(file), " ", keepempty=false);
             if parse(Float64, vals[1]) >= 4
-                msh_version = 4;
+                mesh_file_type = 2;
+            else
+                mesh_file_type = 1;
             end
             break;
+        elseif occursin("MeshVersionFormatted", line)
+            mesh_file_type = 3;
         end
     end
     
     # use the appropriate reader
     seekstart(file);
-    if msh_version == 2
+    if mesh_file_type == 1
         return read_msh_v2(file);
-    elseif msh_version == 4
+    elseif mesh_file_type == 2
         return read_msh_v4(file);
+    elseif mesh_file_type == 3
+        return read_medit(file);
+    else
+        printerr("Couldn't recognize mesh file type. Use GMSH .msh version 2 or 4, or Medit .mesh")
     end
 end
 
@@ -40,7 +48,6 @@ function read_msh_v2(file)
     # Then read in the numbers.
     nodes_done = false;
     elements_done = false;
-    msh_version = 2;
     nx = 0;
     nel = 0;
     nodes = [];
@@ -119,7 +126,6 @@ function read_msh_v4(file)
     # Then read in the numbers.
     nodes_done = false;
     elements_done = false;
-    msh_version = 2;
     nx = 0;
     nel = 0;
     nodes = [];
@@ -250,6 +256,166 @@ function read_msh_v4(file)
         end
     end
     nodes = nodes[1:config.dimension, :];
+    
+    return MeshData(nx, nodes, indices, nel, elements, etypes, nv);
+end
+
+function read_medit(file)
+    # Whitespace is inconsistent, but essentially it will look like
+    #
+    # MeshVersionFormatted 1
+    # Dimension 3
+    # Vertices 12345
+    # 0.0509745 -0.268407 -0.198911 0      <-- Note: always 4 values (4th is a tag?)
+    # ...
+    # Tetrahedra 1234
+    # 1 2 3 4 0     <-- again an extra tag value
+    # ...
+    # End
+    #
+    # There may be lower dimensional elements for surfaces, but it's inconsistent
+    nodes_done = false;
+    elements_done = false;
+    nx = 0;
+    nel = 0;
+    nodes = [];
+    indices = [];
+    elements = [];
+    etypes = [];
+    nv = [];
+    while((!nodes_done || !elements_done) && !eof(file))
+        line = readline(file);
+        if occursin("Dimension", line)
+            tokens = split(line, " ", keepempty=false);
+            if length(tokens) > 1
+                dim = parse(Int, tokens[2]);
+            else
+                line = readline(file);
+                dim = parse(Int, line);
+            end
+            if config.dimension != dim
+                # Maybe someone forgot to set dimension?
+                printerr("Dimension in mesh file doesn't match config. Updating config.")
+                config.dimension = dim;
+            end
+        elseif occursin("Vertices", line)
+            println(line)
+            tokens = split(line, " ", keepempty=false);
+            if length(tokens) > 1
+                nx = parse(Int, tokens[2]);
+            else
+                line = readline(file);
+                nx = parse(Int, line);
+            end
+            
+            # parse vertex info
+            nodes = zeros(3,nx);
+            flags = zeros(Int, nx);
+            for i=1:nx
+                line = readline(file);
+                vals = split(line, " ", keepempty=false);
+                nodes[1,i] = parse(Float64, vals[1]);
+                nodes[2,i] = parse(Float64, vals[2]);
+                nodes[3,i] = parse(Float64, vals[3]);
+                flags[i] = parse(Float64, vals[4]);
+            end
+            
+            nodes_done = true;
+            
+        elseif config.dimension == 1 && (occursin("Lines", line))
+            # Is this even an option for medit?
+        elseif config.dimension == 2 && (occursin("Triangles", line) || occursin("Quadrilaterals", line))
+            tokens = split(line, " ", keepempty=false);
+            if length(tokens) > 1
+                nel = parse(Int, tokens[2]);
+            else
+                line = readline(file);
+                nel = parse(Int, line);
+            end
+            if tokens[1] == "Triangles"
+                nv = fill(3, nel);
+                etypes = fill(2, nel);
+                elements = zeros(Int, 8, nel);
+                eflags = zeros(Int, nel);
+                for i=1:nel
+                    line = readline(file);
+                    vals = split(line, " ", keepempty=false);
+                    elements[1,i] = parse(Float64, vals[1]);
+                    elements[2,i] = parse(Float64, vals[2]);
+                    elements[3,i] = parse(Float64, vals[3]);
+                    eflags[i] = parse(Float64, vals[4]);
+                end
+                
+            elseif tokens[1] == "Quadrilaterals"
+                nv = fill(4, nel);
+                etypes = fill(3, nel);
+                elements = zeros(Int, 8, nel);
+                eflags = zeros(Int, nel);
+                for i=1:nel
+                    line = readline(file);
+                    vals = split(line, " ", keepempty=false);
+                    elements[1,i] = parse(Float64, vals[1]);
+                    elements[2,i] = parse(Float64, vals[2]);
+                    elements[3,i] = parse(Float64, vals[3]);
+                    elements[4,i] = parse(Float64, vals[4]);
+                    eflags[i] = parse(Float64, vals[5]);
+                end
+            end
+            elements_done = true;
+            
+        elseif config.dimension == 3 && (occursin("Tetrahedra", line) || occursin("Hexahedra", line))
+            println(line)
+            tokens = split(line, " ", keepempty=false);
+            if length(tokens) > 1
+                nel = parse(Int, tokens[2]);
+            else
+                line = readline(file);
+                nel = parse(Int, line);
+            end
+            
+            if tokens[1] == "Tetrahedra"
+                nv = fill(4, nel);
+                etypes = fill(4, nel);
+                elements = zeros(Int, 8, nel);
+                eflags = zeros(Int, nel);
+                for i=1:nel
+                    line = readline(file);
+                    vals = split(line, " ", keepempty=false);
+                    elements[1,i] = parse(Float64, vals[1]);
+                    elements[2,i] = parse(Float64, vals[2]);
+                    elements[3,i] = parse(Float64, vals[3]);
+                    elements[4,i] = parse(Float64, vals[4]);
+                    eflags[i] = parse(Float64, vals[5]);
+                end
+                
+            elseif tokens[1] == "Hexahedra"
+                nv = fill(8, nel);
+                etypes = fill(5, nel);
+                elements = zeros(Int, 8, nel);
+                eflags = zeros(Int, nel);
+                for i=1:nel
+                    line = readline(file);
+                    vals = split(line, " ", keepempty=false);
+                    elements[1,i] = parse(Float64, vals[1]);
+                    elements[2,i] = parse(Float64, vals[2]);
+                    elements[3,i] = parse(Float64, vals[3]);
+                    elements[4,i] = parse(Float64, vals[4]);
+                    elements[5,i] = parse(Float64, vals[5]);
+                    elements[6,i] = parse(Float64, vals[6]);
+                    elements[7,i] = parse(Float64, vals[7]);
+                    elements[8,i] = parse(Float64, vals[8]);
+                    eflags[i] = parse(Float64, vals[9]);
+                end
+            end
+            elements_done = true;
+        end
+    end
+    if !nodes_done || !elements_done
+        printerr("Did not successfully read the mesh file.")
+        return nothing;
+    end
+    nodes = nodes[1:config.dimension, :];
+    indices = 1:nx;
     
     return MeshData(nx, nodes, indices, nel, elements, etypes, nv);
 end

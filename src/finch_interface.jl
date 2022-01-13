@@ -9,7 +9,7 @@ export generateFor, useLog, domain, solverType, functionSpace, trialSpace, testS
         variableTransform, transformVariable,
         weakForm, fluxAndSource, flux, source, assemblyLoops,
         exportCode, importCode, printLatex,
-        evalInitialConditions, solve, cachesimSolve, finalize_finch, cachesim, output_values,
+        evalInitialConditions, solve, cachesimSolve, finalize_finch, cachesim, outputValues,
         morton_nodes, hilbert_nodes, tiled_nodes, morton_elements, hilbert_elements, 
         tiled_elements, ef_nodes, random_nodes, random_elements
 
@@ -1209,11 +1209,21 @@ function cachesimSolve(var, nlvar=nothing; nonlinear=false)
 end
 
 # Writes the values for each variable to filename in the given format.
-function output_values(vars, filename; format="raw", ascii=false)
-    available_formats = ["raw", "csv", "vtk"];
+function outputValues(vars, filename; format="vtk", ascii=false) output_values(vars, filename, format=format, ascii=ascii); end
+function output_values(vars, filename; format="vtk", ascii=false)
+    available_formats = ["raw", "csv", "vtk", "try"];
     if format == "vtk"
-        output_values_vtk(vars, filename, ascii)
         log_entry("Writing values to file: "*filename*".vtu");
+        output_values_vtk(vars, filename, ascii)
+        
+    elseif format == "try"
+        log_entry("Writing values to file: "*filename*".vtu");
+        filename *= ".vtu";
+        file = open(filename, "w");
+        log_entry("Writing values to file: "*filename);
+        output_values_myvtu(vars, file, ascii);
+        
+        close(file);
         
     else
         filename *= "."*format;
