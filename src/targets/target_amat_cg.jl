@@ -79,6 +79,10 @@ function generate_external_files(var, lhs_vol, lhs_surf, rhs_vol, rhs_surf)
     
     # All procs will write their mesh file
     amat_mesh_file();
+    
+    if config.num_procs > 1
+        MPI.Barier();
+    end
 end
 
 #########################################################
@@ -368,10 +372,12 @@ int main(int argc, char* argv[]) {
     profiler_t elem_compute_time;
     profiler_t setup_time;
     profiler_t matvec_time;
+    profiler_t total_time;
 
     elem_compute_time.clear();
     setup_time.clear();
     matvec_time.clear();
+    total_time.clear();
     
     // Init Petsc and MPI
     PetscInitialize(&argc, &argv, NULL, NULL);
@@ -432,7 +438,9 @@ int main(int argc, char* argv[]) {
         std::cout << "\t\tNumber of MPI processes: " << size << "\\n";
     }
     #endif
-
+    
+    total_time.start();
+    
     // map from local dofs to global dofs
     unsigned int* ndofs_per_element = new unsigned int[fmesh.nel_local];
     for (unsigned int e = 0; e < fmesh.nel_local; e++) {
@@ -540,25 +548,24 @@ int main(int argc, char* argv[]) {
     par::create_vec(meshMaps, rhs);
     par::create_vec(meshMaps, solution);
     
-    // compute then assemble element stiffness matrix and load vector
+    // compute and assemble elemental matrix and vector
     double * ke = new double [ndofs_per_element[0] * ndofs_per_element[0]]; // element matrix
     double * xe = new double [fmesh.nodes_per_element[0] * fmesh.dimension]; // node coordinates
     double* be = new double[ndofs_per_element[0]]; // element vector
     for (unsigned int eid = 0; eid < fmesh.nel_local; eid++) {
-        // compute element stiffness matrix
         setup_time.start();
         elem_compute_time.start();
         finch::compute_elemental_matrix(eid, ke, xe);
         finch::compute_elemental_vector(eid, 0.0, be);
         elem_compute_time.stop();
 
-        // assemble element stiffness matrix to global K
+        // add elemental matrix to global K
         if (matType == 0)
             stMatBased->set_element_matrix(eid, ke);
         else
             stMatFree->set_element_matrix(eid, ke);
         
-        // assemble element load vector to global F
+        // assemble elemental vector to global F
         par::set_element_vec(meshMaps, rhs, eid, be, ADD_VALUES);
         setup_time.stop();
     }
@@ -566,7 +573,7 @@ int main(int argc, char* argv[]) {
     delete [] xe;
     delete [] be;
     
-    // Pestc begins and completes assembling the global stiffness matrix
+    // Pestc begins and completes assembling the global matrix
     setup_time.start();
     if (matType == 0){
         stMatBased->finalize();
@@ -603,41 +610,48 @@ int main(int argc, char* argv[]) {
         par::solve(*stMatFree, (const Vec)rhs, solution);
     matvec_time.stop();
     
+    total_time.stop();
     
-    // computing time acrossing ranks and display
+    // computing time across ranks and display
     long double elem_compute_maxTime;
     long double setup_maxTime;
     long double matvec_maxTime;
+    long double total_maxTime;
     
     MPI_Reduce(&elem_compute_time.seconds, &elem_compute_maxTime, 1, MPI_LONG_DOUBLE, MPI_MAX, 0, comm);
     MPI_Reduce(&setup_time.seconds, &setup_maxTime, 1, MPI_LONG_DOUBLE, MPI_MAX, 0, comm);
     MPI_Reduce(&matvec_time.seconds, &matvec_maxTime, 1, MPI_LONG_DOUBLE, MPI_MAX, 0, comm);
+    MPI_Reduce(&total_time.seconds, &total_maxTime, 1, MPI_LONG_DOUBLE, MPI_MAX, 0, comm);
 
     if (matType == 0) {
         if (rank == 0) {
             std::cout << "(1) PETSc elem compute time = " << elem_compute_maxTime << "\\n";
             std::cout << "(2) PETSc setup time = "        << setup_maxTime << "\\n";
             std::cout << "(3) PETSc matvec time = "       << matvec_maxTime << "\\n";
-            outFile << "PETSc, " << elem_compute_maxTime << "," << setup_maxTime << "," << matvec_maxTime << "\\n";
+            std::cout << "(4) total time = "       << total_maxTime << "\\n";
+            outFile << "PETSc, " << elem_compute_maxTime << "," << setup_maxTime << "," << matvec_maxTime << "," << total_maxTime << "\\n";
         }
     } else if (matType == 1) {
         if (rank == 0) {
             std::cout << "(1) aMat-hybrid elem compute time = " << elem_compute_maxTime << "\\n";
             std::cout << "(2) aMat-hybrid setup time = "        << setup_maxTime << "\\n";
             std::cout << "(3) aMat-hybrid matvec time = "       << matvec_maxTime << "\\n";
-            outFile << "aMat-hybrid, " << elem_compute_maxTime << ", " << setup_maxTime << ", " << matvec_maxTime << "\\n";
+            std::cout << "(4) total time = "       << total_maxTime << "\\n";
+            outFile << "aMat-hybrid, " << elem_compute_maxTime << ", " << setup_maxTime << ", " << matvec_maxTime << "," << total_maxTime << "\\n";
         }
     } else if (matType == 2) {
         if (rank == 0) {
             std::cout << "(3) aMat-free matvec time = " << matvec_maxTime << "\\n";
-            outFile << "aMat-free, " << matvec_maxTime << "\\n";
+            std::cout << "(4) total time = "       << total_maxTime << "\\n";
+            outFile << "aMat-free, " << matvec_maxTime << "," << total_maxTime << "\\n";
         }
     } else if ((matType == 3) || (matType == 4) || (matType == 5)) {
         if (rank == 0) {
             std::cout << "(1) aMatGpu elem compute time = " << elem_compute_maxTime << "\\n";
             std::cout << "(2) aMatGpu setup time = " << setup_maxTime << "\\n";
             std::cout << "(3) aMatGpu matvec time = " << matvec_maxTime << "\\n";
-            outFile << "aMatGpu, " << elem_compute_maxTime << ", " << setup_maxTime << ", " << matvec_maxTime << "\\n";
+            std::cout << "(4) total time = "       << total_maxTime << "\\n";
+            outFile << "aMatGpu, " << elem_compute_maxTime << ", " << setup_maxTime << ", " << matvec_maxTime << "," << total_maxTime << "\\n";
         }
     }
     if (rank == 0) outFile.close();
@@ -928,6 +942,27 @@ $bid_select
 """;
     
     println(file, content)
+end
+
+# Output code to be directly included in the main file.
+function amat_output_file(var)
+    file = add_generated_file("finch_output.cpp", dir="src");
+    
+    NumberOfPoints = 0;
+    NumberOfCells = grid.nel_owned;
+    NumberOfComponents = config.dimension;
+    
+    
+    content = 
+"
+/*
+Output the data in a .vtu file.
+*/
+
+
+";
+    
+    println(file, content);
 end
 
 # Writes files to build the project and a readme.

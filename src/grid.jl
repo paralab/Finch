@@ -825,6 +825,7 @@ function partitioned_grid_from_mesh(mesh, epart)
             end
         end
         MPI.Allgatherv!(p_data_out, p_data_in, MPI.COMM_WORLD);
+        MPI.Barrier();
         
         # Now search for shared coordinates and set the global index
         for ni=1:size(allnodes, 2)
@@ -837,7 +838,7 @@ function partitioned_grid_from_mesh(mesh, epart)
                         n_offset = p_offset + (nj-1) * (config.dimension + 1);
                         those_coords = p_data[n_offset:(n_offset+config.dimension-1)];
                         # Are they the same node?
-                        if sum(abs.(these_coords-those_coords)) < 1e-12
+                        if sum(abs.(these_coords-those_coords)) < 1e-10
                             found_index = p_data[n_offset+config.dimension];
                             break;
                         end
