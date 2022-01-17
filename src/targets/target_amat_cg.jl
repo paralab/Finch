@@ -81,7 +81,7 @@ function generate_external_files(var, lhs_vol, lhs_surf, rhs_vol, rhs_surf)
     amat_mesh_file();
     
     if config.num_procs > 1
-        MPI.Barier();
+        MPI.Barrier(MPI.COMM_WORLD);
     end
 end
 
