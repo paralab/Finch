@@ -1003,124 +1003,122 @@ function amat_output_file(var)
     content = 
 """
 // Write the vtu file
-if (rank == 0){
-    std::ofstream vtufile;
-    std::string filename = "$project_name";
-    filename = filename + "_" + std::to_string(size) + "_" + std::to_string(rank) + ".vtu";
-    vtufile.open(filename, std::fstream::out);
-    
-    unsigned long num_points = fmesh.nnodes_local;
-    unsigned long num_cells = fmesh.nel_local;
-    int tmp = 0;
-    unsigned long offset = 0;
-    int dof_offset, comps;
+std::ofstream vtufile;
+std::string filename = "$project_name";
+filename = filename + "_" + std::to_string(size) + "_" + std::to_string(rank) + ".vtu";
+vtufile.open(filename, std::fstream::out);
 
-    // cell types: ??
-    int nodes_per_element = fmesh.vertices_per_element[0];
-    int cell_type;
-    if(fmesh.dimension == 1){
-        cell_type = 3;
-    }else if(fmesh.dimension == 2){
-        if(nodes_per_element == 3){
-            cell_type = 5;
-        }else if(nodes_per_element == 4){
-            cell_type = 9;
-        }
-    }else{
-        if(nodes_per_element == 4){
-            cell_type = 10;
-        }else if(nodes_per_element == 8){
-            cell_type = 12;
-        }
-    }
+unsigned long num_points = fmesh.nnodes_local;
+unsigned long num_cells = fmesh.nel_local;
+int tmp = 0;
+unsigned long offset = 0;
+int dof_offset, comps;
 
-    // header
-    vtufile << "<?xml version=\\"1.0\\" encoding=\\"utf-8\\"?>\\n";
-    vtufile << "<VTKFile type=\\"UnstructuredGrid\\" version=\\"1.0\\" byte_order=\\"LittleEndian\\">\\n";
-    vtufile << "  <UnstructuredGrid>\\n";
-    vtufile << "    <Piece NumberOfPoints=\\""+std::to_string(num_points)+"\\" NumberOfCells=\\""+std::to_string(num_cells)+"\\">\\n";
-    
-    // Points
-    vtufile << "      <Points>\\n";
-    vtufile << "        <DataArray type=\\"Float64\\" Name=\\"Points\\" NumberOfComponents=\\"3\\" format=\\"ascii\\">\\n";
-    
-    for(int ni=0; ni<num_points; ni++){
-        vtufile << "          ";
-        vtufile << fmesh.allnodes[ni*fmesh.dimension] << " ";
-        vtufile << ((fmesh.dimension > 1) ? fmesh.allnodes[ni*fmesh.dimension+1] : 0.0);
-        vtufile << ((fmesh.dimension > 2) ? fmesh.allnodes[ni*fmesh.dimension+2] : 0.0);
-        vtufile << "\\n";
+// cell types: ??
+int nodes_per_element = fmesh.vertices_per_element[0];
+int cell_type;
+if(fmesh.dimension == 1){
+    cell_type = 3;
+}else if(fmesh.dimension == 2){
+    if(nodes_per_element == 3){
+        cell_type = 5;
+    }else if(nodes_per_element == 4){
+        cell_type = 9;
     }
-    
-    vtufile << "        </DataArray>\\n";
-    vtufile << "      </Points>\\n";
-    
-    // Cells
-    vtufile << "      <Cells>\\n";
-    vtufile << "        <DataArray type=\\"Int32\\" Name=\\"connectivity\\" format=\\"ascii\\">\\n";
-    
-    for(int ci=0; ci<num_cells; ci++){
-        vtufile << "          ";
-        for(int ni=0; ni<nodes_per_element; ni++){
-            vtufile << fmesh.glbvertex[ci][ni] << " ";
-        }
-        vtufile << "\\n";
+}else{
+    if(nodes_per_element == 4){
+        cell_type = 10;
+    }else if(nodes_per_element == 8){
+        cell_type = 12;
     }
-    vtufile << "        </DataArray>\\n";
-    
-    vtufile << "        <DataArray type=\\"Int32\\" Name=\\"offsets\\" format=\\"ascii\\">\\n";
-    tmp = 0;
-    offset = 0;
-    for(int ci=0; ci<num_cells; ci++){
-        if(tmp == 0){ vtufile << "          "; }
-        offset += nodes_per_element;
-        vtufile << offset << " ";
-        tmp += 1;
-        if(tmp == 20 || ci == num_cells-1){ 
-            vtufile << "\\n"; 
-            tmp = 0; 
-        }
-    }
-    vtufile << "        </DataArray>\\n";
-    
-    vtufile << "        <DataArray type=\\"UInt8\\" Name=\\"types\\" format=\\"ascii\\">\\n";
-    tmp = 0;
-    for(int ci=0; ci<num_cells; ci++){
-        if(tmp == 0){ vtufile << "          "; }
-        vtufile << cell_type << " ";
-        tmp += 1;
-        if(tmp == 20 || ci == num_cells-1){ 
-            vtufile << "\\n"; 
-            tmp = 0; 
-        }
-    }
-    vtufile << "        </DataArray>\\n";
-    vtufile << "      </Cells>\\n";
-
-    // Point data
-    vtufile << "      <PointData>\\n";
-    
-    """*
-    point_data_part *
-    """
-    
-    vtufile << "      </PointData>\\n";
-
-    // Cell data
-    vtufile << "      <CellData>\\n";
-    
-    """*
-    cell_data_part *
-    """
-    
-    vtufile << "      </CellData>\\n";
-
-    vtufile << "    </Piece>\\n";
-    vtufile << "  </UnstructuredGrid>\\n";
-    vtufile << "</VTKFile>\\n";
-    
-    vtufile.close();
 }
+
+// header
+vtufile << "<?xml version=\\"1.0\\" encoding=\\"utf-8\\"?>\\n";
+vtufile << "<VTKFile type=\\"UnstructuredGrid\\" version=\\"1.0\\" byte_order=\\"LittleEndian\\">\\n";
+vtufile << "  <UnstructuredGrid>\\n";
+vtufile << "    <Piece NumberOfPoints=\\""+std::to_string(num_points)+"\\" NumberOfCells=\\""+std::to_string(num_cells)+"\\">\\n";
+
+// Points
+vtufile << "      <Points>\\n";
+vtufile << "        <DataArray type=\\"Float64\\" Name=\\"Points\\" NumberOfComponents=\\"3\\" format=\\"ascii\\">\\n";
+
+for(int ni=0; ni<num_points; ni++){
+    vtufile << "          ";
+    vtufile << fmesh.allnodes[ni*fmesh.dimension] << " ";
+    vtufile << ((fmesh.dimension > 1) ? fmesh.allnodes[ni*fmesh.dimension+1] : 0.0) << " ";
+    vtufile << ((fmesh.dimension > 2) ? fmesh.allnodes[ni*fmesh.dimension+2] : 0.0);
+    vtufile << "\\n";
+}
+
+vtufile << "        </DataArray>\\n";
+vtufile << "      </Points>\\n";
+
+// Cells
+vtufile << "      <Cells>\\n";
+vtufile << "        <DataArray type=\\"Int32\\" Name=\\"connectivity\\" format=\\"ascii\\">\\n";
+
+for(int ci=0; ci<num_cells; ci++){
+    vtufile << "          ";
+    for(int ni=0; ni<nodes_per_element; ni++){
+        vtufile << fmesh.glbvertex[ci][ni]-1 << " ";
+    }
+    vtufile << "\\n";
+}
+vtufile << "        </DataArray>\\n";
+
+vtufile << "        <DataArray type=\\"Int32\\" Name=\\"offsets\\" format=\\"ascii\\">\\n";
+tmp = 0;
+offset = 0;
+for(int ci=0; ci<num_cells; ci++){
+    if(tmp == 0){ vtufile << "          "; }
+    offset += nodes_per_element;
+    vtufile << offset << " ";
+    tmp += 1;
+    if(tmp == 20 || ci == num_cells-1){ 
+        vtufile << "\\n"; 
+        tmp = 0; 
+    }
+}
+vtufile << "        </DataArray>\\n";
+
+vtufile << "        <DataArray type=\\"UInt8\\" Name=\\"types\\" format=\\"ascii\\">\\n";
+tmp = 0;
+for(int ci=0; ci<num_cells; ci++){
+    if(tmp == 0){ vtufile << "          "; }
+    vtufile << cell_type << " ";
+    tmp += 1;
+    if(tmp == 20 || ci == num_cells-1){ 
+        vtufile << "\\n"; 
+        tmp = 0; 
+    }
+}
+vtufile << "        </DataArray>\\n";
+vtufile << "      </Cells>\\n";
+
+// Point data
+vtufile << "      <PointData>\\n";
+
+"""*
+point_data_part *
+"""
+
+vtufile << "      </PointData>\\n";
+
+// Cell data
+vtufile << "      <CellData>\\n";
+
+"""*
+cell_data_part *
+"""
+
+vtufile << "      </CellData>\\n";
+
+vtufile << "    </Piece>\\n";
+vtufile << "  </UnstructuredGrid>\\n";
+vtufile << "</VTKFile>\\n";
+
+vtufile.close();
 
 """;
     
