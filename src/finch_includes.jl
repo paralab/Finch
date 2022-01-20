@@ -110,10 +110,6 @@ if @isdefined(MPI)
     end
 end
 
-if need_restart
-    println("Julia may need to restart to use newly installed packages. Exiting now. Please run again.")
-    exit(0);
-end
 ######################
 
 # include these first

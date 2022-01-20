@@ -18,7 +18,12 @@ function replace_var_symbols_with_values(ex)
         
     elseif typeof(ex) == Symbol
         # Check if it is a variable and substitute if needed
-        var_index = variable_index_from_symbol(ex);
+        var_index = 0;
+        for v in variables
+            if ex === v.symbol
+                var_index = v.index;
+            end
+        end
         if var_index > 0
             if variables[var_index].type == SCALAR
                 newex = :(Finch.variables[$var_index].values[node_index]);
@@ -30,13 +35,4 @@ function replace_var_symbols_with_values(ex)
     end
     
     return ex;
-end
-
-function variable_index_from_symbol(s)
-    for v in variables
-        if s === v.symbol
-            return v.index;
-        end
-    end
-    return 0;
 end
