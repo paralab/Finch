@@ -1004,9 +1004,9 @@ function amat_output_file(var)
 """
 // Write the vtu file
 std::ofstream vtufile;
-std::string filename = "$project_name";
-filename = filename + "_" + std::to_string(size) + "_" + std::to_string(rank) + ".vtu";
-vtufile.open(filename, std::fstream::out);
+std::string vtufilename = "$project_name";
+vtufilename = vtufilename + "_" + std::to_string(size) + "_" + std::to_string(rank) + ".vtu";
+vtufile.open(vtufilename, std::fstream::out);
 
 unsigned long num_points = fmesh.nnodes_local;
 unsigned long num_cells = fmesh.nel_local;

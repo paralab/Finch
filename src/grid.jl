@@ -307,8 +307,29 @@ function grid_from_mesh(mesh)
     return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, face2element, facenormals, faceRefelInd, facebid));
 end
 
+#######################################################################################################
+
+######       ###      ######   ######  ######  ######  ######    #####    ##    ##  #######  ######    
+##   ##     ## ##     ##   ##    ##      ##      ##      ##    ###   ###  ###   ##  ##       ##    ##  
+######     ##   ##    ######     ##      ##      ##      ##    ##     ##  ## ## ##  ######   ##    ##  
+##        #########   ##  ##     ##      ##      ##      ##    ###   ###  ##   ###  ##       ##    ##  
+##       ##       ##  ##   ##    ##    ######    ##    ######    #####    ##    ##  #######  ######    
+
+#######################################################################################################
 # This takes a full mesh and partition information in a format supplied by METIS.
 # It constructs a grid that only holds this partition and ghosted neighbor elements.
+#   
+# Element status: 0 = owned, 1 = ghost sharing face, 2 = ghost sharing vertex, but not face
+#  -------------
+#  | 2 | 1 | 2 |
+#  |---+---+---|
+#  | 1 | 0 | 1 |
+#  |---+---+---|
+#  | 2 | 1 | 2 |
+#  -------------
+#
+# For FV: only status 1 ghosts are needed.
+# For FE: all ghosts are needed.
 function partitioned_grid_from_mesh(mesh, epart)
     log_entry("Building partitioned grid from mesh data", 2);
     t_grid_from_mesh = Base.Libc.time();
@@ -320,10 +341,11 @@ function partitioned_grid_from_mesh(mesh, epart)
     owned_faces = 0;
     ghost_faces = 0;
     nel_owned = 0;
-    nel_ghost = 0;
+    nel_face_ghost = 0;
+    nel_node_ghost = 0; # ghosts that share nodes, but not faces
     nnodes_owned = 0; # number of nodes NOT shared with a partition of lower index
     nnodes_shared = 0; # number of nodes shared with a partition of lower index
-    element_status = fill(-1, mesh.nel); # 1 for ghosts, 0 for owned, -1 for other
+    element_status = fill(-1, mesh.nel); # 2 for node ghosts, 1 for face ghosts, 0 for owned, -1 for other
     face_status = fill(-1, size(mesh.normals,2)); # 1 for face to ghosts, 0 for owned, -1 for other
     mesh2grid_face = fill(-1, size(mesh.normals,2)); # -1 if this face is not in the partition, otherwise the index of the grid face
     partition2global = zeros(Int,0); # global index of nodes
@@ -332,15 +354,65 @@ function partitioned_grid_from_mesh(mesh, epart)
     ghost_counts = zeros(Int,0); # number of ghosts per neighbor
     # ghost_inds = [zeros(Int,2,0)]; # local index of ghost elements
     
+    # - Label each vertex with the lowest partition index that touches it.
+    # - Label each element with its lowest and highest labeled vertex.
+    # - Elements with lowest labels = to this partition are owned by this partition(all nodes therein are owned).
+    #    |__[1. Elements with both labels = to this partition are fully interior to this partition.
+    #       [2. Elements with highest labels > this partition have shared nodes, but are owned for indexing.
+    # - 3. Elements with lowest labels < this partition have nodes that are borrowed from another partition.
+    #
+    # Global indices of owned nodes are set by this partition.
+    # Global indices of borrowed nodes need to be determined.
+    
+    vertex_labels = fill(-1, mesh.nx);
+    vertex_touching = fill(false, mesh.nx); # set to true if vertex touches this partition
+    element_high_labels = fill(-1, mesh.nel);
+    element_low_labels = fill(-1, mesh.nel);
+    element_touching = fill(false, mesh.nel); # set to true if element touches this partition
+    
+    for ei=1:mesh.nel
+        for ni=1:size(mesh.elements,1)
+            vtx = mesh.elements[ni,ei];
+            if vertex_labels[vtx] < 0 || vertex_labels[vtx] > epart[ei]
+                vertex_labels[vtx] = epart[ei];
+            end
+            if epart[ei] == config.partition_index
+                vertex_touching[vtx] = true;
+            end
+        end
+    end
+    for ei=1:mesh.nel
+        for ni=1:size(mesh.elements,1)
+            vtx = mesh.elements[ni,ei];
+            if element_high_labels[ei] < 0
+                element_high_labels[ei] = vertex_labels[vtx];
+                element_low_labels[ei] = vertex_labels[vtx];
+            else
+                if vertex_labels[vtx] < element_low_labels[ei]
+                    element_low_labels[ei] = vertex_labels[vtx];
+                end
+                if vertex_labels[vtx] > element_high_labels[ei]
+                    element_high_labels[ei] = vertex_labels[vtx];
+                end
+            end
+            if vertex_touching[vtx]
+                element_touching[ei] = true;
+            end
+        end
+    end
+    
     # Set element status: owned, ghost, or other
     for ei=1:mesh.nel
         if epart[ei] == config.partition_index
             nel_owned += 1;
             element_status[ei] = 0;
+        elseif element_touching[ei]
+            element_status[ei] = 2; # may be set to 1 later
+            nel_node_ghost += 1;
         end
     end
     
-    # Find owned faces and ghost elements
+    # Find owned faces and face ghost elements
     for fi=1:size(mesh.normals,2)
         e1 = mesh.face2element[1,fi];
         e2 = mesh.face2element[2,fi];
@@ -348,13 +420,19 @@ function partitioned_grid_from_mesh(mesh, epart)
             owned_faces += 1;
             if !(element_status[e1] == 0)
                 if element_status[e1] == -1
-                    nel_ghost += 1;
+                    printerr("mixed up ghost? eid="*string(ei)*" ghost info may have errors");
+                elseif element_status[e1] == 2
+                    nel_face_ghost += 1;
+                    nel_node_ghost -= 1;
                 end
                 element_status[e1] = 1;
                 face_status[fi] = 1;
             elseif e2 > 0 && !(element_status[e2] == 0)
-                if element_status[e2] == -1
-                    nel_ghost += 1;
+                if element_status[e1] == -1
+                    printerr("mixed up ghost? eid="*string(ei)*" ghost info may have errors");
+                elseif element_status[e1] == 2
+                    nel_face_ghost += 1;
+                    nel_node_ghost -= 1;
                 end
                 element_status[e2] = 1;
                 face_status[fi] = 1;
@@ -365,13 +443,13 @@ function partitioned_grid_from_mesh(mesh, epart)
         end
     end
     if config.solver_type == FV
-        nel = nel_owned + nel_ghost;
+        nel = nel_owned + nel_face_ghost;
     else
         nel = nel_owned;
     end
     
-    
     # Now that ghosts are known, add their faces that are not owned
+    # Only faces of face ghosts for FV are added.
     for ei=1:mesh.nel
         if element_status[ei] == 1
             for i=1:size(mesh.element2face,1)
@@ -427,16 +505,25 @@ function partitioned_grid_from_mesh(mesh, epart)
     faceRefelInd = zeros(Int, 2, totalfaces); # Index in refel for this face for elements on both sides
     facebid = zeros(Int, totalfaces);       # BID of each face
     
-    element_owners = fill(-1, nel) # partition number of each ghost, or -1 for owned elements
     grid2mesh = zeros(Int, nel); # maps partition elements to global mesh elements
     
+    if config.solver_type == FV
+        tmpallnodes = zeros(dim, nel*refel.Np);
+        element_owners = fill(-1, nel) # partition number of each ghost, or -1 for owned elements
+    else
+        tmpallnodes = zeros(dim, (nel + nel_node_ghost + nel_face_ghost) * refel.Np);
+        loc2glb = zeros(Int, Np, nel + nel_node_ghost + nel_face_ghost); # This will be trimmed later
+        element_owners = fill(-1, nel + nel_node_ghost + nel_face_ghost) # partition number of each ghost, or -1 for owned elements
+    end
+    
     # compute node coordinates
-    tmpallnodes = zeros(dim, nel*refel.Np);
     next_e_index = 1;
-    next_g_index = nel_owned+1; #index for next ghost
+    next_g_index = nel_owned + 1; #index for next ghost
     t_nodes1 = Base.Libc.time();
     for ei=1:mesh.nel
-        if element_status[ei] == 0 || (element_status[ei] == 1 && config.solver_type == FV)# owned or (ghost && FV) element
+        if (element_status[ei] == 0 || # owned
+            (element_status[ei] == 1 && config.solver_type == FV) || # face_ghost && FV
+            (element_status[ei] > 0 && !(config.solver_type == FV))) # any ghost && FE
             # Find this element's nodes
             n_vert = etypetonv[mesh.etypes[ei]];
             e_vert = mesh.nodes[1:dim, mesh.elements[1:n_vert, ei]];
@@ -457,7 +544,6 @@ function partitioned_grid_from_mesh(mesh, epart)
                 end
             end
             
-            # Add them to the tmp global nodes
             if element_status[ei] == 0 # owned
                 next_index = next_e_index;
                 next_e_index += 1;
@@ -465,7 +551,7 @@ function partitioned_grid_from_mesh(mesh, epart)
                 next_index = next_g_index;
                 next_g_index += 1;
             end
-            
+            # Add them to the tmp global nodes
             tmpallnodes[1, ((next_index-1)*Np+1):(next_index*Np)] = e_x;
             if dim > 1
                 tmpallnodes[2, ((next_index-1)*Np+1):(next_index*Np)] = e_y;
@@ -477,21 +563,29 @@ function partitioned_grid_from_mesh(mesh, epart)
             # temporary mapping
             loc2glb[:,next_index] = ((next_index-1)*Np+1):(next_index*Np);
             
-            grid2mesh[next_index] = ei;
-            
-            # ghost info
-            if element_status[ei] == 1 # ghost
-                element_owners[next_index] = epart[ei];
-                list_ind = 0;
-                for i=1:num_neighbors
-                    if neighbor_ids[i] == epart[ei]
-                        list_ind += i; # += used for scope of list_ind
+            if config.solver_type == FV
+                grid2mesh[next_index] = ei;
+                
+                # ghost info
+                if element_status[ei] == 1 # ghost
+                    element_owners[next_index] = epart[ei];
+                    list_ind = 0;
+                    for i=1:num_neighbors
+                        if neighbor_ids[i] == epart[ei]
+                            list_ind += i; # += used for scope of list_ind
+                        end
+                    end
+                    if list_ind == 0
+                        # A new neighbor is found
+                        num_neighbors += 1;
+                        push!(neighbor_ids, epart[ei]);
                     end
                 end
-                if list_ind == 0
-                    # A new neighbor is found
-                    num_neighbors += 1;
-                    push!(neighbor_ids, epart[ei]);
+                
+            else ### FE ###
+                element_owners[next_index] = epart[ei];
+                if element_status[ei] == 0 # owned
+                    grid2mesh[next_index] = ei;
                 end
             end
         end
@@ -508,8 +602,6 @@ function partitioned_grid_from_mesh(mesh, epart)
     else
         allnodes = tmpallnodes; # DG grid is already made
     end
-    node_owner_index = fill(config.partition_index, size(allnodes, 2)); # will be set to lowest partition index that has each node
-    node_shared_flag = zeros(Bool, size(allnodes, 2)); # When a node is shared by another partition, flag it (1)
     
     # vertices, faces and boundary
     # first make a map from mesh faces to grid faces
@@ -574,23 +666,6 @@ function partitioned_grid_from_mesh(mesh, epart)
                         element2face[gfi, next_index] = gridfaceind;
                         face2element[2, gridfaceind] = face2element[1, gridfaceind];
                         face2element[1, gridfaceind] = next_index;
-                        
-                        # What partition owns the element on the other side of the face?
-                        # If it has a lower index, update the node_owner_index for each node on the face.
-                        (me1,me2) = mesh.face2element[:,meshfaceind];
-                        if me2*me1 > 0 # not a boundary
-                            owner1 = epart[me1];
-                            owner2 = epart[me2];
-                            min_owner = min(owner1, owner2);
-                            for noi=1:length(tmpf2glb)
-                                if min_owner < node_owner_index[tmpf2glb[noi]]
-                                    node_owner_index[tmpf2glb[noi]] = min_owner;
-                                end
-                                if !(owner1 == owner2)
-                                    node_shared_flag[tmpf2glb[noi]] = 1;
-                                end
-                            end
-                        end
                         
                         # Find the normal for every face. The normal points from e1 to e2 or outward for boundary.
                         # Note that the normal stored in mesh_data could be pointing either way.
@@ -756,40 +831,103 @@ function partitioned_grid_from_mesh(mesh, epart)
     end#### FV ONLY ####
     
     #### FE ONLY ####
-    # Build the nodal partition to global map.
-    # This requires finding the number of nodes for all lower number partitions, which is a significant task.
-    # Have all processes gather their partition index and owned node counts.
-    partition2global = zeros(size(allnodes,2)); # zero means it hasn't been determined yet
-    if config.solver_type == CG || config.solver_type == DG
-        nnodes_owned = size(allnodes, 2); # Start with all
-        nnodes_shared = 0;
-        nnodes_claimed = 0; # owned, but shared by another partition.
-        for ni=1:size(allnodes, 2)
-            if node_owner_index[ni] < config.partition_index
-                nnodes_shared += 1;
-            elseif node_shared_flag[ni] > 0
-                nnodes_claimed += 1;
+    if !(config.solver_type == FV)
+        # Build the nodal partition to global map.
+        # This requires finding the number of nodes for all lower number partitions, which is a significant task.
+        #
+        # Global indices of owned nodes are set by this partition.
+        # Global indices of borrowed nodes need to be determined.
+        
+        nnodes_with_ghosts = size(allnodes, 2);
+        node_owner_index = fill(config.partition_index, nnodes_with_ghosts); # will be set to lowest partition index that has each node
+        node_shared_flag = zeros(Bool, nnodes_with_ghosts); # When a node is shared by another partition, flag it (1)
+        for ei=1:size(loc2glb,2)
+            for ni=1:size(loc2glb,1)
+                nid = loc2glb[ni,ei];
+                if !(element_owners[ei] == config.partition_index)
+                    node_shared_flag[nid] = true;
+                    node_owner_index[nid] = min(node_owner_index[nid], element_owners[ei]);
+                end
             end
         end
-        nnodes_owned -= nnodes_shared;
         
-        p_data = zeros(Int, config.num_procs * 3);
-        p_data_in = MPI.UBuffer(p_data, 3, config.num_procs, MPI.Datatype(Int));
-        p_data_out = [config.partition_index, nnodes_owned, nnodes_claimed];
+        # Need to trim the extra nodes off of allnodes and discard ghosts in loc2glb
+        node_keep_flag = zeros(Bool, nnodes_with_ghosts);
+        highest_kept = 0;
+        for ei=1:nel # only owned elements
+            for ni=1:size(loc2glb,1)
+                nid = loc2glb[ni,ei];
+                node_keep_flag[nid] = true;
+                highest_kept = max(highest_kept, nid);
+            end
+        end
+        # Make sure the kept nodes are all before the discards
+        for ni=1:highest_kept
+            if !node_keep_flag[ni]
+                printerr("Nodes are out of order while trimming ghosts. discard = "*string(ni)*", highest kept = "*string(highest_kept), fatal=true);
+            end
+        end
+        # If that worked, we can safely trim allnodes and loc2glb
+        allnodes = allnodes[:,1:highest_kept];
+        loc2glb = loc2glb[:,1:nel];
+        element_owners = element_owners[1:nel];
+        
+        # Count nodes that are owned, shared or borrowed
+        nnodes_owned = highest_kept;
+        nnodes_shared = 0;
+        nnodes_borrowed = 0;
+        for ni=1:highest_kept
+            if node_shared_flag[ni]
+                nnodes_owned -= 1;
+                if node_owner_index[ni] == config.partition_index
+                    nnodes_shared += 1;
+                else
+                    nnodes_borrowed += 1;
+                end
+            end
+        end
+        
+        # The ultimate goal
+        partition2global = zeros(highest_kept); # zero means it hasn't been determined yet
+        
+        # Have all processes gather their [partition index, nodes_owned, nodes_shared, nodes_borrowed].
+        p_data = zeros(Int, config.num_procs * 4);
+        p_data_in = MPI.UBuffer(p_data, 4, config.num_procs, MPI.Datatype(Int));
+        p_data_out = [config.partition_index, nnodes_owned, nnodes_shared, nnodes_borrowed];
         MPI.Allgather!(p_data_out, p_data_in, MPI.COMM_WORLD);
         
-        # Determine the starting index of this partition's nodes
         start_offset = 0;
-        nodes_per_partition = zeros(Int, config.num_partitions);
-        claimed_nodes_per_proc = zeros(Int, config.num_procs);
-        total_claimed_node_size = 0;
+        owned_nodes_per_partition = zeros(Int, config.num_partitions);
+        shared_nodes_per_partition = zeros(Int, config.num_partitions);
+        borrowed_nodes_per_partition = zeros(Int, config.num_partitions);
+        nodes_to_share_per_proc = zeros(Int, config.num_procs);
+        proc2partition = zeros(Int, config.num_procs);
+        total_shared_node_size = 0;
+        i_need_to_send_shared = false;
         for proc_i = 1:config.num_procs
-            nodes_per_partition[p_data[(proc_i-1)*3+1]+1] = p_data[(proc_i-1)*3+2];
-            claimed_nodes_per_proc[proc_i] = p_data[(proc_i-1)*3+3];
-            total_claimed_node_size += p_data[(proc_i-1)*3+3];
+            part_id = p_data[(proc_i-1)*4+1];
+            proc2partition[proc_i] = part_id;
+            
+            if shared_nodes_per_partition[part_id + 1] == 0
+                total_shared_node_size += p_data[(proc_i-1)*4+3]; # The number of all shared nodes to communicate
+                if proc_i == config.proc_rank+1
+                    scoper = i_need_to_send_shared;
+                    i_need_to_send_shared = true; # This proc will be responsible for sharing for this partition
+                end
+                
+                nodes_to_share_per_proc[proc_i] = p_data[(proc_i-1)*4+3];
+            else
+                nodes_to_share_per_proc[proc_i] = 1; # a dummy to make things work
+                total_shared_node_size += 1;
+            end
+            
+            owned_nodes_per_partition[part_id + 1] = p_data[(proc_i-1)*4+2];
+            shared_nodes_per_partition[part_id + 1] = p_data[(proc_i-1)*4+3];
+            borrowed_nodes_per_partition[part_id + 1] = p_data[(proc_i-1)*4+4];
         end
-        for part_i = 1:(config.partition_index)
-            start_offset += nodes_per_partition[part_i];
+        # Determine the starting index of this partition's nodes
+        for part_i = 1:config.partition_index
+            start_offset += owned_nodes_per_partition[part_i] + shared_nodes_per_partition[part_i];
         end
         
         # The global index for owned nodes will simply add the start_offset
@@ -803,52 +941,61 @@ function partitioned_grid_from_mesh(mesh, epart)
         
         # Now only the shared nodes' global indices have not been set.
         # ...
-        # This is inefficient, but let's collect all of the shared nodes coords and indices.
-        # Then each process will search for their shared nodes and set the global index.
-        # The buffer must be total_claimed_node_size * (dimension+1)
-        chunk_sizes = claimed_nodes_per_proc .* (config.dimension + 1);
-        displacements = zeros(Int, config.num_procs);
+        # Collect all of the shared nodes coords and indices.
+        # Then each process will search for their borrowed nodes and set the global index.
+        # The buffer must be total_shared_node_size * (dimension+1)
+        chunk_sizes = nodes_to_share_per_proc .* (config.dimension + 1);
+        displacements = zeros(Int, config.num_procs); # for the irregular gatherv
         d = 0;
         for proc_i=1:config.num_procs
             displacements[proc_i] = d;
-            d += claimed_nodes_per_proc[proc_i] * (config.dimension + 1);
+            d += nodes_to_share_per_proc[proc_i] * (config.dimension + 1);
         end
-        p_data = zeros(total_claimed_node_size * (config.dimension + 1));
+        p_data = zeros(total_shared_node_size * (config.dimension + 1));
         p_data_in = MPI.VBuffer(p_data, chunk_sizes, displacements, MPI.Datatype(Float64));
-        p_data_out = zeros((config.dimension + 1), nnodes_claimed);
-        next_index = 1;
-        for ni=1:size(allnodes, 2)
-            if node_shared_flag[ni] > 0 && node_owner_index[ni] == config.partition_index
-                p_data_out[1:config.dimension, next_index] = allnodes[:,ni];
-                p_data_out[config.dimension+1, next_index] = partition2global[ni];
-                next_index += 1;
+        if i_need_to_send_shared
+            p_data_out = zeros((config.dimension + 1), nnodes_shared);
+            next_index = 1;
+            for ni=1:size(allnodes, 2)
+                if node_shared_flag[ni] && node_owner_index[ni] == config.partition_index
+                    p_data_out[1:config.dimension, next_index] = allnodes[:,ni];
+                    p_data_out[config.dimension+1, next_index] = partition2global[ni];
+                    next_index += 1;
+                end
             end
+            
+        else
+            p_data_out = fill(-1, (config.dimension + 1), 1);
         end
+        
         MPI.Allgatherv!(p_data_out, p_data_in, MPI.COMM_WORLD);
         MPI.Barrier(MPI.COMM_WORLD);
         
-        # Now search for shared coordinates and set the global index
+        # Now search for shared coordinates of borrowed nodes and set the global index
         for ni=1:size(allnodes, 2)
             if node_owner_index[ni] < config.partition_index
                 these_coords = allnodes[:,ni];
                 found_index = -1; # will be set to the index when found
                 for proc_i=1:config.num_procs
-                    p_offset = displacements[proc_i] + 1;
-                    for nj=1:claimed_nodes_per_proc[proc_i]
-                        n_offset = p_offset + (nj-1) * (config.dimension + 1);
-                        those_coords = p_data[n_offset:(n_offset+config.dimension-1)];
-                        # Are they the same node?
-                        if sum(abs.(these_coords-those_coords)) < 1e-10
-                            found_index = p_data[n_offset+config.dimension];
+                    if node_owner_index[ni] == proc2partition[proc_i]
+                        p_offset = displacements[proc_i] + 1;
+                        for nj=1:nodes_to_share_per_proc[proc_i]
+                            n_offset = p_offset + (nj-1) * (config.dimension + 1);
+                            those_coords = p_data[n_offset:(n_offset+config.dimension-1)];
+                            # Are they the same node?
+                            if p_data[n_offset+config.dimension] >= 0 && sum(abs.(these_coords-those_coords)) < 1e-10
+                                found_index = p_data[n_offset+config.dimension];
+                                break;
+                            end
+                        end
+                        if found_index >= 0
                             break;
                         end
                     end
-                    if found_index > 0
-                        break;
-                    end
                 end
                 if found_index < 0
-                    printerr("Didn't find a global index for "*string(ni)*" owned by "*string(node_owner_index[ni]), fatal=true);
+                    printerr("proc "*string(config.proc_rank)*" Didn't find a global index for "*string(ni)*" owned by "*string(node_owner_index[ni])*
+                                " coords= "*string(these_coords), fatal=true);
                 end
                 partition2global[ni] = Int(found_index);
             end
@@ -857,12 +1004,12 @@ function partitioned_grid_from_mesh(mesh, epart)
     end#### FE ONLY ####
     
     t_grid_from_mesh = Base.Libc.time() - t_grid_from_mesh;
-    log_entry("Total grid building time: "*string(t_grid_from_mesh), 2);
+    log_entry("Partitioned grid building time: "*string(t_grid_from_mesh), 2);
     
     if config.solver_type == FV
         return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
-            true, nel_owned, nel_ghost, owned_faces, ghost_faces, 0, element_owners, grid2mesh, zeros(Int,0), 
+            true, nel_owned, nel_face_ghost, owned_faces, ghost_faces, 0, element_owners, grid2mesh, zeros(Int,0), 
             num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
     else
         return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
@@ -873,7 +1020,13 @@ function partitioned_grid_from_mesh(mesh, epart)
 end
 
 #########################################################################
-### Utilities ###
+
+##    ##  ######  ######  ##       #####
+##    ##    ##      ##    ##      ###   #
+##    ##    ##      ##    ##        ###
+##    ##    ##      ##    ##      #   ###
+  ####      ##    ######  ######   #####
+  
 #########################################################################
 
 function collectBIDs(mesh)
@@ -895,6 +1048,7 @@ function collectBIDs(mesh)
 end
 
 # Removes duplicate nodes and updates local to global maps
+# NOTE: Should maintain relative ordering of the FIRST occurance of nodes.
 function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, depth=5, mincount=50, other2glb=[])
     # defaults
     # depth = 5; # 32768 for 3D
