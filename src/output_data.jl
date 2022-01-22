@@ -121,12 +121,13 @@ end
 function output_values_vtk(vars, file, ascii)
     if config.solver_type == FV
         grid = fv_grid;
+        nel = grid.nel_owned; # Only write owned elements
     else
         grid = grid_data;
+        nel = size(grid.loc2glb,2); # all elements
     end
     # Use the WriteVTK package.
     # First build MeshCell array
-    nel = grid.nel_owned; # Only write owned elements
     if config.dimension == 1
         np_to_type = Dict([(2,3)]); # line
     elseif config.dimension == 2
@@ -136,7 +137,7 @@ function output_values_vtk(vars, file, ascii)
     end
     
     cells = Array{WriteVTK.MeshCell,1}(undef, nel);
-    nodes = fill(-2e20, 3, size(grid.allnodes, 2));
+    # nodes = fill(-2e20, 3, size(grid.allnodes, 2));
     for ei=1:nel
         nvertex = 0;
         for vi=1:length(grid.glbvertex[:,ei])
@@ -152,30 +153,41 @@ function output_values_vtk(vars, file, ascii)
         end
         cell_type = np_to_type[nvertex];
         cells[ei] = WriteVTK.MeshCell(VTKCellType(cell_type), grid.glbvertex[1:nvertex,ei]);
-        if config.dimension == 1
-            nodes[1, grid.glbvertex[1:nvertex,ei]] = grid.allnodes[:, grid.glbvertex[1:nvertex,ei]];
-            nodes[2:3, grid.glbvertex[1:nvertex,ei]] = zeros(2, nvertex);
-        elseif config.dimension == 2
-            nodes[1:2, grid.glbvertex[1:nvertex,ei]] = grid.allnodes[:, grid.glbvertex[1:nvertex,ei]];
-            nodes[3, grid.glbvertex[1:nvertex,ei]] = zeros(1, nvertex);
-        else
-            nodes[:, grid.glbvertex[1:nvertex,ei]] = grid.allnodes[:, grid.glbvertex[1:nvertex,ei]];
-        end
-        
+        # if config.dimension == 1
+        #     nodes[1, grid.glbvertex[1:nvertex,ei]] = grid.allnodes[:, grid.glbvertex[1:nvertex,ei]];
+        #     nodes[2:3, grid.glbvertex[1:nvertex,ei]] = zeros(2, nvertex);
+        # elseif config.dimension == 2
+        #     nodes[1:2, grid.glbvertex[1:nvertex,ei]] = grid.allnodes[:, grid.glbvertex[1:nvertex,ei]];
+        #     nodes[3, grid.glbvertex[1:nvertex,ei]] = zeros(1, nvertex);
+        # else
+        #     nodes[:, grid.glbvertex[1:nvertex,ei]] = grid.allnodes[:, grid.glbvertex[1:nvertex,ei]];
+        # end
+    end
+    
+    # Let's try all nodes. If it causes problems, uncomment above to remove ghosts
+    if config.dimension == 1
+        nodes = zeros(3, size(grid.allnodes, 2));
+        nodes[1, :] = grid.allnodes[1, :];
+    elseif config.dimension == 2
+        nodes = zeros(3, size(grid.allnodes, 2));
+        nodes[1:2, :] = grid.allnodes[1:2, :];
+    else
+        nodes = grid.allnodes;
     end
     
     # Initialize the file
     # For multiple partitions write a pvtk file
     if config.num_procs > 1
-        # remove ghost nodes (they should have coordinates -2e20)
-        nextind = 1;
-        for ni=1:size(nodes,2)
-            if !(nodes[1,ni] == -2e20)
-                nodes[:,nextind] = nodes[:,ni];
-                nextind += 1;
-            end
-        end
-        nodes = nodes[:,1:nextind-1];
+        # # remove ghost nodes (they should have coordinates -2e20)
+        # nextind = 1;
+        # for ni=1:size(nodes,2)
+        #     if !(nodes[1,ni] == -2e20)
+        #         nodes[:,nextind] = nodes[:,ni];
+        #         nextind += 1;
+        #     end
+        # end
+        # nodes = nodes[:,1:nextind-1];
+        
         vtkfile = pvtk_grid(file, nodes, cells, ascii=ascii, part=config.proc_rank+1, nparts=config.num_procs);
         vtkfile["partition"] = fill(config.partition_index, nel);
     else

@@ -57,6 +57,9 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
     Np = refel.Np;
     nel = size(grid_data.loc2glb,2);
     
+    # For partitioned meshes, keep these numbers handy
+    (b_order, b_sizes) = get_partitioned_ordering(N1, dofs_per_node);
+    
     # Allocate arrays that will be used by assemble
     rhsvec = zeros(Nn);
     lhsmatI = zeros(Int, nel*dofs_per_node*Np*dofs_per_node*Np);
@@ -66,13 +69,16 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
     
     if prob.time_dependent && !(stepper === nothing)
         # First assemble both lhs and rhs
-        assemble_t = @elapsed((A, b) = assemble(var, bilinear, linear, allocated_vecs, dofs_per_node, dofs_per_loop, 0, stepper.dt, assemble_loops=assemble_func));
+        assemble_t = @elapsed begin
+                        (A, b) = assemble(var, bilinear, linear, allocated_vecs, dofs_per_node, dofs_per_loop, 0, stepper.dt, assemble_loops=assemble_func);
+                        (A, b) = gather_system(A, b, N1, dofs_per_node, b_order, b_sizes);
+                    end
         
         log_entry("Initial assembly took "*string(assemble_t)*" seconds");
 
         log_entry("Beginning "*string(stepper.Nsteps)*" time steps.");
         t = 0;
-        sol = sol = get_var_vals(var);
+        sol = get_var_vals(var);
         
         start_t = Base.Libc.time();
         assemble_t = 0;
@@ -106,9 +112,12 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                         # p(i-1) is currently in u
                         pre_step_function();
                         
-                        assemble_t += @elapsed(b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, rktime, stepper.dt; rhs_only = true, assemble_loops=assemble_func));
+                        assemble_t += @elapsed begin
+                                            b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, rktime, stepper.dt; rhs_only = true, assemble_loops=assemble_func);
+                                            b = gather_system(nothing, b, N1, dofs_per_node, b_order, b_sizes);
+                                        end
                         
-                        linsolve_t += @elapsed(sol = A\b);
+                        linsolve_t += @elapsed(sol = distribute_solution( A\b , N1, dofs_per_node, b_order, b_sizes));
                         
                         # At this point sol holds the boundary values
                         # directly write them to the variable values and zero sol.
@@ -167,9 +176,12 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                         
                         pre_step_function();
                         
-                        assemble_t += @elapsed(b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, stime, stepper.dt; rhs_only = true, assemble_loops=assemble_func));
+                        assemble_t += @elapsed begin
+                                            b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, stime, stepper.dt; rhs_only = true, assemble_loops=assemble_func)
+                                            b = gather_system(nothing, b, N1, dofs_per_node, b_order, b_sizes);
+                                        end
                         
-                        linsolve_t += @elapsed(tmpki[:,stage] = A\b);
+                        linsolve_t += @elapsed(tmpki[:,stage] = distribute_solution( A\b , N1, dofs_per_node, b_order, b_sizes));
                         
                         # At this point tmpki[:,stage] holds the boundary values
                         # directly write them to the variable values and zero sol.
@@ -186,9 +198,12 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                 
             elseif stepper.type == EULER_EXPLICIT
                 pre_step_function();
-                assemble_t += @elapsed(b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt; rhs_only = true, assemble_loops=assemble_func));
+                assemble_t += @elapsed begin
+                                            b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt; rhs_only = true, assemble_loops=assemble_func)
+                                            b = gather_system(nothing, b, N1, dofs_per_node, b_order, b_sizes);
+                                        end
                 
-                linsolve_t += @elapsed(tmpvec = A\b);
+                linsolve_t += @elapsed(tmpvec = distribute_solution( A\b , N1, dofs_per_node, b_order, b_sizes));
                 
                 # At this point tmpvec holds the boundary values
                 # directly write them to the variable values and zero sol.
@@ -203,9 +218,12 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
             elseif stepper.type == PECE
                 # Predictor (explicit Euler)
                 pre_step_function();
-                assemble_t += @elapsed(b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt; rhs_only = true, assemble_loops=assemble_func));
+                assemble_t += @elapsed begin
+                                            b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt; rhs_only = true, assemble_loops=assemble_func)
+                                            b = gather_system(nothing, b, N1, dofs_per_node, b_order, b_sizes);
+                                        end
                 
-                linsolve_t += @elapsed(tmpvec = A\b);
+                linsolve_t += @elapsed(tmpvec = distribute_solution( A\b , N1, dofs_per_node, b_order, b_sizes));
                 
                 # At this point tmpvec holds the boundary values
                 # directly write them to the variable values and zero sol.
@@ -219,9 +237,12 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                 
                 # Corrector (implicit Euler)
                 pre_step_function();
-                assemble_t += @elapsed(b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t+stepper.dt, stepper.dt; rhs_only = true, assemble_loops=assemble_func));
+                assemble_t += @elapsed begin
+                                            b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t+stepper.dt, stepper.dt; rhs_only = true, assemble_loops=assemble_func)
+                                            b = gather_system(nothing, b, N1, dofs_per_node, b_order, b_sizes);
+                                        end
                 
-                linsolve_t += @elapsed(tmpvec = A\b);
+                linsolve_t += @elapsed(tmpvec = distribute_solution( A\b , N1, dofs_per_node, b_order, b_sizes));
                 
                 # At this point tmpvec holds the boundary values
                 # directly write them to the variable values and zero sol.
@@ -235,9 +256,12 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                 
             else # implicit methods include the dt part 
                 pre_step_function();
-                assemble_t += @elapsed(b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt; rhs_only = true, assemble_loops=assemble_func));
+                assemble_t += @elapsed begin
+                                            b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt; rhs_only = true, assemble_loops=assemble_func)
+                                            b = gather_system(nothing, b, N1, dofs_per_node, b_order, b_sizes);
+                                        end
                 
-                linsolve_t += @elapsed(sol = A\b);
+                linsolve_t += @elapsed(sol = distribute_solution( A\b , N1, dofs_per_node, b_order, b_sizes));
                 
                 place_sol_in_vars(var, sol, stepper);
                 post_step_function();
@@ -270,11 +294,14 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
         return sol;
 
     else
-        assemble_t = @elapsed((A, b) = assemble(var, bilinear, linear, allocated_vecs, dofs_per_node, dofs_per_loop, assemble_loops=assemble_func));
+        assemble_t = @elapsed begin
+                        (A, b) = assemble(var, bilinear, linear, allocated_vecs, dofs_per_node, dofs_per_loop, 0, 0, assemble_loops=assemble_func);
+                        (A, b) = gather_system(A, b, N1, dofs_per_node, b_order, b_sizes);
+                    end
         # uncomment to look at A
         # global Amat = A;
         
-        sol_t = @elapsed(sol = A\b);
+        sol_t = @elapsed(sol = distribute_solution( A\b , N1, dofs_per_node, b_order, b_sizes));
         
         log_entry("Assembly took "*string(assemble_t)*" seconds");
         log_entry("Linear solve took "*string(sol_t)*" seconds");
@@ -286,6 +313,9 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
 end
 
 function nonlinear_solve(var, nlvar, bilinear, linear, stepper=nothing; assemble_loops=nothing)
+    if config.num_pertitions > 1
+        printerr("nonlinear solver is not ready for partitioned meshes. sorry.", fatal=true);
+    end
     if prob.time_dependent && !(stepper === nothing)
         #TODO time dependent coefficients
         
@@ -727,6 +757,200 @@ function get_var_vals(var, vect=nothing)
     end
     
     return vect;
+end
+
+######################################################################################
+# For partitioned meshes
+function get_partitioned_ordering(nnodes, dofs_per_node)
+    if config.num_procs > 1
+        # The global ordering of this partition's b vector entries
+        b_order_loc = zeros(Int, nnodes*dofs_per_node);
+        for ni=1:nnodes
+            for di=1:dofs_per_node
+                b_order_loc[(ni-1)*dofs_per_node + di] = (grid_data.partition2global[ni]-1)*dofs_per_node + di;
+            end
+        end
+        
+        # only proc 0 needs this info for now
+        if config.proc_rank == 0
+            # The b_sizes
+            send_buf = [nnodes*dofs_per_node];
+            recv_buf = zeros(Int, config.num_procs);
+            MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
+            
+            # b_order
+            chunk_sizes = recv_buf;
+            displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+            total_length = chunk_sizes[1];
+            for proc_i=2:config.num_procs
+                displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                total_length += chunk_sizes[proc_i];
+            end
+            full_b_order = zeros(Int, total_length);
+            b_order_buf = MPI.VBuffer(full_b_order, chunk_sizes, displacements, MPI.Datatype(Int));
+            MPI.Gatherv!(b_order_loc, b_order_buf, 0, MPI.COMM_WORLD);
+            
+            return (full_b_order, chunk_sizes);
+            
+        else
+            send_buf = [nnodes*dofs_per_node];
+            MPI.Gather!(send_buf, nothing, 0, MPI.COMM_WORLD);
+            MPI.Gatherv!(b_order_loc, nothing, 0, MPI.COMM_WORLD);
+            
+            return ([1], [1]);
+        end
+        
+    else
+        return (nothing, nothing);
+    end
+end
+
+# For multiple processes, gather the system, distribute the solution
+function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes)
+    rhs_only = (A===nothing);
+    if config.num_procs > 1
+        if !rhs_only
+            # For now just gather all of A in proc 0 to assemble.
+            # The row and column indices have to be changed according to partition2global.
+            # Also, b must be reordered on proc 1, so send the needed indices as well.
+            (AI, AJ, AV) = findnz(A);
+            for i=1:length(AI)
+                dof = mod(AI[i]-1,dofs_per_node)+1;
+                node = Int(floor((AI[i]-dof) / dofs_per_node) + 1);
+                AI[i] = (grid_data.partition2global[node] - 1) * dofs_per_node + dof;
+                
+                dof = mod(AJ[i]-1,dofs_per_node)+1;
+                node = Int(floor((AJ[i]-dof) / dofs_per_node) + 1);
+                AJ[i] = (grid_data.partition2global[node] - 1) * dofs_per_node + dof;
+            end
+            
+            if config.proc_rank == 0
+                # First figure out how long each proc's arrays are
+                send_buf = [length(AI)];
+                recv_buf = zeros(Int, config.num_procs);
+                MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
+                
+                # Use gatherv to accumulate A
+                chunk_sizes = recv_buf;
+                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+                total_length = chunk_sizes[1];
+                for proc_i=2:config.num_procs
+                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                    total_length += chunk_sizes[proc_i];
+                end
+                full_AI = zeros(Int, total_length);
+                full_AJ = zeros(Int, total_length);
+                full_AV = zeros(Float64, total_length);
+                AI_buf = MPI.VBuffer(full_AI, chunk_sizes, displacements, MPI.Datatype(Int));
+                AJ_buf = MPI.VBuffer(full_AJ, chunk_sizes, displacements, MPI.Datatype(Int));
+                AV_buf = MPI.VBuffer(full_AV, chunk_sizes, displacements, MPI.Datatype(Float64));
+                
+                MPI.Gatherv!(AI, AI_buf, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AJ, AJ_buf, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AV, AV_buf, 0, MPI.COMM_WORLD);
+                
+                # Next gather b
+                chunk_sizes = b_sizes;
+                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+                total_length = chunk_sizes[1];
+                for proc_i=2:config.num_procs
+                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                    total_length += chunk_sizes[proc_i];
+                end
+                full_b = zeros(total_length);
+                b_buf = MPI.VBuffer(full_b, chunk_sizes, displacements, MPI.Datatype(Float64));
+                MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
+                
+                # finally, assemble A and reorder b
+                full_A = sparse(full_AI, full_AJ, full_AV);
+                
+                # Can't simply permute because there are duplicates.
+                new_b = zeros(grid_data.nnodes_global * dofs_per_node);
+                for i=1:total_length
+                    new_b[b_order[i]] = full_b[i];
+                end
+                
+                return (full_A, new_b);
+                
+            else # other procs just send their data
+                send_buf = [length(AI)];
+                MPI.Gather!(send_buf, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AI, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AJ, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AV, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
+                
+                return (ones(1,1),[length(b)]);
+            end
+            
+        else # RHS only\
+            if config.proc_rank == 0
+                # gather b
+                chunk_sizes = b_sizes;
+                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+                total_length = chunk_sizes[1];
+                for proc_i=2:config.num_procs
+                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                    total_length += chunk_sizes[proc_i];
+                end
+                full_b = zeros(total_length);
+                b_buf = MPI.VBuffer(full_b, chunk_sizes, displacements, MPI.Datatype(Float64));
+                MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
+                
+                # Can't simply permute because there are duplicates.
+                new_b = zeros(grid_data.nnodes_global * dofs_per_node);
+                for i=1:total_length
+                    new_b[b_order[i]] = full_b[i];
+                end
+                
+                return new_b;
+                
+            else # other procs just send their data
+                MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
+                
+                return [length(b)];
+            end
+        end
+        
+    else # one process
+        if rhs_only
+            return b;
+        else
+            return (A, b);
+        end
+    end
+end
+
+function distribute_solution(sol, nnodes, dofs_per_node, b_order, b_sizes)
+    if config.num_procs > 1
+        my_sol = zeros(nnodes*dofs_per_node);
+        if config.proc_rank == 0 # 0 has the full sol
+            # Need to reorder b and put in a larger array according to b_order
+            total_length = sum(b_sizes);
+            full_sol = zeros(total_length);
+            for i=1:total_length
+                full_sol[i] = sol[b_order[i]];
+            end
+            
+            # scatter b
+            chunk_sizes = b_sizes;
+            displacements = zeros(Int, config.num_procs); # for the irregular scatterv
+            for proc_i=2:config.num_procs
+                displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+            end
+            sol_buf = MPI.VBuffer(full_sol, chunk_sizes, displacements, MPI.Datatype(Float64));
+            
+            # Scatter it amongst the little ones
+            MPI.Scatterv!(sol_buf, my_sol, 0, MPI.COMM_WORLD);
+            
+        else # Others don't have sol
+            MPI.Scatterv!(nothing, my_sol, 0, MPI.COMM_WORLD);
+        end
+        return my_sol;
+        
+    else
+        return sol;
+    end
 end
 
 end #module

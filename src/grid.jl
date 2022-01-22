@@ -29,8 +29,10 @@ struct Grid
     nel_ghost::Int                  # Number of ghost elements (for FV)
     nface_owned::Int                # Number of faces owned by this partition
     nface_ghost::Int                # Number of ghost faces that are not owned (for FV)
-    nnodes_shared::Int              # Number of nodes shared with another partition (for CG)
-    element_owner::Vector{Int}      # The rank of each ghost element's owner or -1 if locally owned (for FV)
+    nnodes_global::Int              # Number of global nodes (for FE)
+    nnodes_borrowed::Int            # Number of nodes borrowed from another partition (for CG)
+    element_owner::Vector{Int}      # The rank of each element's owner or -1 if locally owned (for FV)
+    node_owner::Vector{Int}         # The rank of each node's owner (for FE)
     grid2mesh::Vector{Int}          # Map from partition elements to global mesh element index
     partition2global::Vector{Int}   # Global index of nodes (for CG,DG)
     
@@ -44,17 +46,17 @@ struct Grid
          face2element, facenormals, faceRefelInd, facebid) = 
      new(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
-         false, size(loc2glb,2), 0,size(face2element,2), 0, 0, zeros(Int,0), zeros(Int,0), 
-         zeros(Int,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]); # up to facebid only
+         false, size(loc2glb,2), 0,size(face2element,2), 0, 0, 0, zeros(Int,0), zeros(Int,0), 
+         zeros(Int,0), zeros(Int,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]); # up to facebid only
      
     Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
-         ispartitioned, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_shared, element_owners, 
-         grid2mesh, partition2global, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
+         ispartitioned, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
+         node_owner, grid2mesh, partition2global, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
      new(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
-         ispartitioned, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_shared, element_owners, 
-         grid2mesh, partition2global, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
+         ispartitioned, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
+         node_owner, grid2mesh, partition2global, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
 end
 
 etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices for each type
@@ -897,6 +899,7 @@ function partitioned_grid_from_mesh(mesh, epart)
         MPI.Allgather!(p_data_out, p_data_in, MPI.COMM_WORLD);
         
         start_offset = 0;
+        nnodes_global = 0;
         owned_nodes_per_partition = zeros(Int, config.num_partitions);
         shared_nodes_per_partition = zeros(Int, config.num_partitions);
         borrowed_nodes_per_partition = zeros(Int, config.num_partitions);
@@ -926,8 +929,11 @@ function partitioned_grid_from_mesh(mesh, epart)
             borrowed_nodes_per_partition[part_id + 1] = p_data[(proc_i-1)*4+4];
         end
         # Determine the starting index of this partition's nodes
-        for part_i = 1:config.partition_index
-            start_offset += owned_nodes_per_partition[part_i] + shared_nodes_per_partition[part_i];
+        for part_i = 1:config.num_partitions
+            if part_i < config.partition_index + 1
+                start_offset += owned_nodes_per_partition[part_i] + shared_nodes_per_partition[part_i];
+            end
+            nnodes_global += owned_nodes_per_partition[part_i] + shared_nodes_per_partition[part_i];
         end
         
         # The global index for owned nodes will simply add the start_offset
@@ -1009,12 +1015,12 @@ function partitioned_grid_from_mesh(mesh, epart)
     if config.solver_type == FV
         return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
-            true, nel_owned, nel_face_ghost, owned_faces, ghost_faces, 0, element_owners, grid2mesh, zeros(Int,0), 
+            true, nel_owned, nel_face_ghost, owned_faces, ghost_faces, 0, 0, element_owners, zeros(Int,0), grid2mesh, zeros(Int,0), 
             num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
     else
         return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
-            true, nel_owned, 0, owned_faces, 0, nnodes_shared, zeros(Int,0), grid2mesh, partition2global, 
+            true, nel_owned, 0, owned_faces, 0, nnodes_global, nnodes_borrowed, zeros(Int,0), node_owner_index, grid2mesh, partition2global, 
             num_neighbors, neighbor_ids, zeros(Int,0), [zeros(Int,0)]));
     end
 end

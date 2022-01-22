@@ -1,38 +1,39 @@
 #=
 # 3D Poisson, Dirichlet bc
 =#
-if !@isdefined(Finch)
-    include("../Finch.jl");
-    using .Finch
-end
-init_finch("poisson3d");
+### If the Finch package has already been added, use this line #########
+using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
 
-# Try making an optional log
-@useLog("poisson3dlog")
+### If not, use these four lines (working from the examples directory) ###
+# if !@isdefined(Finch)
+#     include("../Finch.jl");
+#     using .Finch
+# end
+##########################################################################
+init_finch("poisson3d");
+useLog("poisson3dlog")
 
 n = 10;
-ord = 3;
+ord = 2;
 
-# Set up the configuration (order doesn't matter)
-@domain(3, SQUARE, UNIFORM_GRID)    # dimension, geometry, decomposition
-@solver(CG)                         # DG, CG, etc.
-@functionSpace(LEGENDRE, ord)         # function, order (or use testFunction and trialFunction)
-@nodes(LOBATTO)                     # elemental node arrangement
+domain(3)
+functionSpace(order=ord)
 
-# Specify the problem
-@mesh(HEXMESH, n)                   # .msh file or generate our own
+mesh(HEXMESH, elsperdim=n)
 
-@variable(u)                        # same as @variable(u, SCALAR)
+u = variable("u")
 
-@testSymbol(v)                    # sets the symbol for a test function
+testSymbol("v")
 
-@boundary(u, 1, DIRICHLET, 0)
+boundary(u, 1, DIRICHLET, 0)
 
 # Write the weak form 
-@coefficient(f, "-3*pi*pi*sin(pi*x)*sin(pi*y)*sin(pi*z)")
-@weakForm(u, "-dot(grad(u), grad(v)) - f*v")
+coefficient("f", "-3*pi*pi*sin(pi*x)*sin(pi*y)*sin(pi*z)")
+weakForm(u, "-dot(grad(u), grad(v)) - f*v")
 
 solve(u);
+
+outputValues(u, "p3dout", format="vtk", asci=false);
 
 # exact solution is sin(pi*x)*sin(pi*y)*sin(pi*z)
 # check error
@@ -49,16 +50,5 @@ for i=1:size(Finch.grid_data.allnodes,2)
 end
 println("max error = "*string(maxerr));
 
-# solution is stored in the variable's "values"
-# using Plots
-# pyplot();
-# N = n*ord+1;
-# half = Int(round(N/2));
-# range = (N*N*half+1):(N*N*(half+1));
-# display(plot(Finch.grid_data.allnodes[1,range], Finch.grid_data.allnodes[2,range], u.values[range], st=:surface))
 
-# check
-log_dump_config();
-log_dump_prob();
-
-@finalize()
+finalize_finch()
