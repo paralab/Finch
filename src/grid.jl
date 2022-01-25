@@ -35,6 +35,7 @@ struct Grid
     node_owner::Vector{Int}         # The rank of each node's owner (for FE)
     grid2mesh::Vector{Int}          # Map from partition elements to global mesh element index
     partition2global::Vector{Int}   # Global index of nodes (for CG,DG)
+    global_bdry_index::Vector{Int8} # Index in bids for every global node, or 0 for interior (Only proc 0 holds, only for FE)
     
     num_neighbor_partitions::Int        # number of partitions that share ghosts with this.
     neighboring_partitions::Vector{Int} # IDs of neighboring partitions
@@ -47,16 +48,16 @@ struct Grid
      new(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
          false, size(loc2glb,2), 0,size(face2element,2), 0, 0, 0, zeros(Int,0), zeros(Int,0), 
-         zeros(Int,0), zeros(Int,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]); # up to facebid only
+         zeros(Int,0), zeros(Int,0), zeros(Int8,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]); # up to facebid only
      
     Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
          ispartitioned, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
-         node_owner, grid2mesh, partition2global, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
+         node_owner, grid2mesh, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
      new(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
          ispartitioned, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
-         node_owner, grid2mesh, partition2global, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
+         node_owner, grid2mesh, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
 end
 
 etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices for each type
@@ -1007,6 +1008,70 @@ function partitioned_grid_from_mesh(mesh, epart)
             end
         end
         
+        # Finally, armed with a complete partition2global map, flag each boundary node 
+        # so that boundary conditions don't get messed up when gathering the system.
+        if config.proc_rank == 0
+            nbdrynodes = 0;
+            for bi=1:length(bids)
+                nbdrynodes += length(bdry[bi]);
+            end
+            bidmap = zeros(Int, 2, nbdrynodes);
+            next_ind = 1;
+            for bi=1:length(bids)
+                for ni=1:length(bdry[bi])
+                    bidmap[1,next_ind] = partition2global[bdry[bi][ni]];
+                    bidmap[2,next_ind] = bi;
+                    next_ind += 1;
+                end
+            end
+            
+            # gather the numbers of bdry nodes
+            p_data = zeros(Int, config.num_procs);
+            p_data_in = MPI.UBuffer(p_data, 1, config.num_procs, MPI.Datatype(Int));
+            p_data_out = [nbdrynodes * 2];
+            MPI.Gather!(p_data_out, p_data_in, 0, MPI.COMM_WORLD);
+            
+            # gather the bidmaps
+            chunk_sizes = p_data;
+            displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+            d = 0;
+            for proc_i=1:config.num_procs
+                displacements[proc_i] = d;
+                d += p_data[proc_i];
+            end
+            p_data = zeros(Int, d);
+            p_data_in = MPI.VBuffer(p_data, chunk_sizes, displacements, MPI.Datatype(Float64));
+            p_data_out = bidmap[:];
+            
+            MPI.Gatherv!(p_data_out, p_data_in, 0, MPI.COMM_WORLD);
+            
+            global_bdry_flag = zeros(Int8, nnodes_global);
+            for ni=1:2:d
+                global_bdry_flag[p_data[ni]] = p_data[ni+1];
+            end
+            
+        else
+            global_bdry_flag = zeros(Int8, 0);
+            # send a mapping of global indices and bid index
+            nbdrynodes = 0;
+            for bi=1:length(bids)
+                nbdrynodes += length(bdry[bi]);
+            end
+            bidmap = zeros(Int, 2, nbdrynodes);
+            next_ind = 1;
+            for bi=1:length(bids)
+                for ni=1:length(bdry[bi])
+                    bidmap[1,next_ind] = partition2global[bdry[bi][ni]];
+                    bidmap[2,next_ind] = bi;
+                    next_ind += 1;
+                end
+            end
+            
+            MPI.Gather!([nbdrynodes*2], nothing, 0, MPI.COMM_WORLD);
+            
+            MPI.Gatherv!(bidmap[:], nothing, 0, MPI.COMM_WORLD);
+        end
+        
     end#### FE ONLY ####
     
     t_grid_from_mesh = Base.Libc.time() - t_grid_from_mesh;
@@ -1016,12 +1081,12 @@ function partitioned_grid_from_mesh(mesh, epart)
         return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
             true, nel_owned, nel_face_ghost, owned_faces, ghost_faces, 0, 0, element_owners, zeros(Int,0), grid2mesh, zeros(Int,0), 
-            num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
+            zeros(Int8, 0), num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
     else
         return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
             true, nel_owned, 0, owned_faces, 0, nnodes_global, nnodes_borrowed, zeros(Int,0), node_owner_index, grid2mesh, partition2global, 
-            num_neighbors, neighbor_ids, zeros(Int,0), [zeros(Int,0)]));
+            global_bdry_flag, num_neighbors, neighbor_ids, zeros(Int,0), [zeros(Int,0)]));
     end
 end
 

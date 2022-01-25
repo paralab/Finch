@@ -34,7 +34,7 @@ end
 
 function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=nothing)
     if config.linalg_matrixfree
-        return solve_matrix_free_sym(var, bilinear, linear, stepper);
+        return solve_matrix_free_sym(var, bilinear, linear, stepper, assemble_func=assemble_func);
         #return solve_matrix_free_asym(var, bilinear, linear, stepper);
     end
     
@@ -806,13 +806,14 @@ function get_partitioned_ordering(nnodes, dofs_per_node)
 end
 
 # For multiple processes, gather the system, distribute the solution
-function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes)
+# Note: rescatter_b only applies when rhs_only
+function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes; rescatter_b=false)
     rhs_only = (A===nothing);
     if config.num_procs > 1
         if !rhs_only
             # For now just gather all of A in proc 0 to assemble.
             # The row and column indices have to be changed according to partition2global.
-            # Also, b must be reordered on proc 1, so send the needed indices as well.
+            # Also, b must be reordered on proc 0, so send the needed indices as well.
             (AI, AJ, AV) = findnz(A);
             for i=1:length(AI)
                 dof = mod(AI[i]-1,dofs_per_node)+1;
@@ -849,6 +850,19 @@ function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes)
                 MPI.Gatherv!(AJ, AJ_buf, 0, MPI.COMM_WORLD);
                 MPI.Gatherv!(AV, AV_buf, 0, MPI.COMM_WORLD);
                 
+                # # Modify AI and AJ to global indices using b_order
+                # b_start = 0;
+                # for proc_i=1:config.num_procs
+                #     for ai=(displacements[proc_i]+1):(displacements[proc_i] + chunk_sizes[proc_i])
+                #         full_AI[ai] = b_order[b_start + full_AI[ai]];
+                #         full_AJ[ai] = b_order[b_start + full_AJ[ai]];
+                #     end
+                #     b_start += b_sizes[proc_i];
+                # end
+                
+                # Assemble A
+                full_A = sparse(full_AI, full_AJ, full_AV);
+                
                 # Next gather b
                 chunk_sizes = b_sizes;
                 displacements = zeros(Int, config.num_procs); # for the irregular gatherv
@@ -861,13 +875,10 @@ function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes)
                 b_buf = MPI.VBuffer(full_b, chunk_sizes, displacements, MPI.Datatype(Float64));
                 MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
                 
-                # finally, assemble A and reorder b
-                full_A = sparse(full_AI, full_AJ, full_AV);
-                
-                # Can't simply permute because there are duplicates.
+                # Overlapping values will be added.
                 new_b = zeros(grid_data.nnodes_global * dofs_per_node);
                 for i=1:total_length
-                    new_b[b_order[i]] = full_b[i];
+                    new_b[b_order[i]] += full_b[i];
                 end
                 
                 return (full_A, new_b);
@@ -897,18 +908,26 @@ function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes)
                 b_buf = MPI.VBuffer(full_b, chunk_sizes, displacements, MPI.Datatype(Float64));
                 MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
                 
-                # Can't simply permute because there are duplicates.
+                # Overlapping values will be added.
                 new_b = zeros(grid_data.nnodes_global * dofs_per_node);
                 for i=1:total_length
-                    new_b[b_order[i]] = full_b[i];
+                    new_b[b_order[i]] += full_b[i];
                 end
                 
-                return new_b;
+                if rescatter_b
+                    return distribute_solution(new_b, nnodes, dofs_per_node, b_order, b_sizes)
+                else
+                    return new_b;
+                end
                 
             else # other procs just send their data
                 MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
                 
-                return [length(b)];
+                if rescatter_b
+                    return distribute_solution(nothing, nnodes, dofs_per_node, b_order, b_sizes)
+                else
+                    return [length(b)];
+                end
             end
         end
         
@@ -950,6 +969,17 @@ function distribute_solution(sol, nnodes, dofs_per_node, b_order, b_sizes)
         
     else
         return sol;
+    end
+end
+
+# Simply does a reduction to get the global residual.
+function combine_residual(val)
+    if config.num_procs > 1
+        rval = MPI.Allreduce(val, +, MPI.COMM_WORLD);
+        return rval;
+        
+    else
+        return val;
     end
 end
 

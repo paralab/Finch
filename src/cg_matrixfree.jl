@@ -4,46 +4,52 @@ Functions used by the CGSolver for matrix free solutions.
 
 # Note: This uses the conjugate gradient iterative method,
 # which assumes an SPD matrix.
-function solve_matrix_free_sym(var, bilinear, linear, stepper=nothing, t=0, dt=0)
+function solve_matrix_free_sym(var, bilinear, linear, stepper=nothing; assemble_func=nothing)
     start_time = time_ns();
     tol = config.linalg_matfree_tol;
     maxiters = config.linalg_matfree_max;
-    Np = refel.Np;
-    nel = mesh_data.nel;
-    N1 = size(grid_data.allnodes,2);
-    multivar = typeof(var) <: Array;
-    if multivar
+    
+    # If more than one variable
+    if typeof(var) <: Array
         # multiple variables being solved for simultaneously
         dofs_per_node = 0;
-        var_to_dofs = [];
+        dofs_per_loop = 0;
         for vi=1:length(var)
-            tmp = dofs_per_node;
-            dofs_per_node += length(var[vi].symvar);
-            push!(var_to_dofs, (tmp+1):dofs_per_node);
+            dofs_per_loop += length(var[vi].symvar);
+            dofs_per_node += var[vi].total_components;
         end
     else
         # one variable
-        dofs_per_node = length(var.symvar);
+        dofs_per_loop = length(var.symvar);
+        dofs_per_node = var.total_components;
     end
-    Nn = dofs_per_node * N1;
     
-    # if dofs_per_node > 1
-    #     println("Oops. Still working on multi DOF matrix-free");
-    #     return zeros(Nn);
-    # end
+    N1 = size(grid_data.allnodes,2);
+    Nn = dofs_per_node * N1;
+    Np = refel.Np;
+    nel = size(grid_data.loc2glb,2);
+    
+    # For partitioned meshes, keep these numbers handy
+    (b_order, b_sizes) = get_partitioned_ordering(N1, dofs_per_node);
+    
+    # Allocate arrays that will be used by assemble
+    rhsvec = zeros(Nn);
+    allocated_vecs = [rhsvec];
     
     if prob.time_dependent && !(stepper === nothing)
         #TODO
     else
         # Use regular rhs assembly
-        b = assemble_rhs_only(var, linear, t, dt);
+        b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, 0, 0; rhs_only = true, assemble_loops=assemble_func)
+        b = gather_system(nothing, b, N1, dofs_per_node, b_order, b_sizes, rescatter_b=true);
+        
         normb = norm(b, Inf);
         
         x = zeros(Nn);
         
         # Do initial matvec
         #Ax = elem_matvec(x, bilinear, dofs_per_node, var);
-        # nevermind, this will just be zeros
+        # But this will just be zeros
         
         r0 = copy(b); # = b - Ax;
         p = copy(r0);
@@ -53,7 +59,8 @@ function solve_matrix_free_sym(var, bilinear, linear, stepper=nothing, t=0, dt=0
         while iter < maxiters && err > tol
             iter = iter+1;
             
-            Ap = elem_matvec(p,bilinear, dofs_per_node, var, t, dt);
+            Ap = elem_matvec(p,bilinear, dofs_per_node, var, 0, 0);
+            Ap = gather_system(nothing, Ap, N1, dofs_per_node, b_order, b_sizes, rescatter_b=true);
             
             alpha = dot(r0,r0) / dot(p,Ap);
             
@@ -66,8 +73,10 @@ function solve_matrix_free_sym(var, bilinear, linear, stepper=nothing, t=0, dt=0
             r0 = copy(r1);
             err = norm(r0, Inf)/normb;
             
+            err = combine_residual(err);
+            
             if iter%50 == 0
-                println("iteration "*string(iter)*": res = "*string(err));
+                log_entry("iteration "*string(iter)*": res = "*string(err));
             end
         end
         
@@ -90,14 +99,11 @@ function solve_matrix_free_asym(var, bilinear, linear, stepper=nothing, t=0, dt=
     nel = mesh_data.nel;
     N1 = size(grid_data.allnodes,2);
     multivar = typeof(var) <: Array;
-    if multivar
-        # multiple variables being solved for simultaneously
+    if multivar  # multiple variables being solved for simultaneously
         dofs_per_node = 0;
-        var_to_dofs = [];
         for vi=1:length(var)
             tmp = dofs_per_node;
             dofs_per_node += length(var[vi].symvar);
-            push!(var_to_dofs, (tmp+1):dofs_per_node);
         end
     else
         # one variable
@@ -146,11 +152,10 @@ function solve_matrix_free_asym(var, bilinear, linear, stepper=nothing, t=0, dt=
             err = norm(r0, Inf)/normb;
             
             if iter%50 == 0
-                println("iteration "*string(iter)*": res = "*string(err));
+                log_entry("iteration "*string(iter)*": res = "*string(err));
             end
         end
         
-        println("Converged to "*string(err)*" in "*string(iter)*" iterations");
         log_entry("Converged to "*string(err)*" in "*string(iter)*" iterations");
         
         total_time = time_ns() - start_time;
@@ -167,27 +172,19 @@ function elem_matvec(x, bilinear, dofs_per_node, var, t = 0.0, dt = 0.0)
     nel = mesh_data.nel;
     multivar = typeof(var) <: Array;
     maxvarindex = 0;
-    if multivar
-        # multiple variables being solved for simultaneously
-        dofs_per_node = 0;
-        var_to_dofs = [];
+    if multivar # multiple variables being solved for simultaneously
         for vi=1:length(var)
-            tmp = dofs_per_node;
-            dofs_per_node += length(var[vi].symvar);
-            push!(var_to_dofs, (tmp+1):dofs_per_node);
             maxvarindex = max(maxvarindex,var[vi].index);
             
-            # # check for neumann bcs
-            # for bi=1:length(prob.bc_type[vi,:])
-            #     if prob.bc_type[vi,bi] == NEUMANN
-                    
-            #     end
-            # end
+            # check for neumann bcs
+            for bi=1:length(prob.bc_type[vi,:])
+                if prob.bc_type[vi,bi] == NEUMANN
+                    printerr("Neumann boundary conditions are not yet supported for matrix free. Sorry.", fatal=true)
+                end
+            end
         end
-        
     else
         # one variable
-        dofs_per_node = length(var.symvar);
         maxvarindex = var.index;
     end
     
@@ -220,30 +217,24 @@ function elem_matvec(x, bilinear, dofs_per_node, var, t = 0.0, dt = 0.0)
     
     #Elemental loop follows elemental ordering
     for e=elemental_order;
-        glb = grid_data.loc2glb[:,e];                 # global indices of this element's nodes for extracting values from var arrays
-        xe = grid_data.allnodes[:,glb[:]];  # coordinates of this element's nodes for evaluating coefficient functions
+        eid = elemental_order[e];
+        loc2glb = grid_data.loc2glb[:,eid]; # global indices of this element's nodes
         
-        subx = extract_linear(x, glb, dofs_per_node);
+        subx = extract_linear(x, loc2glb, dofs_per_node);
         
-        lhsargs = (var, xe, glb, refel, LHS, t, dt, stiffness, mass);
-        bilinchunk = bilinear.func(lhsargs); # the elemental bilinear part
+        volargs = (var, eid, 0, grid_data, geo_factors, refel, t, dt, stiffness, mass);
+        bilinchunk = bilinear.func(volargs); # the elemental bilinear part
         # Neumann bcs need to be applied to this
-        
+        # TODO
         
         if dofs_per_node == 1
-            #bilinchunk = bilinear.func(lhsargs); # the elemental bilinear part
-            Ax[glb] = Ax[glb] + bilinchunk * subx;
-        elseif typeof(var) == Variable
-            # only one variable, but more than one dof
-            #bilinchunk = bilinear.func(lhsargs);
-            insert_linear_matfree!(Ax, bilinchunk*subx, glb, 1:dofs_per_node, dofs_per_node);
+            Ax[loc2glb] = Ax[loc2glb] + bilinchunk * subx;
         else
-            #bilinchunk = bilinear.func(lhsargs);
-            insert_linear_matfree!(Ax, bilinchunk*subx, glb, 1:dofs_per_node, dofs_per_node);
+            insert_linear_matfree!(Ax, bilinchunk*subx, loc2glb, 1:dofs_per_node, dofs_per_node);
         end
     end
     
-    # Apply boudary conditions
+    # Apply Dirichlet boudary conditions
     bidcount = length(grid_data.bids); # the number of BIDs
     if dofs_per_node > 1
         if multivar
@@ -284,16 +275,18 @@ function elem_matvec(x, bilinear, dofs_per_node, var, t = 0.0, dt = 0.0)
         if multivar
             posind = zeros(Int,0);
             vals = zeros(0);
+            dof_offset = 1;
             for vi=1:length(var)
                 if prob.ref_point[var[vi].index,1]
                     eii = prob.ref_point[var[vi].index, 2];
-                    tmp = (grid_data.glbvertex[eii[1], eii[2]] - 1)*dofs_per_node + var_to_dofs[vi][1];
+                    tmp = (grid_data.glbvertex[eii[1], eii[2]] - 1)*dofs_per_node + dof_offset;
                     if length(prob.ref_point[var[vi].index, 3]) > 1
                         tmp = tmp:(tmp+length(prob.ref_point[var[vi].index, 3])-1);
                     end
                     posind = [posind; tmp];
                     vals = [vals; prob.ref_point[var[vi].index, 3]];
                 end
+                dof_offset += length(var[vi].symvar);
             end
             if length(vals) > 0
                 Ax[posind] = vals;
