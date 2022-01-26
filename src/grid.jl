@@ -346,8 +346,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     nel_owned = 0;
     nel_face_ghost = 0;
     nel_node_ghost = 0; # ghosts that share nodes, but not faces
-    nnodes_owned = 0; # number of nodes NOT shared with a partition of lower index
-    nnodes_shared = 0; # number of nodes shared with a partition of lower index
+    
     element_status = fill(-1, mesh.nel); # 2 for node ghosts, 1 for face ghosts, 0 for owned, -1 for other
     face_status = fill(-1, size(mesh.normals,2)); # 1 for face to ghosts, 0 for owned, -1 for other
     mesh2grid_face = fill(-1, size(mesh.normals,2)); # -1 if this face is not in the partition, otherwise the index of the grid face
@@ -359,8 +358,8 @@ function partitioned_grid_from_mesh(mesh, epart)
     
     # - Label each vertex with the lowest partition index that touches it.
     # - Label each element with its lowest and highest labeled vertex.
-    # - Elements with lowest labels = to this partition are owned by this partition(all nodes therein are owned).
-    #    |__[1. Elements with both labels = to this partition are fully interior to this partition.
+    # - Elements with lowest labels equal to this partition are owned by this partition(all nodes therein are owned).
+    #    |__[1. Elements with both labels equal to this partition are fully interior to this partition.
     #       [2. Elements with highest labels > this partition have shared nodes, but are owned for indexing.
     # - 3. Elements with lowest labels < this partition have nodes that are borrowed from another partition.
     #
@@ -431,9 +430,9 @@ function partitioned_grid_from_mesh(mesh, epart)
                 element_status[e1] = 1;
                 face_status[fi] = 1;
             elseif e2 > 0 && !(element_status[e2] == 0)
-                if element_status[e1] == -1
+                if element_status[e2] == -1
                     printerr("mixed up ghost? eid="*string(ei)*" ghost info may have errors");
-                elseif element_status[e1] == 2
+                elseif element_status[e2] == 2
                     nel_face_ghost += 1;
                     nel_node_ghost -= 1;
                 end
@@ -516,7 +515,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     else
         tmpallnodes = zeros(dim, (nel + nel_node_ghost + nel_face_ghost) * refel.Np);
         loc2glb = zeros(Int, Np, nel + nel_node_ghost + nel_face_ghost); # This will be trimmed later
-        element_owners = fill(-1, nel + nel_node_ghost + nel_face_ghost) # partition number of each ghost, or -1 for owned elements
+        element_owners = fill(-1, nel + nel_node_ghost + nel_face_ghost) # partition number of each element
     end
     
     # compute node coordinates
@@ -638,7 +637,7 @@ function partitioned_grid_from_mesh(mesh, epart)
             end
             el_center ./= Np;
             
-            # f2glb has duplicates. Compare to mesh faces and keep same ordering as mesh.
+            #  Compare to mesh faces and keep same ordering as mesh.
             # Copy normals and bdry info.
             # Set element2face map.
             meshfaces = mesh.element2face[:,ei];    # index from mesh
@@ -654,52 +653,58 @@ function partitioned_grid_from_mesh(mesh, epart)
             
             for gfi=1:nfaces
                 tmpf2glb = loc2glb[refel.face2local[gfi], next_index];
-                
+                found_face = false;
                 for mfi=1:nfaces
-                    meshfaceind = meshfaces[mfi];
-                    gridfaceind = mesh2grid_face[meshfaceind]; # the face index in the grid
-                    if gridfaceind > 0 && test_same_face(mesh.nodes[:,mesh.face2vertex[:,meshfaceind]], allnodes[:, tmpf2glb], tol)
-                        # This mesh face corresponds to this tmpf2glb face
-                        # Put the tmpf2glb map into f2glb at the mesh index(meshfaceind).
-                        # Move the f2glb[:,1,ind] to f2glb[:,2,ind] first if DG (Gness==2)
-                        # Set element2face according to gfi(not mfi)
-                        # Move face2element[1] to face2element[2] and put this one in [1]
-                        if (Gness == 2) f2glb[:, 2, gridfaceind] = f2glb[:, 1, gridfaceind]; end
-                        f2glb[:, 1, gridfaceind] = tmpf2glb;
-                        element2face[gfi, next_index] = gridfaceind;
-                        face2element[2, gridfaceind] = face2element[1, gridfaceind];
-                        face2element[1, gridfaceind] = next_index;
-                        
-                        # Find the normal for every face. The normal points from e1 to e2 or outward for boundary.
-                        # Note that the normal stored in mesh_data could be pointing either way.
-                        thisnormal = normals[:, mfi];
-                        f_center = zeros(dim);
-                        for ni=1:length(tmpf2glb)
-                            f_center += allnodes[:, tmpf2glb[ni]];
-                        end
-                        f_center ./= length(tmpf2glb)
-                        fdotn = sum((f_center-el_center) .* thisnormal);
-                        if fdotn < 0 # normal is pointing in the wrong direction
-                            thisnormal = -thisnormal;
-                        end
-                        facenormals[:, gridfaceind] = thisnormal;
-                        
-                        # Copy boundary info: bdry, bdryface, bdrynorm
-                        mbid = mesh.bdryID[meshfaceind];
-                        gbid = indexin([mbid], bids)[1];
-                        nfacenodes = length(tmpf2glb);
-                        if !(gbid === nothing) && gridfaceind <= owned_faces # This is a boundary face of an owned element
-                            append!(bdry[gbid], tmpf2glb);
-                            push!(bdryfc[gbid], gridfaceind);
-                            facebid[gridfaceind] = gbid;
+                    if !found_face
+                        meshfaceind = meshfaces[mfi];
+                        gridfaceind = mesh2grid_face[meshfaceind]; # the face index in the grid
+                        if gridfaceind > 0 && test_same_face(mesh.nodes[:,mesh.face2vertex[:,meshfaceind]], allnodes[:, tmpf2glb], tol)
+                            found_face = true;
+                            # This mesh face corresponds to this tmpf2glb face
+                            # Put the tmpf2glb map into f2glb at the mesh index(meshfaceind).
+                            # Move the f2glb[:,1,ind] to f2glb[:,2,ind] first if DG (Gness==2)
+                            # Set element2face according to gfi(not mfi)
+                            # Move face2element[1] to face2element[2] and put this one in [1]
+                            if (Gness == 2) f2glb[:, 2, gridfaceind] = f2glb[:, 1, gridfaceind]; end
+                            f2glb[:, 1, gridfaceind] = tmpf2glb;
+                            element2face[gfi, next_index] = gridfaceind;
+                            face2element[2, gridfaceind] = face2element[1, gridfaceind];
+                            face2element[1, gridfaceind] = next_index;
+                            
+                            # Find the normal for every face. The normal points from e1 to e2 or outward for boundary.
+                            # Note that the normal stored in mesh_data could be pointing either way.
                             thisnormal = normals[:, mfi];
-                            normchunk = zeros(config.dimension, nfacenodes);
-                            for ni=1:nfacenodes
-                                normchunk[:,ni] = thisnormal;
+                            f_center = zeros(dim);
+                            for ni=1:length(tmpf2glb)
+                                f_center += allnodes[:, tmpf2glb[ni]];
                             end
-                            bdrynorm[gbid] = hcat(bdrynorm[gbid], normchunk);
+                            f_center ./= length(tmpf2glb)
+                            fdotn = sum((f_center-el_center) .* thisnormal);
+                            if fdotn < 0 # normal is pointing in the wrong direction
+                                thisnormal = -thisnormal;
+                            end
+                            facenormals[:, gridfaceind] = thisnormal;
+                            
+                            # Copy boundary info: bdry, bdryface, bdrynorm
+                            mbid = mesh.bdryID[meshfaceind];
+                            gbid = indexin([mbid], bids)[1];
+                            nfacenodes = length(tmpf2glb);
+                            if !(gbid === nothing) && gridfaceind <= owned_faces # This is a boundary face of an owned element
+                                append!(bdry[gbid], tmpf2glb);
+                                push!(bdryfc[gbid], gridfaceind);
+                                facebid[gridfaceind] = gbid;
+                                thisnormal = normals[:, mfi];
+                                normchunk = zeros(config.dimension, nfacenodes);
+                                for ni=1:nfacenodes
+                                    normchunk[:,ni] = thisnormal;
+                                end
+                                bdrynorm[gbid] = hcat(bdrynorm[gbid], normchunk);
+                            end
                         end
                     end
+                end
+                if !found_face
+                    printerr("couldn't find a match for a face");
                 end
             end
         end
@@ -712,7 +717,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     newbdry = similar(bdry);
     newbdrynorm = similar(bdrynorm);
     for i=1:length(bdry)
-        newbdry[i] = zeros(length(bdry[i]));
+        newbdry[i] = zeros(Int, length(bdry[i]));
         newbdrynorm[i] = zeros(size(bdrynorm[i]));
     end
     
@@ -842,22 +847,25 @@ function partitioned_grid_from_mesh(mesh, epart)
         # Global indices of borrowed nodes need to be determined.
         
         nnodes_with_ghosts = size(allnodes, 2);
-        node_owner_index = fill(config.partition_index, nnodes_with_ghosts); # will be set to lowest partition index that has each node
-        node_shared_flag = zeros(Bool, nnodes_with_ghosts); # When a node is shared by another partition, flag it (1)
+        node_owner_index = fill(config.num_partitions+1, nnodes_with_ghosts); # will be set to lowest partition index that has each node
+        node_shared_flag = fill(false, nnodes_with_ghosts); # When a node is shared by another partition, flag it (1)
         for ei=1:size(loc2glb,2)
             for ni=1:size(loc2glb,1)
                 nid = loc2glb[ni,ei];
+                node_owner_index[nid] = min(node_owner_index[nid], element_owners[ei]);
                 if !(element_owners[ei] == config.partition_index)
                     node_shared_flag[nid] = true;
-                    node_owner_index[nid] = min(node_owner_index[nid], element_owners[ei]);
                 end
             end
         end
         
         # Need to trim the extra nodes off of allnodes and discard ghosts in loc2glb
-        node_keep_flag = zeros(Bool, nnodes_with_ghosts);
+        node_keep_flag = fill(false, nnodes_with_ghosts);
         highest_kept = 0;
         for ei=1:nel # only owned elements
+            if !(element_owners[ei] == config.partition_index)
+                printerr("Ghost element mixed in with owned elements? eid = "*string(ei)*" part = "*string(config.partition_index)*", owner = "*string(element_owners[ei]))
+            end
             for ni=1:size(loc2glb,1)
                 nid = loc2glb[ni,ei];
                 node_keep_flag[nid] = true;
@@ -869,11 +877,15 @@ function partitioned_grid_from_mesh(mesh, epart)
             if !node_keep_flag[ni]
                 printerr("Nodes are out of order while trimming ghosts. discard = "*string(ni)*", highest kept = "*string(highest_kept), fatal=true);
             end
+            if node_owner_index[ni] > config.partition_index
+                printerr("Kept node had owner > part. node = "*string(ni)*" part = "*string(config.partition_index)*", owner = "*string(node_owner_index[ni]));
+            end
         end
         # If that worked, we can safely trim allnodes and loc2glb
         allnodes = allnodes[:,1:highest_kept];
         loc2glb = loc2glb[:,1:nel];
         element_owners = element_owners[1:nel];
+        node_owner_index = node_owner_index[1:highest_kept];
         
         # Count nodes that are owned, shared or borrowed
         nnodes_owned = highest_kept;
@@ -1119,7 +1131,6 @@ function collectBIDs(mesh)
 end
 
 # Removes duplicate nodes and updates local to global maps
-# NOTE: Should maintain relative ordering of the FIRST occurance of nodes.
 function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, depth=5, mincount=50, other2glb=[])
     # defaults
     # depth = 5; # 32768 for 3D
@@ -1152,11 +1163,11 @@ function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, depth=5, mincount=50,
     end
     
     if dim == 1
-        (abins, bin_ends) = partition_nodes_in_bins_1d(nodes, abins, xlim, depth, mincount);
+        (abins, bin_ends, cbin) = partition_nodes_in_bins_1d(nodes, abins, xlim, depth, mincount);
     elseif dim == 2
-        (abins, bin_ends) = partition_nodes_in_bins_2d(nodes, abins, xlim, ylim, depth, mincount);
+        (abins, bin_ends, cbin) = partition_nodes_in_bins_2d(nodes, abins, xlim, ylim, depth, mincount);
     else # dim==3
-        (abins, bin_ends) = partition_nodes_in_bins_3d(nodes, abins, xlim, ylim, zlim, depth, mincount);
+        (abins, bin_ends, cbin) = partition_nodes_in_bins_3d(nodes, abins, xlim, ylim, zlim, depth, mincount);
     end
     
     remove_count = 0;
@@ -1164,16 +1175,83 @@ function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, depth=5, mincount=50,
     # Loop over nodes in bins and put numbers in replace_with where duplicates will be removed.
     for bini = 1:length(bin_ends)
         for ni=startind:bin_ends[bini]
-            for nj=startind:(ni-1)
-                # If node[nj] == node[ni], keep nj, remove ni
-                if is_same_node(nodes[:,abins[ni]], nodes[:,abins[nj]], tol)
-                    remove_count += 1;
-                    replace_with[abins[ni]] = abins[nj];
-                    break;
+            if replace_with[abins[ni]] == 0 # It may have already been handled
+                for nj=startind:(ni-1)
+                    # If node[nj] == node[ni], keep nj, remove ni
+                    if is_same_node(nodes[:,abins[ni]], nodes[:,abins[nj]], tol)
+                        remove_count += 1;
+                        replace_with[abins[ni]] = abins[nj];
+                        break;
+                    end
                 end
             end
         end
         startind = bin_ends[bini] + 1;
+    end
+    # Then check cbin against itself for the rare case of split nodes
+    # Also, cbin could have multiple copies of an index, so remove duplicates there first.
+    unique_cbin = zeros(Int, length(cbin));
+    ucount = 0;
+    for ni=2:length(cbin)
+        unique = true;
+        for nj=1:ni-1
+            if cbin[ni] == cbin[nj]
+                scoper = unique;
+                unique = false;
+                break;
+            end
+        end
+        if unique
+            ucount += 1;
+            unique_cbin[ucount] = cbin[ni];
+        end
+    end
+    cbin = unique_cbin[1:ucount];
+        
+    for ni=2:length(cbin)
+        if replace_with[cbin[ni]] == 0 # It may have already been handled
+            for nj=1:ni-1
+                if is_same_node(nodes[:,cbin[ni]], nodes[:,cbin[nj]], tol)
+                    # make sure I'm not replacing with something replaced by this
+                    if replace_with[cbin[nj]] > 0
+                        tmp = replace_with[cbin[nj]];
+                        cycle_counter = 0;
+                        while replace_with[tmp] > 0 && cycle_counter < 100
+                            tmp = replace_with[tmp];
+                            cycle_counter += 1;
+                        end
+                        if tmp == cbin[ni]
+                            continue; # don't replace i if j is replaced by i...
+                        else
+                            remove_count += 1;
+                            replace_with[cbin[ni]] = tmp;
+                            break;
+                        end
+                    else
+                        remove_count += 1;
+                        replace_with[cbin[ni]] = cbin[nj];
+                        break;
+                    end
+                end
+            end
+        end
+    end
+    # Since cbin could have caused a chain of replacements, check each one
+    for i=1:tmpNnodes
+        if replace_with[i] > 0
+            tmp = replace_with[i];
+            cycle_counter = 0;
+            while replace_with[tmp] > 0 && cycle_counter < 100
+                tmp = replace_with[tmp];
+                cycle_counter += 1;
+            end
+            if cycle_counter == 100 # a cycle was detected, let this one be kept
+                replace_with[i] = 0;
+                remove_count -= 1;
+            else
+                replace_with[i] = tmp;
+            end
+        end
     end
     
     # println(string(length(bin_ends))*" bins: " )
@@ -1235,6 +1313,7 @@ function partition_nodes_in_bins_1d(nodes, abin, xlim, depth, mincount)
     N = length(abin);
     
     bbin = similar(abin); # Temporary storage
+    cbin = zeros(Int, 0); # These are ones too close to the cutoff that will be added to an extra bin
     lcount = 0;
     rcount = 0;
     for i=1:N
@@ -1245,18 +1324,23 @@ function partition_nodes_in_bins_1d(nodes, abin, xlim, depth, mincount)
             rcount += 1;
             bbin[N-rcount+1] = abin[i];
         end
+        if abs(nodes[1,abin[i]] - halfx) < 1e-12
+            push!(cbin, abin[i]);
+        end
     end
     
     # Only recurse if depth and mincount allow
     if depth > 0
         if lcount >= mincount
-            (abin[1:lcount], lbinends) = partition_nodes_in_bins_1d(nodes, bbin[1:lcount], [xlim[1], halfx], depth-1, mincount);
+            (abin[1:lcount], lbinends, lcbin) = partition_nodes_in_bins_1d(nodes, bbin[1:lcount], [xlim[1], halfx], depth-1, mincount);
+            append!(cbin, lcbin);
         else
             abin[1:lcount] = bbin[1:lcount];
             lbinends = [lcount];
         end
         if rcount >= mincount
-            (abin[(lcount+1):N], rbinends) = partition_nodes_in_bins_1d(nodes, bbin[(lcount+1):N], [halfx, xlim[2]], depth-1, mincount);
+            (abin[(lcount+1):N], rbinends, rcbin) = partition_nodes_in_bins_1d(nodes, bbin[(lcount+1):N], [halfx, xlim[2]], depth-1, mincount);
+            append!(cbin, rcbin);
         else
             abin[(lcount+1):N] = bbin[(lcount+1):N];
             rbinends = [rcount];
@@ -1268,7 +1352,7 @@ function partition_nodes_in_bins_1d(nodes, abin, xlim, depth, mincount)
         binends = [lcount, N];
     end
     
-    return (abin, binends);
+    return (abin, binends, cbin);
 end
 
 # recursively subdivide bins of nodes
@@ -1279,6 +1363,7 @@ function partition_nodes_in_bins_2d(nodes, abin, xlim, ylim, depth, mincount)
     
     which_bin = zeros(Int, N) # Which bin will the node go in
     bin_counts = zeros(Int, 4) # How many go in each
+    cbin = zeros(Int, 0); # These are ones too close to the cutoff that will be added to an extra bin
     for i=1:N
         if nodes[1,abin[i]] <= halfx
             if nodes[2,abin[i]] <= halfy
@@ -1297,6 +1382,9 @@ function partition_nodes_in_bins_2d(nodes, abin, xlim, ylim, depth, mincount)
                 bin_counts[4] += 1;
                 which_bin[i] = 4;
             end
+        end
+        if abs(nodes[1,abin[i]] - halfx) < 1e-12 || abs(nodes[2,abin[i]] - halfy) < 1e-12
+            push!(cbin, abin[i]);
         end
     end
     
@@ -1324,12 +1412,13 @@ function partition_nodes_in_bins_2d(nodes, abin, xlim, ylim, depth, mincount)
         binends = [];
         for i=1:4
             if bin_counts[i] >= mincount
-                (abin[starts[i]:ends[i]], tmpbinends) = partition_nodes_in_bins_2d(nodes, bbins[i], xlims[i], ylims[i], depth-1, mincount);
+                (abin[starts[i]:ends[i]], tmpbinends, cbini) = partition_nodes_in_bins_2d(nodes, bbins[i], xlims[i], ylims[i], depth-1, mincount);
                 if i>1
                     append!(binends, tmpbinends .+ ends[i-1]);
                 else
                     binends = tmpbinends;
                 end
+                append!(cbin, cbini);
                 
             else
                 abin[starts[i]:ends[i]] = bbins[i];
@@ -1342,7 +1431,7 @@ function partition_nodes_in_bins_2d(nodes, abin, xlim, ylim, depth, mincount)
         binends = ends;
     end
     
-    return (abin, binends);
+    return (abin, binends, cbin);
 end
 
 # recursively subdivide bins of nodes
@@ -1354,6 +1443,7 @@ function partition_nodes_in_bins_3d(nodes, abin, xlim, ylim, zlim, depth, mincou
     
     which_bin = zeros(Int, N) # Which bin will the node go in
     bin_counts = zeros(Int, 8) # How many go in each
+    cbin = zeros(Int, 0); # These are ones too close to the cutoff that will be added to an extra bin
     for i=1:N
         if nodes[1,abin[i]] <= halfx
             if nodes[2,abin[i]] <= halfy
@@ -1393,6 +1483,9 @@ function partition_nodes_in_bins_3d(nodes, abin, xlim, ylim, zlim, depth, mincou
                 end
             end
         end
+        if abs(nodes[1,abin[i]] - halfx) < 1e-12 || abs(nodes[2,abin[i]] - halfy) < 1e-12 || abs(nodes[3,abin[i]] - halfz) < 1e-12
+            push!(cbin, abin[i]);
+        end
     end
     
     # Make bbin arrays and fill them.
@@ -1424,12 +1517,13 @@ function partition_nodes_in_bins_3d(nodes, abin, xlim, ylim, zlim, depth, mincou
         binends = [];
         for i=1:8
             if bin_counts[i] >= mincount
-                (abin[starts[i]:ends[i]], tmpbinends) = partition_nodes_in_bins_3d(nodes, bbins[i], xlims[i], ylims[i], zlims[i], depth-1, mincount);
+                (abin[starts[i]:ends[i]], tmpbinends, cbini) = partition_nodes_in_bins_3d(nodes, bbins[i], xlims[i], ylims[i], zlims[i], depth-1, mincount);
                 if i>1
                     append!(binends, tmpbinends .+ ends[i-1]);
                 else
                     binends = tmpbinends;
                 end
+                append!(cbin, cbini);
             else
                 abin[starts[i]:ends[i]] = bbins[i];
                 append!(binends, [ends[i]]);
@@ -1441,7 +1535,7 @@ function partition_nodes_in_bins_3d(nodes, abin, xlim, ylim, zlim, depth, mincou
         binends = ends;
     end
     
-    return (abin, binends);
+    return (abin, binends, cbin);
 end
 
 #Extra remove later 
