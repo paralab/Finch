@@ -36,6 +36,9 @@ finch_symbols_to_import = [
     #Specific to FV
     :FVInfo, :fv_info, :FV_cell_to_node, :FV_node_to_cell, :FV_reconstruct_value_left_right,
     :ParentMaps, :parent_maps, :fv_grid, :fv_refel, :fv_geo_factors, :build_local_patch
+    
+    # Packages? should this be done here?
+    :MPI
 ];
 
 macro import_finch_symbols()
