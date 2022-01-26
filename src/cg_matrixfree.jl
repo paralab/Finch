@@ -52,6 +52,7 @@ function solve_matrix_free_sym(var, bilinear, linear, stepper=nothing; assemble_
         # But this will just be zeros
         
         r0 = copy(b); # = b - Ax;
+        r1 = copy(b);
         p = copy(r0);
         
         iter = 0;
@@ -59,21 +60,30 @@ function solve_matrix_free_sym(var, bilinear, linear, stepper=nothing; assemble_
         while iter < maxiters && err > tol
             iter = iter+1;
             
+            # Parts that require the global communication###########
             Ap = elem_matvec(p,bilinear, dofs_per_node, var, 0, 0);
             Ap = gather_system(nothing, Ap, N1, dofs_per_node, b_order, b_sizes, rescatter_b=true);
             
-            alpha = dot(r0,r0) / dot(p,Ap);
+            r0sq = owned_dot(r0,r0,dofs_per_node);
+            pAp = owned_dot(p,Ap,dofs_per_node);
+            tmp = combine_values([r0sq, pAp]); # tmp[1] = dot(r0,r0), tmp[2] = dot(p,Ap)
+            alpha = tmp[1] / tmp[2];
             
-            x = x .+ alpha.*p;
-            r1 = r0 .- alpha.*Ap;
+            for i=1:Nn
+                r1[i] -= alpha * Ap[i]; # r1 = r0 .- alpha.*Ap;
+            end
+            beta = combine_values(owned_dot(r1,r1,dofs_per_node)) / tmp[1];
+            ########################################################
             
-            beta = dot(r1,r1) / dot(r0, r0);
-            p = r1 .+ beta.*p;
+            for i=1:Nn
+                x[i] += alpha * p[i];   # x = x .+ alpha.*p;
+                p[i] = r1[i] + beta * p[i]; # p = r1 .+ beta.*p;
+                r0[i] = r1[i]; # r0 = copy(r1);
+            end
             
-            r0 = copy(r1);
             err = norm(r0, Inf)/normb;
             
-            err = combine_residual(err);
+            err = combine_values(err) / config.num_procs;
             
             if iter%50 == 0
                 log_entry("iteration "*string(iter)*": res = "*string(err));
@@ -236,27 +246,37 @@ function elem_matvec(x, bilinear, dofs_per_node, var, t = 0.0, dt = 0.0)
     
     # Apply Dirichlet boudary conditions
     bidcount = length(grid_data.bids); # the number of BIDs
-    if dofs_per_node > 1
-        if multivar
-            d = 0;
-            for vi=1:length(var)
-                for compo=1:length(var[vi].symvar)
-                    d = d + 1;
-                    for bid=1:bidcount
-                        if prob.bc_type[var[vi].index, bid] == NO_BC
-                            # do nothing
+    if multivar
+        d = 0;
+        for vi=1:length(var)
+            for compo=1:length(var[vi].symvar)
+                d = d + 1;
+                for bid=1:bidcount
+                    if prob.bc_type[var[vi].index, bid] == NO_BC
+                        # do nothing
+                    else
+                        if config.num_partitions > 1
+                            owned_bdry = similar(grid_data.bdry[bid]);
+                            borrowed_bdry = similar(grid_data.bdry[bid]);
+                            next_o_ind=1;
+                            next_b_ind = 1;
+                            for ni=1:length(owned_bdry)
+                                if grid_data.node_owner[grid_data.bdry[bid][ni]] == config.partition_index
+                                    owned_bdry[next_o_ind] = grid_data.bdry[bid][ni];
+                                    next_o_ind += 1;
+                                else
+                                    borrowed_bdry[next_b_ind] = grid_data.bdry[bid][ni];
+                                    next_b_ind += 1;
+                                end
+                            end
+                            owned_bdry = owned_bdry[1:next_o_ind-1];
+                            borrowed_bdry = borrowed_bdry[1:next_b_ind-1];
+                            Ax = zero_bc_matfree(Ax, x, borrowed_bdry, d, dofs_per_node);
                         else
-                            Ax = dirichlet_bc_matfree(Ax, x, grid_data.bdry[bid], d, dofs_per_node);
+                            owned_bdry = grid_data.bdry[bid];
                         end
+                        Ax = dirichlet_bc_matfree(Ax, x, owned_bdry, d, dofs_per_node);
                     end
-                end
-            end
-        else
-            for bid=1:bidcount
-                if prob.bc_type[var.index, bid] == NO_BC
-                    # do nothing
-                else
-                    Ax = dirichlet_bc_matfree(Ax, x, grid_data.bdry[bid], 1:dofs_per_node, dofs_per_node);
                 end
             end
         end
@@ -265,7 +285,27 @@ function elem_matvec(x, bilinear, dofs_per_node, var, t = 0.0, dt = 0.0)
             if prob.bc_type[var.index, bid] == NO_BC
                 # do nothing
             else
-                Ax = dirichlet_bc_matfree(Ax, x, grid_data.bdry[bid]);
+                if config.num_partitions > 1
+                    owned_bdry = similar(grid_data.bdry[bid]);
+                    borrowed_bdry = similar(grid_data.bdry[bid]);
+                    next_o_ind=1;
+                    next_b_ind = 1;
+                    for ni=1:length(owned_bdry)
+                        if grid_data.node_owner[grid_data.bdry[bid][ni]] == config.partition_index
+                            owned_bdry[next_o_ind] = grid_data.bdry[bid][ni];
+                            next_o_ind += 1;
+                        else
+                            borrowed_bdry[next_b_ind] = grid_data.bdry[bid][ni];
+                            next_b_ind += 1;
+                        end
+                    end
+                    owned_bdry = owned_bdry[1:next_o_ind-1];
+                    borrowed_bdry = borrowed_bdry[1:next_b_ind-1];
+                    Ax = zero_bc_matfree(Ax, x, borrowed_bdry, 1:dofs_per_node, dofs_per_node);
+                else
+                    owned_bdry = grid_data.bdry[bid];
+                end
+                Ax = dirichlet_bc_matfree(Ax, x, owned_bdry, 1:dofs_per_node, dofs_per_node);
             end
         end
     end
@@ -307,6 +347,33 @@ function elem_matvec(x, bilinear, dofs_per_node, var, t = 0.0, dt = 0.0)
     return Ax;
 end
 
+# does a dot product, but only adds components corresponding to owned nodes
+function owned_dot(a, b, dofs_per_node)
+    if config.num_partitions > 1
+        val = 0.0;
+        if dofs_per_node > 1
+            for ni=1:size(grid_data.allnodes,2)
+                if grid_data.node_owner[ni] == config.partition_index
+                    offset = (ni-1)*dofs_per_node;
+                    for di=1:dofs_per_node
+                        val += a[offset+di]*b[offset+di];
+                    end
+                end
+            end
+        else
+            for i=1:length(a)
+                if grid_data.node_owner[i] == config.partition_index
+                    val += a[i]*b[i];
+                end
+            end
+        end
+        
+        return val;
+    else
+        return dot(a, b);
+    end
+end
+
 # sets b[bdry] = x[bdry]
 function dirichlet_bc_matfree(b, x, bdryind, dofind=1, totaldofs=1)
     if totaldofs > 1
@@ -316,6 +383,20 @@ function dirichlet_bc_matfree(b, x, bdryind, dofind=1, totaldofs=1)
         end
     else
         b[bdryind] = x[bdryind];
+    end
+    
+    return b;
+end
+
+# sets b[bdry] = 0
+function zero_bc_matfree(b, x, bdryind, dofind=1, totaldofs=1)
+    if totaldofs > 1
+        for d=dofind
+            ind2 = totaldofs.*(bdryind .- 1) .+ d;
+            b[ind2] .= 0;
+        end
+    else
+        b[bdryind] .= 0;
     end
     
     return b;

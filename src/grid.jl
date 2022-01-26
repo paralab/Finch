@@ -1189,24 +1189,7 @@ function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, depth=5, mincount=50,
         startind = bin_ends[bini] + 1;
     end
     # Then check cbin against itself for the rare case of split nodes
-    # Also, cbin could have multiple copies of an index, so remove duplicates there first.
-    unique_cbin = zeros(Int, length(cbin));
-    ucount = 0;
-    for ni=2:length(cbin)
-        unique = true;
-        for nj=1:ni-1
-            if cbin[ni] == cbin[nj]
-                scoper = unique;
-                unique = false;
-                break;
-            end
-        end
-        if unique
-            ucount += 1;
-            unique_cbin[ucount] = cbin[ni];
-        end
-    end
-    cbin = unique_cbin[1:ucount];
+    # println("part "*string(config.partition_index)*" cbin "*string(length(cbin)));
         
     for ni=2:length(cbin)
         if replace_with[cbin[ni]] == 0 # It may have already been handled
@@ -1309,7 +1292,7 @@ end
 
 # recursively subdivide bins of nodes
 function partition_nodes_in_bins_1d(nodes, abin, xlim, depth, mincount)
-    halfx = (xlim[1] + xlim[2])/2;
+    halfx = (xlim[1] + xlim[2])/2 + 1e-11;
     N = length(abin);
     
     bbin = similar(abin); # Temporary storage
@@ -1333,14 +1316,38 @@ function partition_nodes_in_bins_1d(nodes, abin, xlim, depth, mincount)
     if depth > 0
         if lcount >= mincount
             (abin[1:lcount], lbinends, lcbin) = partition_nodes_in_bins_1d(nodes, bbin[1:lcount], [xlim[1], halfx], depth-1, mincount);
-            append!(cbin, lcbin);
+            Ncbin = length(cbin);
+            next_ind = 1;
+            for ci=1:length(cbini)
+                for cj=1:Ncbin
+                    if cbini[ci] == cbin[cj]
+                        break;
+                    elseif cj == Ncbin
+                        cbini[next_ind] = cbini[ci];
+                        next_ind += 1;
+                    end
+                end
+            end
+            append!(cbin, cbini[1:(next_ind-1)]);
         else
             abin[1:lcount] = bbin[1:lcount];
             lbinends = [lcount];
         end
         if rcount >= mincount
             (abin[(lcount+1):N], rbinends, rcbin) = partition_nodes_in_bins_1d(nodes, bbin[(lcount+1):N], [halfx, xlim[2]], depth-1, mincount);
-            append!(cbin, rcbin);
+            Ncbin = length(cbin);
+            next_ind = 1;
+            for ci=1:length(cbini)
+                for cj=1:Ncbin
+                    if cbini[ci] == cbin[cj]
+                        break;
+                    elseif cj == Ncbin
+                        cbini[next_ind] = cbini[ci];
+                        next_ind += 1;
+                    end
+                end
+            end
+            append!(cbin, cbini[1:(next_ind-1)]);
         else
             abin[(lcount+1):N] = bbin[(lcount+1):N];
             rbinends = [rcount];
@@ -1357,8 +1364,8 @@ end
 
 # recursively subdivide bins of nodes
 function partition_nodes_in_bins_2d(nodes, abin, xlim, ylim, depth, mincount)
-    halfx = (xlim[1] + xlim[2])/2;
-    halfy = (ylim[1] + ylim[2])/2;
+    halfx = (xlim[1] + xlim[2])/2 + 1e-11;
+    halfy = (ylim[1] + ylim[2])/2 + 1e-11;
     N = length(abin);
     
     which_bin = zeros(Int, N) # Which bin will the node go in
@@ -1418,7 +1425,19 @@ function partition_nodes_in_bins_2d(nodes, abin, xlim, ylim, depth, mincount)
                 else
                     binends = tmpbinends;
                 end
-                append!(cbin, cbini);
+                Ncbin = length(cbin);
+                next_ind = 1;
+                for ci=1:length(cbini)
+                    for cj=1:Ncbin
+                        if cbini[ci] == cbin[cj]
+                            break;
+                        elseif cj == Ncbin
+                            cbini[next_ind] = cbini[ci];
+                            next_ind += 1;
+                        end
+                    end
+                end
+                append!(cbin, cbini[1:(next_ind-1)]);
                 
             else
                 abin[starts[i]:ends[i]] = bbins[i];
@@ -1436,9 +1455,9 @@ end
 
 # recursively subdivide bins of nodes
 function partition_nodes_in_bins_3d(nodes, abin, xlim, ylim, zlim, depth, mincount)
-    halfx = (xlim[1] + xlim[2])/2;
-    halfy = (ylim[1] + ylim[2])/2;
-    halfz = (zlim[1] + zlim[2])/2;
+    halfx = (xlim[1] + xlim[2])/2 + 1e-11;
+    halfy = (ylim[1] + ylim[2])/2 + 1e-11;
+    halfz = (zlim[1] + zlim[2])/2 + 1e-11;
     N = length(abin);
     
     which_bin = zeros(Int, N) # Which bin will the node go in
@@ -1523,7 +1542,19 @@ function partition_nodes_in_bins_3d(nodes, abin, xlim, ylim, zlim, depth, mincou
                 else
                     binends = tmpbinends;
                 end
-                append!(cbin, cbini);
+                Ncbin = length(cbin);
+                next_ind = 1;
+                for ci=1:length(cbini)
+                    for cj=1:Ncbin
+                        if cbini[ci] == cbin[cj]
+                            break;
+                        elseif cj == Ncbin
+                            cbini[next_ind] = cbini[ci];
+                            next_ind += 1;
+                        end
+                    end
+                end
+                append!(cbin, cbini[1:(next_ind-1)]);
             else
                 abin[starts[i]:ends[i]] = bbins[i];
                 append!(binends, [ends[i]]);

@@ -972,14 +972,29 @@ function distribute_solution(sol, nnodes, dofs_per_node, b_order, b_sizes)
     end
 end
 
-# Simply does a reduction to get the global residual.
-function combine_residual(val)
+# Simply does a reduction.
+# Works for scalar values or vectors, but vectors are not themselves reduced.
+# 1, 2, 3 -> 6
+# [1,10,100], [2,20,200], [3,30,300] -> [6,60,600]
+function combine_values(val; combine_op = +)
     if config.num_procs > 1
-        rval = MPI.Allreduce(val, +, MPI.COMM_WORLD);
+        rval = MPI.Allreduce(val, combine_op, MPI.COMM_WORLD);
         return rval;
         
     else
         return val;
+    end
+end
+
+# This reduces a global vector to one value
+# [1,10,100], [2,20,200], [3,30,300] -> 666
+function reduce_vector(vec::Array)
+    if config.num_procs > 1
+        rval = MPI.Allreduce(sum(vec), +, MPI.COMM_WORLD);
+        return rval;
+        
+    else
+        return sum(vec);
     end
 end
 
