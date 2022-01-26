@@ -891,7 +891,7 @@ function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes; rescatter_
                 MPI.Gatherv!(AV, nothing, 0, MPI.COMM_WORLD);
                 MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
                 
-                return (ones(1,1),[length(b)]);
+                return (ones(1,1),[1]);
             end
             
         else # RHS only\
@@ -926,7 +926,7 @@ function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes; rescatter_
                 if rescatter_b
                     return distribute_solution(nothing, nnodes, dofs_per_node, b_order, b_sizes)
                 else
-                    return [length(b)];
+                    return [1];
                 end
             end
         end
