@@ -132,26 +132,29 @@ function apply_boundary_conditions_lhs_rhs(var, A, b, t)
     for i=1:length(dirichlet_rows)
         b[dirichlet_rows[i]] = dirichlet_vals[i];
     end
-    rows_to_zero = zeros(Int,0);
-    for i=1:length(neumann_nodes)
-        if config.num_partitions > 1 && grid_data.node_owner[neumann_nodes[i]] != config.partition_index
-            b[neumann_rows[i]] = 0;
-            if !rhs_only
-                push!(rows_to_zero, neumann_rows[i]);
+    # For partitioned meshes only
+    if config.num_partitions > 1
+        rows_to_zero = zeros(Int,0);
+        # Zero all entries for boundary nodes that are not owned
+        # Base this on the global boundary flags, not local because of annoying cases
+        for ni=1:length(grid_data.partition2global)
+            if grid_data.global_bdry_index[grid_data.partition2global[ni]] > 0 && grid_data.node_owner[ni] != config.partition_index
+                if dofs_per_node == 1
+                    b[ni] = 0;
+                    push!(rows_to_zero, ni);
+                else
+                    for di=1:dofs_per_node
+                        rowid = (ni-1)*dofs_per_node+di;
+                        b[rowid] = 0;
+                        push!(rows_to_zero, rowid);
+                    end
+                end
             end
         end
-    end
-    for i=1:length(dirichlet_nodes)
-        if config.num_partitions > 1 && grid_data.node_owner[dirichlet_nodes[i]] != config.partition_index
-            # println("part "*string(config.partition_index)*" found bdry node "*string(dirichlet_nodes[i])*"("*string(grid_data.partition2global[dirichlet_nodes[i]])*") belongs to "*string(grid_data.node_owner[dirichlet_nodes[i]]))
-            b[dirichlet_rows[i]] = 0;
-            if !rhs_only
-                push!(rows_to_zero, dirichlet_rows[i]);
-            end
+        
+        if length(rows_to_zero) > 0
+            A = identity_rows(A, rows_to_zero, length(b), diagonal_val=0.0);
         end
-    end
-    if length(rows_to_zero) > 0
-        A = identity_rows(A, rows_to_zero, length(b), diagonal_val=0.0);
     end
     
     # Reference points

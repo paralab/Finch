@@ -988,7 +988,6 @@ function partitioned_grid_from_mesh(mesh, epart)
         end
         
         MPI.Allgatherv!(p_data_out, p_data_in, MPI.COMM_WORLD);
-        MPI.Barrier(MPI.COMM_WORLD);
         
         # Now search for shared coordinates of borrowed nodes and set the global index
         for ni=1:size(allnodes, 2)
@@ -1022,66 +1021,133 @@ function partitioned_grid_from_mesh(mesh, epart)
         
         # Finally, armed with a complete partition2global map, flag each boundary node 
         # so that boundary conditions don't get messed up when gathering the system.
-        if config.proc_rank == 0
-            nbdrynodes = 0;
-            for bi=1:length(bids)
-                nbdrynodes += length(bdry[bi]);
+        nbdrynodes = 0;
+        for bi=1:length(bids)
+            nbdrynodes += length(bdry[bi]);
+        end
+        bidmap = zeros(Int, 2, nbdrynodes);
+        next_ind = 1;
+        for bi=1:length(bids)
+            for ni=1:length(bdry[bi])
+                bidmap[1,next_ind] = partition2global[bdry[bi][ni]];
+                bidmap[2,next_ind] = bi;
+                next_ind += 1;
             end
-            bidmap = zeros(Int, 2, nbdrynodes);
-            next_ind = 1;
-            for bi=1:length(bids)
-                for ni=1:length(bdry[bi])
-                    bidmap[1,next_ind] = partition2global[bdry[bi][ni]];
-                    bidmap[2,next_ind] = bi;
-                    next_ind += 1;
+        end
+        
+        # gather the numbers of bdry nodes
+        p_data = zeros(Int, config.num_procs);
+        p_data_in = MPI.UBuffer(p_data, 1, config.num_procs, MPI.Datatype(Int));
+        p_data_out = [nbdrynodes * 2];
+        MPI.Allgather!(p_data_out, p_data_in, 0, MPI.COMM_WORLD);
+        
+        # gather the bidmaps
+        chunk_sizes = p_data;
+        displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+        d = 0;
+        for proc_i=1:config.num_procs
+            displacements[proc_i] = d;
+            d += p_data[proc_i];
+        end
+        p_data = zeros(Int, d);
+        p_data_in = MPI.VBuffer(p_data, chunk_sizes, displacements, MPI.Datatype(Int));
+        p_data_out = bidmap[:];
+        
+        MPI.Allgatherv!(p_data_out, p_data_in, 0, MPI.COMM_WORLD);
+        
+        global_bdry_flag = zeros(Int8, nnodes_global);
+        for ni=1:2:d
+            global_bdry_flag[p_data[ni]] = max(global_bdry_flag[p_data[ni]], p_data[ni+1]); # keep highest values
+        end
+        
+        # There is a chance that a partition owns a boundary node without owning an 
+        # adjoining boundary face.
+        bdry_adjustment = zeros(Int,0);
+        for ni=1:length(partition2global)
+            if global_bdry_flag[partition2global[ni]] > 0
+                # make sure it is in bdry
+                foundit = false;
+                for bi=1:length(bdry)
+                    for bni=1:length(bdry[bi])
+                        if bdry[bi][bni] == ni
+                            scoper = foundit;
+                            foundit = true;
+                            break;
+                        end
+                    end
+                    if foundit
+                        break;
+                    end
+                end
+                
+                if !foundit
+                    log_entry("Part "*string(config.partition_index)*" has a boundary node without adjoining boundary face!");
+                    # Figure out who owns a boundary face with this node and grant it unto them.
+                    for proc_i=1:config.num_procs
+                        for pni=(displacements[proc_i]+1):(displacements[proc_i]+chunk_sizes[proc_i]-1)
+                            if p_data[pni] == partition2global[ni]
+                                # Found a proc that knows this boundary
+                                push!(bdry_adjustment, proc2partition[proc_i]); # The partition to give it to
+                                push!(bdry_adjustment, partition2global[ni]);   # The global index to give
+                                scoper = foundit;
+                                foundit = true;
+                                break;
+                            end
+                        end
+                        if foundit
+                            break;
+                        end
+                    end
+                    if foundit
+                        # change node owner
+                        node_owner_index[ni] = bdry_adjustment[end-1];
+                        nnodes_shared -= 1;
+                        nnodes_borrowed += 1;
+                    end
                 end
             end
-            
-            # gather the numbers of bdry nodes
-            p_data = zeros(Int, config.num_procs);
-            p_data_in = MPI.UBuffer(p_data, 1, config.num_procs, MPI.Datatype(Int));
-            p_data_out = [nbdrynodes * 2];
-            MPI.Gather!(p_data_out, p_data_in, 0, MPI.COMM_WORLD);
-            
-            # gather the bidmaps
-            chunk_sizes = p_data;
-            displacements = zeros(Int, config.num_procs); # for the irregular gatherv
-            d = 0;
-            for proc_i=1:config.num_procs
-                displacements[proc_i] = d;
-                d += p_data[proc_i];
-            end
-            p_data = zeros(Int, d);
-            p_data_in = MPI.VBuffer(p_data, chunk_sizes, displacements, MPI.Datatype(Float64));
-            p_data_out = bidmap[:];
-            
-            MPI.Gatherv!(p_data_out, p_data_in, 0, MPI.COMM_WORLD);
-            
-            global_bdry_flag = zeros(Int8, nnodes_global);
-            for ni=1:2:d
-                global_bdry_flag[p_data[ni]] = p_data[ni+1];
-            end
-            
-        else
-            global_bdry_flag = zeros(Int8, 0);
-            # send a mapping of global indices and bid index
-            nbdrynodes = 0;
-            for bi=1:length(bids)
-                nbdrynodes += length(bdry[bi]);
-            end
-            bidmap = zeros(Int, 2, nbdrynodes);
-            next_ind = 1;
-            for bi=1:length(bids)
-                for ni=1:length(bdry[bi])
-                    bidmap[1,next_ind] = partition2global[bdry[bi][ni]];
-                    bidmap[2,next_ind] = bi;
-                    next_ind += 1;
+        end
+        
+        # Share bdry_adjustment and change owners as needed
+        # gather the numbers of adjusted nodes
+        p_data = zeros(Int, config.num_procs);
+        p_data_in = MPI.UBuffer(p_data, 1, config.num_procs, MPI.Datatype(Int));
+        p_data_out = [length(bdry_adjustment)];
+        MPI.Allgather!(p_data_out, p_data_in, 0, MPI.COMM_WORLD);
+        
+        # gather the adjustments
+        chunk_sizes = p_data;
+        displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+        d = 0;
+        for proc_i=1:config.num_procs
+            displacements[proc_i] = d;
+            d += p_data[proc_i];
+        end
+        p_data = zeros(Int, d);
+        p_data_in = MPI.VBuffer(p_data, chunk_sizes, displacements, MPI.Datatype(Int));
+        p_data_out = bdry_adjustment;
+        
+        MPI.Allgatherv!(p_data_out, p_data_in, 0, MPI.COMM_WORLD);
+        
+        for i=1:2:d
+            if p_data[ni] == config.partition_index
+                # This node was given unto me
+                # Find the local index and change owner
+                setit = false;
+                for ni=1:length(partition2global)
+                    if partition2global[ni] == p_data[ni+1] && node_owner_index[ni] != config.partition_index
+                        node_owner_index[ni] = config.partition_index;
+                        nnodes_shared += 1;
+                        nnodes_borrowed -= 1;
+                        scoper = setit;
+                        setit = true;
+                        break;
+                    end
+                end
+                if !setit
+                    #printerr("Problem with adjusting boundary nodes. Couldn't find one that was given to me.")
                 end
             end
-            
-            MPI.Gather!([nbdrynodes*2], nothing, 0, MPI.COMM_WORLD);
-            
-            MPI.Gatherv!(bidmap[:], nothing, 0, MPI.COMM_WORLD);
         end
         
     end#### FE ONLY ####
