@@ -903,7 +903,7 @@ function partitioned_grid_from_mesh(mesh, epart)
         end
         
         # The ultimate goal
-        partition2global = zeros(highest_kept); # zero means it hasn't been determined yet
+        partition2global = zeros(Int, highest_kept); # zero means it hasn't been determined yet
         
         # Have all processes gather their [partition index, nodes_owned, nodes_shared, nodes_borrowed].
         p_data = zeros(Int, config.num_procs * 4);
