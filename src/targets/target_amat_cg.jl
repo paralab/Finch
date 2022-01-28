@@ -1860,10 +1860,13 @@ finch::Mesh::Mesh(){
     nel_ghost = 0UL;
     nface_owned = 0UL;
     nface_ghost = 0UL;
-    nnodes_shared = 0UL;
+    nnodes_global = 0UL;
+    nnodes_borrowed = 0UL;
     element_owner = nullptr;
+    node_owner = nullptr;
     partition2global_e = nullptr;
     partition2global_n = nullptr;
+    global_bdry_index = nullptr;
     num_neighbor_partitions = 0;
     neighboring_partitions = nullptr;
     ghost_counts = nullptr;
@@ -1917,8 +1920,10 @@ finch::Mesh::~Mesh(){
     if(num_neighbor_partitions > 0){
         
         delete [] partition2global_e;
-        if(nnodes_shared > 0){// FE only
+        if(nnodes_borrowed > 0){// FE only
             delete [] partition2global_n;
+            delete [] node_owner;
+            delete [] global_bdry_index;
         }
         if(nel_ghost > 0){// FV only
             delete [] element_owner;
@@ -2156,7 +2161,9 @@ void finch::Mesh::import_mesh(std::string filename, int num_partitions, int my_p
         read_check(file.read(in8, 8));
         nface_ghost = ((int64_t*)in8)[0];
         read_check(file.read(in8, 8));
-        nnodes_shared = ((int64_t*)in8)[0];
+        nnodes_global = ((uint64_t*)in8)[0];
+        read_check(file.read(in8, 8));
+        nnodes_borrowed = ((int64_t*)in8)[0];
         
         read_check(file.read((char*)&count, 8));
         read_check(file.read((char*)&size, 8));
@@ -2168,6 +2175,16 @@ void finch::Mesh::import_mesh(std::string filename, int num_partitions, int my_p
             read_check(file.read((char*)&size, 8));
             partition2global_n = new unsigned long[nnodes_local];
             read_check(file.read((char*)partition2global_n, count*size));
+            
+            read_check(file.read((char*)&count, 8));
+            read_check(file.read((char*)&size, 8));
+            node_owner = new unsigned long[nnodes_local];
+            read_check(file.read((char*)node_owner, count*size));
+            
+            read_check(file.read((char*)&count, 8));
+            read_check(file.read((char*)&size, 8));
+            global_bdry_index = new int8_t[nnodes_global];
+            read_check(file.read((char*)global_bdry_index, count*size));
         }
         
         if(nel_ghost > 0){// FV only
@@ -2230,7 +2247,7 @@ void finch::Mesh::display(int until){
     display_array(allnodes, dimension, maxnode);
     std::cout << "element partition2global: \\n";
     display_array(partition2global_e, maxel, 1);
-    std::cout << "nnodes_shared: " << nnodes_shared << "\\n";
+    std::cout << "nnodes_borrowed: " << nnodes_borrowed << "\\n";
     std::cout << "node partition2global: \\n";
     display_array(partition2global_n, maxnode, 1);
     
@@ -2725,10 +2742,13 @@ namespace finch{
         unsigned long nel_ghost;        // Number of ghost elements
         unsigned long nface_owned;      // Number of faces owned by this partition
         unsigned long nface_ghost;      // Number of ghost faces that are not owned
-        unsigned long nnodes_shared;    // Number of nodes shared with other partitions that are not owned by this one.
-        unsigned long  *element_owner;   // The rank of each ghost element's owner or -1 if locally owned
+        unsigned long nnodes_global;    // Number of global nodes
+        unsigned long nnodes_borrowed;  // Number of nodes shared with other partitions that are not owned by this one.
+        unsigned long  *element_owner;  // The partition of each ghost element's owner or -1 if locally owned
+        unsigned long  *node_owner;     // The partition of each ghost node's owner
         unsigned long *partition2global_e;// Map from partition elements to global mesh element index
         unsigned long *partition2global_n;// Map from partition nodes to global node index
+        int8_t        *global_bdry_index;// boundary ID for all Global nodes 
         unsigned long  num_neighbor_partitions;// number of partitions that share ghosts with this.
         unsigned long  *neighboring_partitions;// IDs of neighboring partitions
         unsigned long  *ghost_counts;          // How many ghosts for each neighbor

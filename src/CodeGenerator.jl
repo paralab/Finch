@@ -228,11 +228,14 @@ function write_grid_to_file(file, grid)
     write(file, grid.nel_ghost);
     write(file, grid.nface_owned);
     write(file, grid.nface_ghost);
-    write(file, grid.nnodes_shared);
+    write(file, grid.nnodes_global);
+    write(file, grid.nnodes_borrowed);
     write_binary_array(file, grid.grid2mesh, true);
     
     if grid.nel_ghost == 0 # FE only
         write_binary_array(file, grid.partition2global, true);
+        write_binary_array(file, grid.node_owner, true);
+        write_binary_array(file, grid.global_bdry_index, true);
     end
     
     if grid.nel_ghost > 0 # FV only
