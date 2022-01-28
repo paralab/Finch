@@ -110,6 +110,8 @@ if @isdefined(MPI)
     end
 end
 
+using PETSc
+
 ######################
 
 # include these first

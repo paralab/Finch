@@ -189,8 +189,9 @@ function set_codegen_parameters(params)
 end
 
 # Set the solver module and type
-function set_solver(stype)
+function set_solver(stype, backend)
     config.solver_type = stype;
+    config.linalg_backend = backend;
     if stype == DG
         global solver = DGSolver;
     elseif stype == CG
@@ -201,6 +202,21 @@ function set_solver(stype)
         add_custom_op_file(string(sourcedir)*"/fv_ops.jl");
     end
     solver.init_solver();
+    
+    if backend == PETSC_SOLVER
+        # Initialize using the first available library.
+        # This should have been set up beforehand.
+        if length(petsclibs) == 0
+            printerr(
+"No PETSc library found. Please build PETSc first.
+If you have a preferred PETSc library or the one supplied with PETSc.jl
+is causing trouble, do this:
+\$ export JULIA_PETSC_LIBRARY=/path/to/your/petsc_lib.so
+julia> ]build PETSc", fatal=true);
+        end
+        petsclib = PETSc.petsclibs[1];
+        PETSc.initialize(petsclib)
+    end
 end
 
 # Sets the time stepper

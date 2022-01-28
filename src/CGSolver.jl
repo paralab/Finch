@@ -117,7 +117,7 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                                             b = gather_system(nothing, b, N1, dofs_per_node, b_order, b_sizes);
                                         end
                         
-                        linsolve_t += @elapsed(sol = distribute_solution( A\b , N1, dofs_per_node, b_order, b_sizes));
+                        linsolve_t += @elapsed(sol = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node, b_order, b_sizes));
                         
                         # At this point sol holds the boundary values
                         # directly write them to the variable values and zero sol.
@@ -181,7 +181,7 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                                             b = gather_system(nothing, b, N1, dofs_per_node, b_order, b_sizes);
                                         end
                         
-                        linsolve_t += @elapsed(tmpki[:,stage] = distribute_solution( A\b , N1, dofs_per_node, b_order, b_sizes));
+                        linsolve_t += @elapsed(tmpki[:,stage] = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node, b_order, b_sizes));
                         
                         # At this point tmpki[:,stage] holds the boundary values
                         # directly write them to the variable values and zero sol.
@@ -203,7 +203,7 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                                             b = gather_system(nothing, b, N1, dofs_per_node, b_order, b_sizes);
                                         end
                 
-                linsolve_t += @elapsed(tmpvec = distribute_solution( A\b , N1, dofs_per_node, b_order, b_sizes));
+                linsolve_t += @elapsed(tmpvec = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node, b_order, b_sizes));
                 
                 # At this point tmpvec holds the boundary values
                 # directly write them to the variable values and zero sol.
@@ -223,7 +223,7 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                                             b = gather_system(nothing, b, N1, dofs_per_node, b_order, b_sizes);
                                         end
                 
-                linsolve_t += @elapsed(tmpvec = distribute_solution( A\b , N1, dofs_per_node, b_order, b_sizes));
+                linsolve_t += @elapsed(tmpvec = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node, b_order, b_sizes));
                 
                 # At this point tmpvec holds the boundary values
                 # directly write them to the variable values and zero sol.
@@ -242,7 +242,7 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                                             b = gather_system(nothing, b, N1, dofs_per_node, b_order, b_sizes);
                                         end
                 
-                linsolve_t += @elapsed(tmpvec = distribute_solution( A\b , N1, dofs_per_node, b_order, b_sizes));
+                linsolve_t += @elapsed(tmpvec = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node, b_order, b_sizes));
                 
                 # At this point tmpvec holds the boundary values
                 # directly write them to the variable values and zero sol.
@@ -261,7 +261,7 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
                                             b = gather_system(nothing, b, N1, dofs_per_node, b_order, b_sizes);
                                         end
                 
-                linsolve_t += @elapsed(sol = distribute_solution( A\b , N1, dofs_per_node, b_order, b_sizes));
+                linsolve_t += @elapsed(sol = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node, b_order, b_sizes));
                 
                 place_sol_in_vars(var, sol, stepper);
                 post_step_function();
@@ -301,7 +301,7 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
         # uncomment to look at A
         # global Amat = A;
         
-        sol_t = @elapsed(sol = distribute_solution( A\b , N1, dofs_per_node, b_order, b_sizes));
+        sol_t = @elapsed(sol = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node, b_order, b_sizes));
         
         log_entry("Assembly took "*string(assemble_t)*" seconds");
         log_entry("Linear solve took "*string(sol_t)*" seconds");
@@ -995,6 +995,40 @@ function reduce_vector(vec::Array)
         
     else
         return sum(vec);
+    end
+end
+
+################################################################
+## Options for solving the assembled linear system
+################################################################
+function linear_system_solve(A,b)
+    if config.linalg_backend == DEFAULT_SOLVER
+        return A\b;
+    elseif config.linalg_backend == PETSC_SOLVER
+        # For now try this simple setup.
+        # There will be many options that need to be available to the user. TODO
+        # The matrix should really be constructed from the begninning as a PETSc one. TODO
+        
+        petsclib = PETSc.petsclibs[1]           #
+        inttype = PETSc.inttype(petsclib);      # These should maybe be kept in config
+        scalartype = PETSc.scalartype(petsclib);#
+        
+        (I, J, V) = findnz(A);
+        (n,n) = size(A);
+        nnz = zeros(inttype, n); # number of non-zeros per row
+        for i=1:length(I)
+            nnz[I[i]] += 1;
+        end
+        
+        petscA = PETSc.MatSeqAIJ{scalartype}(n,n,nnz);
+        for i=1:length(I)
+            petscA[I[i],J[i]] = V[i];
+        end
+        PETSc.assemble(petscA);
+        
+        ksp = PETSc.KSP(petscA; ksp_rtol=1e-8, pc_type="jacobi", ksp_monitor=false); # Options should be available to user
+        
+        return ksp\b;
     end
 end
 

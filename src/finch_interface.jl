@@ -62,8 +62,8 @@ function domain(dims; shape=SQUARE, grid=UNIFORM_GRID)
     config.mesh_type = grid;
 end
 
-function solverType(type)
-    set_solver(type);
+function solverType(type; backend=DEFAULT_SOLVER)
+    set_solver(type, backend);
 end
 
 function functionSpace(;space=LEGENDRE, order=0, orderMin=0, orderMax=0)

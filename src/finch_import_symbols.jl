@@ -10,7 +10,7 @@ finch_symbols_to_import = [
     :NODAL, :MODAL, :CELL, :LEGENDRE, :UNIFORM, :GAUSS, :LOBATTO, 
     :NONLINEAR_NEWTON, :NONLINEAR_SOMETHING, 
     :EULER_EXPLICIT, :EULER_IMPLICIT, :CRANK_NICHOLSON, :RK4, :LSRK4, :PECE, 
-    :DEFAULT_SOLVER, :PETSC, 
+    :DEFAULT_SOLVER, :PETSC_SOLVER, 
     :VTK, :RAW_OUTPUT, :CUSTOM_OUTPUT, 
     :DIRICHLET, :NEUMANN, :ROBIN, :NO_BC, :FLUX, :SYMMETRIC,
     :MSH_V2, :MSH_V4,
@@ -38,7 +38,7 @@ finch_symbols_to_import = [
     :ParentMaps, :parent_maps, :fv_grid, :fv_refel, :fv_geo_factors, :build_local_patch,
     
     # Packages? should this be done here?
-    :MPI
+    :MPI, :PETSc
 ];
 
 macro import_finch_symbols()
