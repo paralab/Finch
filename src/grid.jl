@@ -1039,7 +1039,7 @@ function partitioned_grid_from_mesh(mesh, epart)
         p_data = zeros(Int, config.num_procs);
         p_data_in = MPI.UBuffer(p_data, 1, config.num_procs, MPI.Datatype(Int));
         p_data_out = [nbdrynodes * 2];
-        MPI.Allgather!(p_data_out, p_data_in, 0, MPI.COMM_WORLD);
+        MPI.Allgather!(p_data_out, p_data_in, MPI.COMM_WORLD);
         
         # gather the bidmaps
         chunk_sizes = p_data;
@@ -1053,7 +1053,7 @@ function partitioned_grid_from_mesh(mesh, epart)
         p_data_in = MPI.VBuffer(p_data, chunk_sizes, displacements, MPI.Datatype(Int));
         p_data_out = bidmap[:];
         
-        MPI.Allgatherv!(p_data_out, p_data_in, 0, MPI.COMM_WORLD);
+        MPI.Allgatherv!(p_data_out, p_data_in, MPI.COMM_WORLD);
         
         global_bdry_flag = zeros(Int8, nnodes_global);
         for ni=1:2:d
@@ -1113,7 +1113,7 @@ function partitioned_grid_from_mesh(mesh, epart)
         p_data = zeros(Int, config.num_procs);
         p_data_in = MPI.UBuffer(p_data, 1, config.num_procs, MPI.Datatype(Int));
         p_data_out = [length(bdry_adjustment)];
-        MPI.Allgather!(p_data_out, p_data_in, 0, MPI.COMM_WORLD);
+        MPI.Allgather!(p_data_out, p_data_in, MPI.COMM_WORLD);
         
         # gather the adjustments
         chunk_sizes = p_data;
@@ -1127,7 +1127,7 @@ function partitioned_grid_from_mesh(mesh, epart)
         p_data_in = MPI.VBuffer(p_data, chunk_sizes, displacements, MPI.Datatype(Int));
         p_data_out = bdry_adjustment;
         
-        MPI.Allgatherv!(p_data_out, p_data_in, 0, MPI.COMM_WORLD);
+        MPI.Allgatherv!(p_data_out, p_data_in, MPI.COMM_WORLD);
         
         for i=1:2:d
             if p_data[ni] == config.partition_index
