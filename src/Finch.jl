@@ -206,7 +206,7 @@ function set_solver(stype, backend)
     if backend == PETSC_SOLVER
         # Initialize using the first available library.
         # This should have been set up beforehand.
-        if length(petsclibs) == 0
+        if length(PETSc.petsclibs) == 0
             printerr(
 "No PETSc library found. Please build PETSc first.
 If you have a preferred PETSc library or the one supplied with PETSc.jl
