@@ -1002,6 +1002,11 @@ end
 ## Options for solving the assembled linear system
 ################################################################
 function linear_system_solve(A,b)
+    if config.num_procs > 1 && config.proc_rank > 0
+        # Other procs don't have the full A, just return b
+        return b;
+    end
+    
     if config.linalg_backend == DEFAULT_SOLVER
         return A\b;
     elseif config.linalg_backend == PETSC_SOLVER
