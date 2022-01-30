@@ -152,7 +152,7 @@ function apply_boundary_conditions_lhs_rhs(var, A, b, t)
             end
         end
         
-        if length(rows_to_zero) > 0
+        if !rhs_only && length(rows_to_zero) > 0
             A = identity_rows(A, rows_to_zero, length(b), diagonal_val=0.0);
         end
     end
