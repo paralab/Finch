@@ -5,11 +5,12 @@ module CGSolver
 
 export solve, nonlinear_solve
 
+using LinearAlgebra, SparseArrays, CUDA
+
 # See finch_import_symbols.jl for a list of all imported symbols.
 import ..Finch: @import_finch_symbols
 @import_finch_symbols()
 
-using LinearAlgebra, SparseArrays
 
 include("fe_boundary.jl");
 include("nonlinear.jl")
@@ -1034,6 +1035,12 @@ function linear_system_solve(A,b)
         ksp = PETSc.KSP(petscA; ksp_rtol=1e-8, pc_type="jacobi", ksp_monitor=false); # Options should be available to user
         
         return ksp\b;
+    elseif config.linalg_backend == CUDA_SOLVER
+        elty = typeof(b[1])
+        x = zeros(elty ,length(b))
+        tol = convert(real(elty),1e-6)
+        x = CUDA.CUSOLVER.csrlsvlu!(A, b, x, tol ,one(Cint),'O')
+        return x
     end
 end
 
