@@ -62,12 +62,28 @@ end
 # Create all of the code files.
 # The input are code strings generated above. They will be inserted into their appropriate files.
 function generate_external_files(var, lhs_vol, lhs_surf, rhs_vol, rhs_surf)
+    if codegen_params === nothing || length(codegen_params) < 7
+        #=
+        # true or false for ON/OFF
+        option(VECTORIZED_AVX512 "vectorization using AVX-512" OFF)
+        option(VECTORIZED_AVX256 "vectorization using AVX-256" OFF)
+        option(VECTORIZED_OPENMP "vectorization using OpenMP SIMD" OFF)
+        option(VECTORIZED_OPENMP_ALIGNED "vectorization using OpenMP SIMD with aligned memory" OFF)
+        option(HYBRID_PARALLEL "hybrid parallelism OpenMP and MPI" ON)
+        option(USE_GPU "use GPU for matvec" OFF)
+        option(USE_BLAS_MATVEC "use MKL BLAS for matvec" OFF)
+        =#
+        params=(false, false, false, false, true, false, false);
+    else
+        params = codegen_params;
+    end
+    
     # If multiple procs, only rank 0 does this
     if config.num_procs == 1 || config.proc_rank == 0
         # Write the static files (see the end of this file)
         amat_write_static_files();
         # Build and info files
-        amat_build_files();
+        amat_build_files(codegen_params);
         
         # The generated code
         amat_main_file(var);
@@ -1126,9 +1142,11 @@ vtufile.close();
 end
 
 # Writes files to build the project and a readme.
-function amat_build_files()
+function amat_build_files(params)
     cmakefile = add_generated_file("CMakeLists.txt", make_header_text=false);
     readmefile = add_generated_file("readme.txt", make_header_text=false);
+    
+    param_val = Dict(true=>"ON", false=>"OFF");
     
     content = 
 """    
@@ -1211,14 +1229,13 @@ add_definitions(-DMAGMA_WITH_MKL)
 # cmake options, which will be visible at ccmake ../
 option(BUILD_WITH_PETSC "Build code with the petsc" ON)
 option(AMAT_PROFILER "turn on the amat profiler counters" OFF)
-option(VECTORIZED_AVX512 "vectorization using AVX-512" OFF)
-option(VECTORIZED_AVX256 "vectorization using AVX-256" OFF)
-option(VECTORIZED_OPENMP "vectorization using OpenMP SIMD" OFF)
-option(VECTORIZED_OPENMP_ALIGNED "vectorization using OpenMP SIMD with aligned memory" OFF)
-
-option(HYBRID_PARALLEL "hybrid parallelism OpenMP and MPI" ON)
-option(USE_GPU "use GPU for matvec" OFF)
-option(USE_BLAS_MATVEC "use MKL BLAS for matvec" OFF)
+option(VECTORIZED_AVX512 "vectorization using AVX-512" """*param_val[params[1]]*""")
+option(VECTORIZED_AVX256 "vectorization using AVX-256" """*param_val[params[2]]*""")
+option(VECTORIZED_OPENMP "vectorization using OpenMP SIMD" """*param_val[params[3]]*""")
+option(VECTORIZED_OPENMP_ALIGNED "vectorization using OpenMP SIMD with aligned memory" """*param_val[params[4]]*""")
+option(HYBRID_PARALLEL "hybrid parallelism OpenMP and MPI" """*param_val[params[5]]*""")
+option(USE_GPU "use GPU for matvec" """*param_val[params[6]]*""")
+option(USE_BLAS_MATVEC "use MKL BLAS for matvec" """*param_val[params[7]]*""")
 
 # if BUILD_WITH_PETSC ON , #define BUILD_WITH_PETSC
 if(BUILD_WITH_PETSC)
