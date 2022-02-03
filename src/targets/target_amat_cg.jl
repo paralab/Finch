@@ -545,7 +545,7 @@ int main(int argc, char* argv[]) {
     }
     
     // create rhs, solution and exact solution vectors
-    Vec rhs, solution, sol_exact;
+    Vec rhs, solution;
     par::create_vec(meshMaps, rhs);
     par::create_vec(meshMaps, solution);
     
@@ -1860,7 +1860,6 @@ finch::Mesh::Mesh(){
     nel_ghost = 0UL;
     nface_owned = 0UL;
     nface_ghost = 0UL;
-    nnodes_global = 0UL;
     nnodes_borrowed = 0UL;
     element_owner = nullptr;
     node_owner = nullptr;
@@ -2742,7 +2741,6 @@ namespace finch{
         unsigned long nel_ghost;        // Number of ghost elements
         unsigned long nface_owned;      // Number of faces owned by this partition
         unsigned long nface_ghost;      // Number of ghost faces that are not owned
-        unsigned long nnodes_global;    // Number of global nodes
         unsigned long nnodes_borrowed;  // Number of nodes shared with other partitions that are not owned by this one.
         unsigned long  *element_owner;  // The partition of each ghost element's owner or -1 if locally owned
         unsigned long  *node_owner;     // The partition of each ghost node's owner

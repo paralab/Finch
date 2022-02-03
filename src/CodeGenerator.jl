@@ -261,20 +261,20 @@ function write_refel_to_file(file, refel)
     write_binary_array(file, refel.wr, true);
     write_binary_array(file, refel.g, true);
     write_binary_array(file, refel.wg, true);
-    write_binary_array(file, refel.V, true);
-    write_binary_array(file, refel.gradV, true);
-    write_binary_array(file, refel.invV, true);
-    write_binary_array(file, refel.Vg, true);
-    write_binary_array(file, refel.gradVg, true);
-    write_binary_array(file, refel.invVg, true);
+    write_binary_array(file, Array(transpose(refel.V)), true); ### These need to be transposed  for row-major -> col-major
+    write_binary_array(file, Array(transpose(refel.gradV)), true);
+    write_binary_array(file, Array(transpose(refel.invV)), true);
+    write_binary_array(file, Array(transpose(refel.Vg)), true);
+    write_binary_array(file, Array(transpose(refel.gradVg)), true);
+    write_binary_array(file, Array(transpose(refel.invVg)), true);
     # quadrature matrices
-    write_binary_array(file, refel.Q, true);
-    write_binary_array(file, refel.Qr, true);
-    write_binary_array(file, refel.Qs, true);
-    write_binary_array(file, refel.Qt, true);
-    write_binary_array(file, refel.Ddr, true);
-    write_binary_array(file, refel.Dds, true);
-    write_binary_array(file, refel.Ddt, true);
+    write_binary_array(file, Array(transpose(refel.Q)), true);
+    write_binary_array(file, Array(transpose(refel.Qr)), true);
+    write_binary_array(file, Array(transpose(refel.Qs)), true);
+    write_binary_array(file, Array(transpose(refel.Qt)), true);
+    write_binary_array(file, Array(transpose(refel.Ddr)), true);
+    write_binary_array(file, Array(transpose(refel.Dds)), true);
+    write_binary_array(file, Array(transpose(refel.Ddt)), true);
     
     # surface versions
     write_binary_array(file, refel.face2local, true);
@@ -282,18 +282,18 @@ function write_refel_to_file(file, refel)
     write_binary_array(file, refel.surf_wr, true);
     write_binary_array(file, refel.surf_g, true);
     write_binary_array(file, refel.surf_wg, true);
-    write_binary_array(file, refel.surf_V, true);
-    write_binary_array(file, refel.surf_gradV, true);
-    write_binary_array(file, refel.surf_Vg, true);
-    write_binary_array(file, refel.surf_gradVg, true);
+    write_binary_array(file, Array(transpose(refel.surf_V)), true);
+    write_binary_array(file, Array(transpose(refel.surf_gradV)), true);
+    write_binary_array(file, Array(transpose(refel.surf_Vg)), true);
+    write_binary_array(file, Array(transpose(refel.surf_gradVg)), true);
     
-    write_binary_array(file, refel.surf_Q, true);
-    write_binary_array(file, refel.surf_Qr, true);
-    write_binary_array(file, refel.surf_Qs, true);
-    write_binary_array(file, refel.surf_Qt, true);
-    write_binary_array(file, refel.surf_Ddr, true);
-    write_binary_array(file, refel.surf_Dds, true);
-    write_binary_array(file, refel.surf_Ddt, true);
+    write_binary_array(file, Array(transpose(refel.surf_Q)), true);
+    write_binary_array(file, Array(transpose(refel.surf_Qr)), true);
+    write_binary_array(file, Array(transpose(refel.surf_Qs)), true);
+    write_binary_array(file, Array(transpose(refel.surf_Qt)), true);
+    write_binary_array(file, Array(transpose(refel.surf_Ddr)), true);
+    write_binary_array(file, Array(transpose(refel.surf_Dds)), true);
+    write_binary_array(file, Array(transpose(refel.surf_Ddt)), true);
 end
 
 # Write the geometric factors to a binary file intended to be imported in C++
