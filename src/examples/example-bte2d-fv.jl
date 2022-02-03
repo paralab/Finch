@@ -1,11 +1,7 @@
 #=
 This will gradually evolve into working BTE code.
 =#
-
-if !@isdefined(Finch)
-    include("../Finch.jl");
-    using .Finch
-end
+using Finch
 
 # constants and various functions are in another file
 include("bte-parameters.jl")
@@ -78,9 +74,10 @@ evalInitialConditions();
 I_last = deepcopy(I.values);
 
 # After each time step the temperature, equilibrium I, and time scales are updated
-@postStepFunction(
-    update_temperature(temperature.values, I_last, I.values, center_freq, delta_freq)
-);
+#### NOTE: There is a problem with temperature update. Uncomment the next three lines to try it.
+# @postStepFunction(
+#     update_temperature(temperature.values, I_last, I.values, center_freq, delta_freq)
+# );
 
 exportCode("bte2dcode") # uncomment to export generated code to a file
 # importCode("bte2dcodein") # uncomment to import code from a file
@@ -89,8 +86,9 @@ solve(I)
 
 finalize_finch()
 
-##### Uncomment below to plot
-xy = Finch.fv_info.cellCenters
+##### Uncomment below to plot ######
+
+# xy = Finch.fv_info.cellCenters
 
 # using Plots
 # pyplot();
