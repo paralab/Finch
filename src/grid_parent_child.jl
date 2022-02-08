@@ -668,8 +668,11 @@ function divide_parent_grid(grid, order)
             end
         end
         
-        child_grid = Grid(allnodes, bdry, bdryface, bdrynorm, bids, loc2glb, loc2glb, face2glb, element2face, face2element, facenormals, faceRefelInd, facebid, 
-                            true, nel_owned, nel_ghost, nface_owned, nface_ghost, element_owner, grid2mesh, num_neighbor_partitions, neighboring_partitions, ghost_counts, ghost_index);
+        child_grid = Grid(allnodes, bdry, bdryface, bdrynorm, bids, loc2glb, loc2glb, face2glb, 
+                        element2face, face2element, facenormals, faceRefelInd, facebid, 
+                        true, nel_owned, nel_ghost, nface_owned, nface_ghost, 0, 0, element_owner, 
+                        zeros(Int,0), grid2mesh, zeros(Int,0), zeros(Int8, 0), 
+                        num_neighbor_partitions, neighboring_partitions, ghost_counts, ghost_index);
         
     else # not a subgrid
         child_grid = Grid(allnodes, bdry, bdryface, bdrynorm, bids, loc2glb, loc2glb, face2glb, element2face, face2element, facenormals, faceRefelInd, facebid);
