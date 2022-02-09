@@ -1381,7 +1381,7 @@ function partition_nodes_in_bins_1d(nodes, abin, xlim, depth, mincount)
     # Only recurse if depth and mincount allow
     if depth > 0
         if lcount >= mincount
-            (abin[1:lcount], lbinends, lcbin) = partition_nodes_in_bins_1d(nodes, bbin[1:lcount], [xlim[1], halfx], depth-1, mincount);
+            (abin[1:lcount], lbinends, cbini) = partition_nodes_in_bins_1d(nodes, bbin[1:lcount], [xlim[1], halfx], depth-1, mincount);
             Ncbin = length(cbin);
             next_ind = 1;
             for ci=1:length(cbini)
@@ -1400,7 +1400,7 @@ function partition_nodes_in_bins_1d(nodes, abin, xlim, depth, mincount)
             lbinends = [lcount];
         end
         if rcount >= mincount
-            (abin[(lcount+1):N], rbinends, rcbin) = partition_nodes_in_bins_1d(nodes, bbin[(lcount+1):N], [halfx, xlim[2]], depth-1, mincount);
+            (abin[(lcount+1):N], rbinends, cbini) = partition_nodes_in_bins_1d(nodes, bbin[(lcount+1):N], [halfx, xlim[2]], depth-1, mincount);
             Ncbin = length(cbin);
             next_ind = 1;
             for ci=1:length(cbini)
