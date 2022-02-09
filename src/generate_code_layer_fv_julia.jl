@@ -228,58 +228,87 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                         # Need a derivative here...
                         # TODO
                     else
-                        code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", "*l2gsymbol*"];\n";
+                        if variables[cval].discretization == FV
+                            code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", "*l2gsymbol*"];\n";
+                        else
+                            code *= cname * " = sum(Finch.variables["*string(cval)*"].values["*indstr*", Finch.grid_data.loc2glb[:,eid]]) / size(Finch.grid_data.loc2glb,1);\n";
+                        end
                     end
                     
                 else # surface
-                    if fv_order == 1
+                    if variables[cval].discretization == FV
+                        # Need to reconstruct it using neighboring cells
+                        if fv_order == 1
+                            if length(entities[i].derivs) > 0
+                                code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", els2] - Finch.variables["*string(cval)*"].values["*indstr*", els1];\n";
+                                code *= cname * " = (els1 != els2 && abs(normal["*string(entities[i].derivs[1])*"]) > 1e-10) ? "*cname*" ./ dxyz["*string(entities[i].derivs[1])*"]  : 0\n"
+                                need_deriv_dist = true;
+                                piece_needed[4] = true; # cellx
+                                piece_needed[8] = true; # normal
+                            else
+                                if cellside == 0
+                                    # No side was specified, so use the average
+                                    code *= cname * " = 0.5 * (Finch.variables["*string(cval)*"].values["*indstr*", els1] + Finch.variables["*string(cval)*"].values["*indstr*", els2]);\n";
+                                elseif cellside < 3
+                                    code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", "*l2gsymbol*"];\n";
+                                elseif cellside == 3 # central
+                                    # same as 0 for this case
+                                    code *= cname * " = 0.5 * (Finch.variables["*string(cval)*"].values["*indstr*", els1] + Finch.variables["*string(cval)*"].values["*indstr*", els2]);\n";
+                                elseif cellside == 4 # neighborhood
+                                    # This is a special case only for callback functions.
+                                    # Rather than representing a value, it constructs a Neighborhood object to be passed.
+                                    code *= cname * " = Finch.Neighborhood(els, cellx, [Finch.variables["*string(cval)*"].values["*indstr*", els[1]], Finch.variables["*string(cval)*"].values["*indstr*", els[2]]]);\n";
+                                    piece_needed[4] = true; # cellx
+                                end
+                            end
+                            
+                        else # order > 1
+                            # collect the cell info
+                            piece_needed[6] = true; # face center coords
+                            piece_needed[4] = true; # cell centers
+                            if length(entities[i].derivs) > 0
+                                code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", els[2][1]] - Finch.variables["*string(cval)*"].values["*indstr*", els[1][1]];\n";
+                                code *= cname * " = (els[1][1] != els[2][1] && abs(normal["*string(entities[i].derivs[1])*"]) > 1e-10) ? "*cname*" ./ dxyz["*string(entities[i].derivs[1])*"]  : 0\n"
+                                need_deriv_dist = true;
+                                piece_needed[4] = true; # cellx
+                                piece_needed[8] = true; # normal
+                            else
+                                if cellside == 0 || cellside == 3
+                                    # Use the full neighborhood
+                                    code *= cname * " = Finch.FV_reconstruct_value([cellx[1] cellx[2]], [Finch.variables["*string(cval)*"].values["*indstr*", els[1]] ; Finch.variables["*string(cval)*"].values["*indstr*", els[2]]], facex);\n";
+                                elseif cellside == 1 # left
+                                    code *= cname * " = Finch.FV_reconstruct_value_left_right(cellx[1], cellx[2], Finch.variables["*string(cval)*"].values["*indstr*", els[1]], Finch.variables["*string(cval)*"].values["*indstr*", els[2]], facex, limiter=\"vanleer\")[1];\n";
+                                elseif cellside == 2 # right
+                                    code *= cname * " = Finch.FV_reconstruct_value_left_right(cellx[1], cellx[2], Finch.variables["*string(cval)*"].values["*indstr*", els[1]], Finch.variables["*string(cval)*"].values["*indstr*", els[2]], facex, limiter=\"vanleer\")[2];\n";
+                                elseif cellside == 2 # right
+                                    code *= cname * " = Finch.Neighborhood(els, cellx, [Finch.variables["*string(cval)*"].values["*indstr*", els[1]], Finch.variables["*string(cval)*"].values["*indstr*", els[2]]]);\n";
+                                    piece_needed[4] = true; # cellx
+                                end
+                            end
+                        end
+                    else # A nodal variable that has a value specified at the surface
                         if length(entities[i].derivs) > 0
-                            code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", els2] - Finch.variables["*string(cval)*"].values["*indstr*", els1];\n";
+                            code *= cname * "_TMP1 = sum(Finch.variables["*string(cval)*"].values["*indstr*", Finch.grid_data.loc2glb[:,els1]]) / size(Finch.grid_data.loc2glb,1);\n";
+                            code *= cname * "_TMP2 = sum(Finch.variables["*string(cval)*"].values["*indstr*", Finch.grid_data.loc2glb[:,els2]]) / size(Finch.grid_data.loc2glb,1);\n";
+                            code *= cname * " = "*cname*"_TMP2 - "*cname*"_TMP1;\n";
                             code *= cname * " = (els1 != els2 && abs(normal["*string(entities[i].derivs[1])*"]) > 1e-10) ? "*cname*" ./ dxyz["*string(entities[i].derivs[1])*"]  : 0\n"
                             need_deriv_dist = true;
                             piece_needed[4] = true; # cellx
                             piece_needed[8] = true; # normal
                         else
-                            if cellside == 0
-                                # No side was specified, so use the average
-                                code *= cname * " = 0.5 * (Finch.variables["*string(cval)*"].values["*indstr*", els1] + Finch.variables["*string(cval)*"].values["*indstr*", els2]);\n";
-                            elseif cellside < 3
-                                code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", "*l2gsymbol*"];\n";
-                            elseif cellside == 3 # central
-                                # same as 0 for this case
-                                code *= cname * " = 0.5 * (Finch.variables["*string(cval)*"].values["*indstr*", els1] + Finch.variables["*string(cval)*"].values["*indstr*", els2]);\n";
+                            if cellside < 4
+                                code *= cname * " = sum(Finch.variables["*string(cval)*"].values["*indstr*", Finch.grid_data.face2glb[:,fid]]) / size(Finch.grid_data.face2glb, 1);\n";
                             elseif cellside == 4 # neighborhood
                                 # This is a special case only for callback functions.
                                 # Rather than representing a value, it constructs a Neighborhood object to be passed.
-                                code *= cname * " = Finch.Neighborhood(els, cellx, [Finch.variables["*string(cval)*"].values["*indstr*", els[1]], Finch.variables["*string(cval)*"].values["*indstr*", els[2]]]);\n";
+                                code *= cname * " = sum(Finch.variables["*string(cval)*"].values["*indstr*", Finch.grid_data.face2glb[:,fid]]) / size(Finch.grid_data.face2glb, 1);\n";
+                                code *= cname * " = Finch.Neighborhood(els, cellx, ["*cname*", "*cname*"]);\n";
                                 piece_needed[4] = true; # cellx
                             end
                         end
                         
-                    else # order > 1
-                        # collect the cell info
-                        piece_needed[6] = true; # face center coords
-                        piece_needed[4] = true; # cell centers
-                        if length(entities[i].derivs) > 0
-                            code *= cname * " = Finch.variables["*string(cval)*"].values["*indstr*", els[2][1]] - Finch.variables["*string(cval)*"].values["*indstr*", els[1][1]];\n";
-                            code *= cname * " = (els[1][1] != els[2][1] && abs(normal["*string(entities[i].derivs[1])*"]) > 1e-10) ? "*cname*" ./ dxyz["*string(entities[i].derivs[1])*"]  : 0\n"
-                            need_deriv_dist = true;
-                            piece_needed[4] = true; # cellx
-                            piece_needed[8] = true; # normal
-                        else
-                            if cellside == 0 || cellside == 3
-                                # Use the full neighborhood
-                                code *= cname * " = Finch.FV_reconstruct_value([cellx[1] cellx[2]], [Finch.variables["*string(cval)*"].values["*indstr*", els[1]] ; Finch.variables["*string(cval)*"].values["*indstr*", els[2]]], facex);\n";
-                            elseif cellside == 1 # left
-                                code *= cname * " = Finch.FV_reconstruct_value_left_right(cellx[1], cellx[2], Finch.variables["*string(cval)*"].values["*indstr*", els[1]], Finch.variables["*string(cval)*"].values["*indstr*", els[2]], facex, limiter=\"vanleer\")[1];\n";
-                            elseif cellside == 2 # right
-                                code *= cname * " = Finch.FV_reconstruct_value_left_right(cellx[1], cellx[2], Finch.variables["*string(cval)*"].values["*indstr*", els[1]], Finch.variables["*string(cval)*"].values["*indstr*", els[2]], facex, limiter=\"vanleer\")[2];\n";
-                            elseif cellside == 2 # right
-                                code *= cname * " = Finch.Neighborhood(els, cellx, [Finch.variables["*string(cval)*"].values["*indstr*", els[1]], Finch.variables["*string(cval)*"].values["*indstr*", els[2]]]);\n";
-                                piece_needed[4] = true; # cellx
-                            end
-                        end
                     end
+                    
                     
                 end
                 

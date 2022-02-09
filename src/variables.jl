@@ -8,6 +8,7 @@ mutable struct Variable
     index::Int              # index in the Finch list of variables
     type::String            # constants for SCALAR, VECTOR, etc.
     location::String        # constant for NODAL or CELL
+    discretization::String  # constant for CG, DG, FV
     values::Array{Float64}  # a C x N array, C is number of components (SCALAR=1, etc.)
     
     # These are mainly for ARRAY type vars. Should there be a separate struct for those?

@@ -1,77 +1,5 @@
 # Apply boundary conditions for FV
 
-function apply_boundary_conditions_to_face_rhs(var, fid, facefluxvec, t)
-    multivar = typeof(var) <: Array;
-    maxvarindex = 0;
-    if multivar
-        # multiple variables being solved for simultaneously
-        dofs_per_node = 0;
-        var_to_dofs = [];
-        for vi=1:length(var)
-            tmp = dofs_per_node;
-            dofs_per_node += length(var[vi].symvar);
-            push!(var_to_dofs, (tmp+1):dofs_per_node);
-            maxvarindex = max(maxvarindex,var[vi].index);
-        end
-    else
-        # one variable
-        dofs_per_node = length(var.symvar);
-        maxvarindex = var.index;
-    end
-    
-    # Boundary conditions are applied to flux
-    fbid = fv_grid.facebid[fid]; # BID of this face
-    if fbid > 0
-        facex = fv_grid.allnodes[:, fv_grid.face2glb[:,1,fid]];  # face node coordinates
-        
-        if multivar
-            dofind = 0;
-            for vi=1:length(var)
-                for compo=1:length(var[vi].symvar)
-                    dofind = dofind + 1;
-                    if prob.bc_type[var[vi].index, fbid] == NO_BC
-                        # do nothing
-                    elseif prob.bc_type[var[vi].index, fbid] == FLUX
-                        # compute the value and add it to the flux directly
-                        # Qvec = (refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, refel.face2local[fv_grid.faceRefelInd[1,fid]]]
-                        # Qvec = Qvec ./ fv_geo_factors.area[fid];
-                        # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
-                        
-                        bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fid, t) .* fv_geo_factors.area[fid];
-                        
-                        fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
-                        facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
-                    else
-                        printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
-                    end
-                end
-            end
-        else
-            for d=1:dofs_per_node
-                dofind = d;
-                if prob.bc_type[var.index, fbid] == NO_BC
-                    # do nothing
-                elseif prob.bc_type[var.index, fbid] == FLUX
-                    # compute the value and add it to the flux directly
-                    # Qvec = (refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, refel.face2local[fv_grid.faceRefelInd[1,fid]]]
-                    # Qvec = Qvec ./ fv_geo_factors.area[fid];
-                    # bflux = FV_flux_bc_rhs_only(prob.bc_func[var.index, fbid][d], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
-                    bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t) .* fv_geo_factors.area[fid];
-                    
-                    fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
-                    facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
-                else
-                    printerr("Unsupported boundary condition type: "*prob.bc_type[var.index, fbid]);
-                end
-            end
-        end
-    end# BCs
-    
-    
-end
-
-
-
 function FV_flux_bc_rhs_only(val, facex, Qvec, t=0, dofind = 1, totaldofs = 1)
     if typeof(val) <: Number
         return val;
@@ -139,10 +67,10 @@ function FV_flux_bc_rhs_only_simple(val, fid, t=0)
     # end
     eid = fv_grid.face2element[1,fid];
     
-    return evaluate_bc(val, eid, fid, t);
+    return FV_evaluate_bc(val, eid, fid, t);
 end
 
-function copy_bdry_vals_to_vector(var, vec, grid, dofs_per_node)
+function FV_copy_bdry_vals_to_vector(var, vec, grid, dofs_per_node)
     if typeof(var) <: Array
         dofind = 0;
         for vi=1:length(var)
@@ -180,7 +108,7 @@ end
 # - the value of constant BCs
 # - evaluate a genfunction.func for BCs defined by strings->genfunctions
 # - evaluate a function for BCs defined by callback functions
-function evaluate_bc(val, eid, fid, t)
+function FV_evaluate_bc(val, eid, fid, t)
     dim = config.dimension;
     if typeof(val) <: Number
         result = val;
@@ -252,7 +180,7 @@ function evaluate_bc(val, eid, fid, t)
                     for c in coefficients
                         if string(c.symbol) == r
                             foundit = true;
-                            push!(arg_list, (r, evaluate_bc(c, eid, fid, t)));
+                            push!(arg_list, (r, FV_evaluate_bc(c, eid, fid, t)));
                             break;
                         end
                     end

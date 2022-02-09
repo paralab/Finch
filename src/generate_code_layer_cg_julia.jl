@@ -202,7 +202,7 @@ function prepare_needed_values_cg_julia(entities, var, lorr, vors)
                 end
                 
             elseif ctype == 3 # a known variable value
-                # This generates something like: coef_u_1 = copy((Finch.variables[1]).values[1, loc2glb])
+                # This generates something like: coef_u_1 = (Finch.variables[1]).values[1, loc2glb]
                 if typeof(entities[i].index) <: Array
                     # It is an indexed variable
                     if length(entities[i].index) == 1
@@ -224,7 +224,12 @@ function prepare_needed_values_cg_julia(entities, var, lorr, vors)
                 end
                 
                 if vors == "volume"
-                    code *= cname * " = copy((Finch.variables["*string(cval)*"]).values["*indstr*", loc2glb]);\n";
+                    if variables[cval].discretization == FV
+                        code *= cname * " = fill((Finch.variables["*string(cval)*"]).values["*indstr*", eid], length(loc2glb));\n";
+                    else
+                        code *= cname * " = (Finch.variables["*string(cval)*"]).values["*indstr*", loc2glb];\n";
+                    end
+                    
                     # Apply any needed derivative operators.
                     if length(entities[i].derivs) > 0
                         xyzchar = ["x","y","z"];
@@ -241,7 +246,12 @@ function prepare_needed_values_cg_julia(entities, var, lorr, vors)
                 else # surface
                     # If derivatives are needed, must evaluate at all volume nodes.
                     if length(entities[i].derivs) > 0
-                        code *= cname * " = copy((Finch.variables["*string(cval)*"]).values["*indstr*", loc2glb[1]]);\n";
+                        if variables[cval].discretization == FV
+                            code *= cname * " = fill((Finch.variables["*string(cval)*"]).values["*indstr*", eid], length(loc2glb[1]));\n";
+                        else
+                            code *= cname * " = (Finch.variables["*string(cval)*"]).values["*indstr*", loc2glb[1]];\n";
+                        end
+                        
                         xyzchar = ["x","y","z"];
                         for di=1:length(entities[i].derivs)
                             code *= cname * " = RD"*string(entities[i].derivs[di])*" * " * cname * 
@@ -252,7 +262,12 @@ function prepare_needed_values_cg_julia(entities, var, lorr, vors)
                         piece_needed[2] = true;
                         
                     else # no derivatives
-                        code *= cname * " = copy((Finch.variables["*string(cval)*"]).values["*indstr*", loc2glb[1]]);\n";
+                        if variables[cval].discretization == FV
+                            code *= cname * " = fill((Finch.variables["*string(cval)*"]).values["*indstr*", eid], length(loc2glb[1]));\n";
+                        else
+                            code *= cname * " = (Finch.variables["*string(cval)*"]).values["*indstr*", loc2glb[1]];\n";
+                        end
+                        
                         # piece_needed[5] = true;
                         piece_needed[2] = true;
                     end
