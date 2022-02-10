@@ -1,13 +1,21 @@
 #=
 # 2D NS eq. Dirichlet bc, CG
 =#
-if !@isdefined(Finch)
-    include("../Finch.jl");
-    using .Finch
-end
+
+### If the Finch package has already been added, use this line #########
+using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+
+### If not, use these four lines (working from the examples directory) ###
+# if !@isdefined(Finch)
+#     include("../Finch.jl");
+#     using .Finch
+# end
+##########################################################################
+
 init_finch("NSu");
 
 @useLog("NSulog")
+set_log_level(3)
 
 # Set up the configuration
 @domain(2, IRREGULAR, UNSTRUCTURED)
@@ -78,29 +86,34 @@ nsteps = 50;
 @weakForm([du, dv, dp], ["w*(du ./ dtc + (u*deriv(du,1)+v*deriv(du,2) + deriv(u,2)*dv)) - deriv(w,1)*dp + mu*dot(grad(w), grad(du)) + tauM*(u*deriv(w,1)+v*deriv(w,2))*(du ./ dtc + (u*deriv(du,1)+v*deriv(du,2)) + deriv(dp,1)) - (w*((u-uold) ./ dtc + (u*deriv(u,1)+v*deriv(u,2))) - deriv(w,1)*p + mu*dot(grad(w), grad(u)) + tauM*(u*deriv(w,1)+v*deriv(w,2))*((u-uold) ./ dtc + (u*deriv(u,1)+v*deriv(u,2)) + deriv(p,1)))", 
                          "w*(dv ./ dtc + (u*deriv(dv,1)+v*deriv(dv,2) + deriv(v,1)*du)) - deriv(w,2)*dp + mu*dot(grad(w), grad(dv)) + tauM*(u*deriv(w,1)+v*deriv(w,2))*(dv ./ dtc + (u*deriv(dv,1)+v*deriv(dv,2)) + deriv(dp,2)) - (w*((v-vold) ./ dtc + (u*deriv(v,1)+v*deriv(v,2))) - deriv(w,2)*p + mu*dot(grad(w), grad(v)) + tauM*(u*deriv(w,1)+v*deriv(w,2))*((v-vold) ./ dtc + (u*deriv(v,1)+v*deriv(v,2)) + deriv(p,2)))", 
 	                     "w*(deriv(du,1)+deriv(dv,2)) + tauC*(deriv(w,1)*( du ./ dtc + (u*deriv(du,1)+v*deriv(du,2)) + deriv(dp,1) ) + deriv(w,2)*( dv ./ dtc + (u*deriv(dv,1)+v*deriv(dv,2)) + deriv(dp,2) )) - (w*(deriv(u,1)+deriv(v,2)) + tauC*(deriv(w,1)*( (u-uold) ./ dtc + (u*deriv(u,1)+v*deriv(u,2)) + deriv(p,1) ) + deriv(w,2)*( (v-vold) ./ dtc + (u*deriv(v,1)+v*deriv(v,2)) + deriv(p,2) )))"])
-						  
+
+@exportCode("NScode")
+
 solve([du, dv, dp], [u, v, p, uold, vold], nonlinear=true);
 
+# output to file
+output_values([u,v], "NSunstructured", format="vtk");
+
 # u and v values are written to files, but the node locations are needed
-g = Finch.grid_data.allnodes;
-N = size(g, 2);
-outfile = "grid_xy";
-open(outfile, "w") do f
-    for i=1:N
-        println(f, string(g[1,i]));
-        println(f, string(g[2,i]));
-    end
-    close(f)
-end
+# g = Finch.grid_data.allnodes;
+# N = size(g, 2);
+# outfile = "grid_xy";
+# open(outfile, "w") do f
+#     for i=1:N
+#         println(f, string(g[1,i]));
+#         println(f, string(g[2,i]));
+#     end
+#     close(f)
+# end
 
 # solution is stored in the variable's "values"
-#using Plots
-#pyplot();
-#display(plot(Finch.grid_data.allnodes[1,:], Finch.grid_data.allnodes[2,:], u.values[:], st = :surface, reuse=false))
-#display(plot(Finch.grid_data.allnodes[1,:], Finch.grid_data.allnodes[2,:], v.values[:], st = :surface, reuse=false))
+# using Plots
+# pyplot();
+# display(plot(Finch.grid_data.allnodes[1,:], Finch.grid_data.allnodes[2,:], u.values[:], st = :surface, reuse=false))
+# display(plot(Finch.grid_data.allnodes[1,:], Finch.grid_data.allnodes[2,:], v.values[:], st = :surface, reuse=false))
 
 # check
-log_dump_config(Finch.config);
-log_dump_prob(Finch.prob);
+# log_dump_config(Finch.config);
+# log_dump_prob(Finch.prob);
 
 @finalize()

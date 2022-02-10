@@ -1,7 +1,16 @@
 #=
 This will gradually evolve into working BTE code.
 =#
-using Finch
+
+### If the Finch package has already been added, use this line #########
+using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+
+### If not, use these four lines (working from the examples directory) ###
+# if !@isdefined(Finch)
+#     include("../Finch.jl");
+#     using .Finch
+# end
+##########################################################################
 
 # constants and various functions are in another file
 include("bte-parameters.jl")
@@ -30,10 +39,10 @@ direction = index("direction", range = [1,ndirs])
 band = index("band", range = [1,nbands])
 
 # These are all set as variables because they are unknown, but only I is solved for in the PDE.
-I = variable("I", VAR_ARRAY, CELL, index = [direction, band]) # Intensity
-Io = variable("Io", VAR_ARRAY, CELL, index = [band]) # Equilibrium intensity for each band
-tau = variable("tau", VAR_ARRAY, CELL, index = [band]) # Relaxation time scale
-temperature = variable("temperature", SCALAR, CELL) # temperature of each cell
+I = variable("I", type=VAR_ARRAY, location=CELL, index = [direction, band]) # Intensity
+Io = variable("Io", type=VAR_ARRAY, location=CELL, index = [band]) # Equilibrium intensity for each band
+tau = variable("tau", type=VAR_ARRAY, location=CELL, index = [band]) # Relaxation time scale
+temperature = variable("temperature", location=CELL) # temperature of each cell
 
 # Coefficients and related numbers
 (dir_x, dir_y) = get_directions_2d(ndirs)
@@ -41,9 +50,9 @@ temperature = variable("temperature", SCALAR, CELL) # temperature of each cell
 group_v = get_group_speeds(center_freq);
 
 # These are set as coefficients because they have known values.
-Sx = coefficient("Sx", dir_x, VAR_ARRAY) # direction x component
-Sy = coefficient("Sy", dir_y, VAR_ARRAY) # direction y component
-vg = coefficient("vg", group_v, VAR_ARRAY) # group speed
+Sx = coefficient("Sx", dir_x, type=VAR_ARRAY) # direction x component
+Sy = coefficient("Sy", dir_y, type=VAR_ARRAY) # direction y component
+vg = coefficient("vg", group_v, type=VAR_ARRAY) # group speed
 
 # A set of callback functions for the boundary condition
 include("bte-boundary.jl")

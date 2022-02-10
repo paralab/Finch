@@ -1,12 +1,19 @@
 #=
 # Cachesim example
 =#
-if !@isdefined(Finch)
-    include("../Finch.jl");
-    using .Finch
-end
+
+### If the Finch package has already been added, use this line #########
+using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+
+### If not, use these four lines (working from the examples directory) ###
+# if !@isdefined(Finch)
+#     include("../Finch.jl");
+#     using .Finch
+# end
+##########################################################################
+
 init_finch("cachesim");
-@useLog("cachesimlog")
+useLog("cachesimlog")
 
 #################################################
 # For cache sim
@@ -21,25 +28,21 @@ n = 10;
 ord = 2;
 
 # Set up the configuration 
-@domain(3)
-@functionSpace(LEGENDRE, ord)
+domain(3)
+functionSpace(order=ord)
 
 # Specify the problem
-@mesh(HEXMESH, n)
+mesh(HEXMESH, elsperdim=n)
 
-@variable(u)
-@testSymbol(v)
+u = variable("u")
+testSymbol("v")
 
-@boundary(u, 1, DIRICHLET, 0)
+boundary(u, 1, DIRICHLET, 0)
 
 # Write the weak form 
-@coefficient(f, "-3*pi*pi*sin(pi*x)*sin(pi*y)*sin(pi*z)")
-@weakForm(u, "-dot(grad(u), grad(v)) - f*v")
+coefficient("f", "-3*pi*pi*sin(pi*x)*sin(pi*y)*sin(pi*z)")
+weakForm(u, "-dot(grad(u), grad(v)) - f*v")
 
 cachesimSolve(u);
 
-# Dump config to log
-log_dump_config();
-log_dump_prob();
-
-@finalize()
+finalize_finch()

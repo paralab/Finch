@@ -1,10 +1,17 @@
 #=
 # 3D heat eq. Dirichlet bc, CG
 =#
-if !@isdefined(Finch)
-    include("../Finch.jl");
-    using .Finch
-end
+
+### If the Finch package has already been added, use this line #########
+using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+
+### If not, use these four lines (working from the examples directory) ###
+# if !@isdefined(Finch)
+#     include("../Finch.jl");
+#     using .Finch
+# end
+##########################################################################
+
 init_finch("heat3d");
 
 # Try making an optional log

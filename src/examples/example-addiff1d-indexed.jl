@@ -55,7 +55,7 @@ for i=1:nspeeds
 end
 
 # Variables and BCs
-u = variable("u", VAR_ARRAY, CELL, index = [speed, diff])
+u = variable("u", type=VAR_ARRAY, location=CELL, index = [speed, diff])
 boundary(u, 1, FLUX, bdrystr)
 boundary(u, 2, NO_BC)
 

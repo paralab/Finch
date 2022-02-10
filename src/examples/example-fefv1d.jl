@@ -30,7 +30,7 @@ u = variable("u", method=CG)
 testSymbol("v")
 boundary(u, 1, DIRICHLET, 0)
 
-w = variable("w", SCALAR, CELL, method=FV)
+w = variable("w", location=CELL, method=FV)
 boundary(w, 1, DIRICHLET, 0)
 
 # Time interval and initial condition

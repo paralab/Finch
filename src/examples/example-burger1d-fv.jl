@@ -11,6 +11,7 @@ using Finch # Note: to add the package, first do: ]add "https://github.com/paral
 #     using .Finch
 # end
 ##########################################################################
+
 init_finch("FVburger1d");
 
 useLog("FVburger1dlog", level=3)
@@ -25,10 +26,10 @@ n = 70 # number of elements
 mesh(LINEMESH, elsperdim=n)
 
 # Variables and BCs
-u = variable("u", SCALAR, CELL)
+u = variable("u", location=CELL)
 boundary(u, 1, NO_BC)
 
-v = variable("v", SCALAR, CELL)
+v = variable("v", location=CELL)
 boundary(v, 1, NO_BC)
 
 # Time interval and initial condition

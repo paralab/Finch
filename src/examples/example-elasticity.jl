@@ -15,22 +15,20 @@ using Finch # Note: to add the package, first do: ]add "https://github.com/paral
 init_finch("elasticity");
 
 # Optionally generate a log
-useLog("elasticitylog")
+useLog("elasticitylog", level=3)
 
-n = [10,4,4]; # number of elements in x,y,z
+n = [20,4,4]; # number of elements in x,y,z
 interval = [0,1,0,0.2,0,0.2]; # domain bounds
 
 # Set up the configuration (order doesn't matter)
-domain(3)                   # dimension
-solverType(CG)              # Use CG solver (default)
+domain(3, grid=UNSTRUCTURED)
 functionSpace(order=2)      # basis polynomial order
-nodeType(LOBATTO)           # GLL elemental node arrangement (default)
 
 # Specify the problem
 mesh(HEXMESH, elsperdim=n, bids=4, interval=interval)
 
-u = variable("u", VECTOR)          # make a vector variable with symbol u
-testSymbol("v", VECTOR)            # sets the symbol for a test function
+u = variable("u", type=VECTOR)          # make a vector variable with symbol u
+testSymbol("v", type=VECTOR)            # sets the symbol for a test function
 
 boundary(u, 1, DIRICHLET, [0,0,0]) # x=0
 boundary(u, 2, NEUMANN, [0,0,0])   # elsewhere
@@ -38,18 +36,26 @@ boundary(u, 3, NEUMANN, [0,0,0])
 boundary(u, 4, NEUMANN, [0,0,0])
 
 # Write the weak form
-coefficient("mu", "x>0.5 ? 0.2 : 10") # discontinuous mu
-#coefficient("mu", 1) # constant mu
+# coefficient("mu", "x>0.5 ? 0.2 : 10") # discontinuous mu
+coefficient("mu", 1) # constant mu
 coefficient("lambda", 1.25)
-coefficient("f", ["0","0","-100"], VECTOR)
+coefficient("f", [0,0,-10], type=VECTOR)
 weakForm(u, "inner( (lambda * div(u) .* [1 0 0; 0 1 0; 0 0 1] + mu .* (grad(u) + transpose(grad(u)))), grad(v)) - dot(f,v)")
 
+exportCode("elasticitycode")
+
 println("solving")
-solve(u);
+t = @elapsed(solve(u));
 println("solved")
 
+println("time: "*string(t))
 # Dump things to the log if desired
-log_dump_config();
-log_dump_prob();
+# log_dump_config();
+# log_dump_prob();
+
+# Write result to vtk file
+#output_values(u, "elasticity", format="vtk");
 
 finalize_finch() # Finish writing and close any files
+
+println("u_z at end "*string(maximum(u.values[3,Finch.grid_data.bdry[2][3]])));
