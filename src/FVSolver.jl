@@ -115,7 +115,7 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                         if config.num_partitions > 1 exchange_ghosts(var, grid, i); end
                         pre_step_function();
                         
-                        sol = assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, stime, stepper.dt, assemble_loops=assemble_func);
+                        sol = assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, rktime, stepper.dt, assemble_loops=assemble_func);
                         
                         
                         if rki == 1 # because a1 == 0
@@ -125,7 +125,7 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                         end
                         tmppi = tmppi + stepper.b[rki].*tmpki
                         
-                        copy_bdry_vals_to_vector(var, tmppi, grid, dofs_per_node);
+                        FV_copy_bdry_vals_to_vector(var, tmppi, grid, dofs_per_node);
                         place_sol_in_vars(var, tmppi, stepper);
                         
                         post_step_function();
@@ -161,7 +161,7 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                             end
                             
                             if initialized_tmpvals
-                                copy_bdry_vals_to_vector(var, tmpvals, grid, dofs_per_node);
+                                FV_copy_bdry_vals_to_vector(var, tmpvals, grid, dofs_per_node);
                                 place_sol_in_vars(var, tmpvals, stepper);
                             end
                             post_step_function(); # seems weird, but imagine this is happening after stage-1
@@ -177,7 +177,7 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                     for stage=1:stepper.stages
                         sol += stepper.dt * stepper.b[stage] .* tmpki[:, stage];
                     end
-                    copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
+                    FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
                     place_sol_in_vars(var, sol, stepper);
                     
                     post_step_function();
@@ -189,7 +189,7 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                 
                 sol = sol .+ stepper.dt .* assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func);
                 
-                copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
+                FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
                 place_sol_in_vars(var, sol, stepper);
                 
                 post_step_function();
@@ -200,7 +200,7 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                 pre_step_function();
                 tmpsol = sol .+ stepper.dt .* assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func);
                 
-                copy_bdry_vals_to_vector(var, tmpsol, grid, dofs_per_node);
+                FV_copy_bdry_vals_to_vector(var, tmpsol, grid, dofs_per_node);
                 place_sol_in_vars(var, tmpsol, stepper);
                 post_step_function();
                 
@@ -209,7 +209,7 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                 pre_step_function();
                 sol = sol .+ stepper.dt .* assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t+stepper.dt, stepper.dt, assemble_loops=assemble_func);
                 
-                copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
+                FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
                 place_sol_in_vars(var, sol, stepper);
                 post_step_function();
                 
@@ -313,7 +313,7 @@ function linear_solve_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                 (A, b) = assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func);
                 sol = sol .+ stepper.dt .* (A\b);
                 
-                copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
+                FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
                 place_sol_in_vars(var, sol, stepper);
                 
                 post_step_function();
@@ -354,29 +354,7 @@ function linear_solve_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
     end
 end
 
-# macro loops(indices, ranges, content)
-#     n = length(indices.args);
-#     if n == 1
-#         this_ind = indices.args[1];
-#         this_range = ranges.args[1];
-#         return esc(quote
-#             for $this_ind in $this_range
-#                 $content
-#             end
-#         end)
-#     else
-#         this_ind = indices.args[1];
-#         this_range = ranges.args[1];
-#         sub_ind = copy(indices);
-#         sub_ind.args = sub_ind.args[2:end];
-#         sub_range = copy(ranges);
-#         sub_range.args = sub_range.args[2:end];
-#         return esc(:(@loops([$this_ind], [$this_range], @loops($sub_ind, $sub_range, $content))));
-#     end
-# end
-
 #
-
 function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; assemble_loops=nothing)
     # If an assembly loop function was provided, use it
     if !(assemble_loops === nothing)
@@ -468,7 +446,7 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                                 facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                             elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
                                 # Set variable array and handle after the face loop
-                                var[vi].values[compo,eid] = evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
+                                var[vi].values[compo,eid] = FV_evaluate_bd(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
                             else
                                 printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
                             end
@@ -490,7 +468,7 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                             facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                         elseif prob.bc_type[var.index, fbid] == DIRICHLET
                             # Set variable array and handle after the face loop
-                            var.values[compo,eid] = evaluate_bc(prob.bc_func[var.index, fbid][d], eid, fid, t);
+                            var.values[compo,eid] = FV_evaluate_bd(prob.bc_func[var.index, fbid][d], eid, fid, t);
                         else
                             printerr("Unsupported boundary condition type: "*prob.bc_type[var.index, fbid]);
                         end
@@ -629,7 +607,7 @@ function assemble_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allo
                                 # TODO How to modify LHS
                             elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
                                 # Set variable array and handle after the face loop
-                                var[vi].values[compo,eid] = evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
+                                var[vi].values[compo,eid] = FV_evaluate_bd(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
                             else
                                 printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
                             end
@@ -651,7 +629,7 @@ function assemble_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allo
                             facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                         elseif prob.bc_type[var.index, fbid] == DIRICHLET
                             # Set variable array and handle after the face loop
-                            var.values[compo,eid] = evaluate_bc(prob.bc_func[var.index, fbid][d], eid, fid, t);
+                            var.values[compo,eid] = FV_evaluate_bd(prob.bc_func[var.index, fbid][d], eid, fid, t);
                         else
                             printerr("Unsupported boundary condition type: "*prob.bc_type[var.index, fbid]);
                         end
@@ -813,7 +791,7 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
                                     facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                                 elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
                                     # Set variable array and handle after the face loop
-                                    var[vi].values[compo,eid] = evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
+                                    var[vi].values[compo,eid] = FV_evaluate_bd(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
                                 else
                                     printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
                                 end
@@ -835,7 +813,7 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
                                 facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                             elseif prob.bc_type[var.index, fbid] == DIRICHLET
                                 # Set variable array and handle after the face loop
-                                var.values[compo,eid] = evaluate_bc(prob.bc_func[var.index, fbid][d], eid, fid, t);
+                                var.values[compo,eid] = FV_evaluate_bd(prob.bc_func[var.index, fbid][d], eid, fid, t);
                             else
                                 printerr("Unsupported boundary condition type: "*prob.bc_type[var.index, fbid]);
                             end

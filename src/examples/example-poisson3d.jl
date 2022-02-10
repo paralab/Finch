@@ -1,6 +1,7 @@
 #=
 # 3D Poisson, Dirichlet bc
 =#
+
 ### If the Finch package has already been added, use this line #########
 using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
 
@@ -10,6 +11,7 @@ using Finch # Note: to add the package, first do: ]add "https://github.com/paral
 #     using .Finch
 # end
 ##########################################################################
+
 init_finch("poisson3d");
 useLog("poisson3dlog")
 

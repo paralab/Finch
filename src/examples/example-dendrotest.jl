@@ -2,10 +2,17 @@
 # 3D Poisson, Dirichlet bc
 # Uses Dendro imported as a custom gen target
 =#
-if !@isdefined(Finch)
-    include("../Finch.jl");
-    using .Finch
-end
+
+### If the Finch package has already been added, use this line #########
+using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+
+### If not, use these four lines (working from the examples directory) ###
+# if !@isdefined(Finch)
+#     include("../Finch.jl");
+#     using .Finch
+# end
+##########################################################################
+
 init_finch("dendrotest");
 
 useLog("dendrotestlog", level=3)

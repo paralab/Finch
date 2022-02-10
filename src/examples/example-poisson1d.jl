@@ -39,15 +39,15 @@ solve(u);
 
 # exact solution is sin(10*pi*x)*sin(pi*x)
 # check error
-maxerr = 0;
+allerr = zeros(size(Finch.grid_data.allnodes,2));
 exact(x) = sin(10*pi*x)*sin(pi*x);
 
 for i=1:size(Finch.grid_data.allnodes,2)
     x = Finch.grid_data.allnodes[1,i];
     err = abs(u.values[i] - exact(x));
-    global maxerr;
-    maxerr = max(err,maxerr);
+    allerr[i] = err;
 end
+maxerr = maximum(abs, allerr);
 println("max error = "*string(maxerr));
 
 # solution is stored in the variable's "values"
@@ -55,8 +55,8 @@ println("max error = "*string(maxerr));
 # pyplot();
 # display(plot(Finch.grid_data.allnodes[:], u.values[:], markershape=:circle, legend=false))
 
-# Dump things to the log if desired
-log_dump_config();
-log_dump_prob();
+# # Dump things to the log if desired
+# log_dump_config();
+# log_dump_prob();
 
 finalize_finch() # Finish writing and close any files

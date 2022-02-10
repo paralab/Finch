@@ -14,7 +14,7 @@ using Finch # Note: to add the package, first do: ]add "https://github.com/paral
 
 init_finch("unstruct2dtest");
 
-useLog("unstruct2dlog")
+useLog("unstruct2dlog", level=3)
 
 domain(2, grid=UNSTRUCTURED)
 functionSpace(order=2)

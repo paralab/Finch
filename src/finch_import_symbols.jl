@@ -6,7 +6,7 @@ finch_symbols_to_import = [
     #Constants
     :JULIA, :CPP, :MATLAB, :DENDRO, :HOMG, :CUSTOM_GEN_TARGET,
     :SQUARE, :IRREGULAR, :UNIFORM_GRID, :TREE, :UNSTRUCTURED, 
-    :CG, :DG, :HDG, :FV,
+    :CG, :DG, :HDG, :FV, :MIXED,
     :NODAL, :MODAL, :CELL, :LEGENDRE, :UNIFORM, :GAUSS, :LOBATTO, 
     :NONLINEAR_NEWTON, :NONLINEAR_SOMETHING, 
     :EULER_EXPLICIT, :EULER_IMPLICIT, :CRANK_NICHOLSON, :RK4, :LSRK4, :PECE, 
@@ -16,7 +16,7 @@ finch_symbols_to_import = [
     :MSH_V2, :MSH_V4,
     :SCALAR, :VECTOR, :TENSOR, :SYM_TENSOR, :VAR_ARRAY,
     :LHS, :RHS,
-    :LINEMESH, :QUADMESH, :HEXMESH,
+    :LINEMESH, :QUADMESH, :TRIMESH, :HEXMESH,
     
     #Structs
     :Variable, :Coefficient, :GenFunction, :CallbackFunction, :Indexer, :GeometricFactors, :VariableTransform,

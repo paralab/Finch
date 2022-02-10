@@ -167,3 +167,5 @@ include("CGSolver.jl");
 using .CGSolver
 include("FVSolver.jl");
 using .FVSolver
+include("MixedSolver.jl");
+using .MixedSolver

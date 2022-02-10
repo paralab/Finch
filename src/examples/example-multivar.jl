@@ -1,20 +1,27 @@
 #=
 # Tests multiple interdependent scalar variables.
 =#
-if !@isdefined(Finch)
-    include("../Finch.jl");
-    using .Finch
-end
+
+### If the Finch package has already been added, use this line #########
+using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+
+### If not, use these four lines (working from the examples directory) ###
+# if !@isdefined(Finch)
+#     include("../Finch.jl");
+#     using .Finch
+# end
+##########################################################################
+
 init_finch("multivar");
 
 # Try making an optional log
-@useLog("multivarlog")
+useLog("multivarlog", level=3)
 
 # Set up the configuration
 @domain(1)
 @functionSpace(LEGENDRE, 3)
 
-@matrixFree(200,1e-6)
+#@matrixFree(200,1e-6)
 
 # Build a simple mesh
 @mesh(LINEMESH, 30)
@@ -44,8 +51,8 @@ maxerrq = 0;
 exactu(x) = sin(2*pi*x);
 exactq(x) = sin(3*pi*x);
 
-for i=1:size(Finch.grid_data.allnodes,1)
-    x = Finch.grid_data.allnodes[i,1];
+for i=1:size(Finch.grid_data.allnodes,2)
+    x = Finch.grid_data.allnodes[1,i];
     erru = abs(u.values[i] - exactu(x));
     errq = abs(q.values[i] - exactq(x));
     global maxerru;

@@ -89,9 +89,21 @@ function build_FV_info(grid, order=1)
     return FVInfo(order, cell_centers, face_centers, cell2node, cell2nodeWeight);
 end
 
+# Interpolate nodal values for one cell.
+# For now this just assigns all nodes the cell average.
+# This shoould be improved eventually, but needs care to be efficient.
+function FV_cell_to_node(cell_value, grid)
+    return fill(cell_value, size(grid.loc2glb,1));
+end
+
+# Approximates a cell average by simply averaging nodal values.
+function FV_node_to_cell(node_values)
+    return sum(node_values)/length(node_values);
+end
+
 # Interpolate nodal values from neighboring cells.
 # Returns an array of nodal values.
-function FV_cell_to_node(cell_values, node_values; dofs = 1)
+function FV_cell_to_node_all(cell_values, node_values; dofs = 1)
     Nnodes = size(fv_grid.allnodes,2);
     if node_values === nothing
         node_values = zeros(Nnodes * dofs);
@@ -124,7 +136,7 @@ end
 
 # Find cell averages from nodal values
 # Returns an array of cell values.
-function FV_node_to_cell(node_values, cell_values = nothing)
+function FV_node_to_cell_all(node_values, cell_values = nothing)
     Ncells = size(fv_grid.loc2glb,2);
     if cell_values === nothing
         cell_values = zeros(Ncells);

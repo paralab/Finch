@@ -62,8 +62,8 @@ function domain(dims; shape=SQUARE, grid=UNIFORM_GRID)
     config.mesh_type = grid;
 end
 
-function solverType(type; backend=DEFAULT_SOLVER)
-    set_solver(type, backend);
+function solverType(method, backend=DEFAULT_SOLVER)
+    set_solver(method, backend);
 end
 
 function functionSpace(;space=LEGENDRE, order=0, orderMin=0, orderMax=0)
@@ -132,6 +132,15 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1])
         log_entry("Building simple quad mesh with nx*nx elements, nx="*string(elsperdim));
         meshtime = @elapsed(mshdat = simple_quad_mesh(elsperdim.+1, bids, interval));
         log_entry("Mesh building took "*string(meshtime)*" seconds");
+        
+    elseif msh == TRIMESH
+        if length(interval) == 2
+            interval = [interval[1], interval[2], interval[1], interval[2]];
+        end
+        log_entry("Building simple triangle mesh with nx*nx*2 elements, nx="*string(elsperdim));
+        meshtime = @elapsed(mshdat = simple_tri_mesh(elsperdim.+1, bids, interval));
+        log_entry("Mesh building took "*string(meshtime)*" seconds");
+        config.mesh_type = UNSTRUCTURED;
         
     elseif msh == HEXMESH
         if length(interval) == 2
@@ -226,11 +235,15 @@ function finiteVolumeOrder(order)
     set_parent_and_child(parent, child, order);
 end
 
-function variable(name, type=SCALAR, location=NODAL; index=nothing)
+function variable(name, type=SCALAR, location=NODAL; method=CG, index=nothing)
     varind = var_count + 1;
     varsym = Symbol(name);
+    # Not the default method?
+    if !(config.solver_type == MIXED) && !(config.solver_type == method)
+        method = config.solver_type;
+    end
     # Just make an empty variable with the info known so far.
-    var = Variable(varsym, [], varind, type, location, [], index, 0, [], false);
+    var = Variable(varsym, [], varind, type, location, method, [], index, 0, [], false);
     add_variable(var);
     return var;
 end
@@ -405,9 +418,11 @@ function weakForm(var, wf)
             push!(wfvars, var[vi].symbol);
             push!(wfex, Meta.parse((wf)[vi]));
         end
+        solver_type = var[1].discretization;
     else
         wfex = Meta.parse(wf);
         wfvars = var.symbol;
+        solver_type = var.discretization;
     end
     
     log_entry("Making weak form for variable(s): "*string(wfvars));
@@ -450,11 +465,11 @@ function weakForm(var, wf)
     end
     
     # change symbolic layer into code layer
-    (lhs_string, lhs_code) = generate_code_layer(lhs_symexpr, var, LHS, "volume", config.solver_type, language, gen_framework);
-    (rhs_string, rhs_code) = generate_code_layer(rhs_symexpr, var, RHS, "volume", config.solver_type, language, gen_framework);
+    (lhs_string, lhs_code) = generate_code_layer(lhs_symexpr, var, LHS, "volume", solver_type, language, gen_framework);
+    (rhs_string, rhs_code) = generate_code_layer(rhs_symexpr, var, RHS, "volume", solver_type, language, gen_framework);
     if length(result_exprs) == 4
-        (lhs_surf_string, lhs_surf_code) = generate_code_layer(lhs_surf_symexpr, var, LHS, "surface", config.solver_type, language, gen_framework);
-        (rhs_surf_string, rhs_surf_code) = generate_code_layer(rhs_surf_symexpr, var, RHS, "surface", config.solver_type, language, gen_framework);
+        (lhs_surf_string, lhs_surf_code) = generate_code_layer(lhs_surf_symexpr, var, LHS, "surface", solver_type, language, gen_framework);
+        (rhs_surf_string, rhs_surf_code) = generate_code_layer(rhs_surf_symexpr, var, RHS, "surface", solver_type, language, gen_framework);
         log_entry("Weak form, code layer: LHS = \n"*string(lhs_string)*"\nsurfaceLHS = \n"*string(lhs_surf_string)*" \nRHS = \n"*string(rhs_string)*"\nsurfaceRHS = \n"*string(rhs_surf_string));
     else
         log_entry("Weak form, code layer: LHS = \n"*string(lhs_string)*" \n  RHS = \n"*string(rhs_string));
@@ -1119,7 +1134,8 @@ function solve(var, nlvar=nothing; nonlinear=false)
             else
                 # solve it!
 				if (nonlinear)
-                	t = @elapsed(result = DGSolver.nonlinear_solve(var, nlvar, lhs, rhs, slhs, srhs));
+                	# t = @elapsed(result = DGSolver.nonlinear_solve(var, nlvar, lhs, rhs, slhs, srhs));
+                    printerr("Nonlinear solver not ready for DG");
                 else
                     t = @elapsed(result = DGSolver.linear_solve(var, lhs, rhs, slhs, srhs));
 				end
@@ -1177,6 +1193,76 @@ function solve(var, nlvar=nothing; nonlinear=false)
                 # does this make sense?
                 printerr("FV assumes time dependence. Set initial conditions etc.");
             end
+            
+        elseif config.solver_type == MIXED
+            # Need to determine the variable index for fe and fv
+            fe_var_index = 0;
+            fv_var_index = 0;
+            if typeof(var) <: Array
+                for vi=1:length(var)
+                    if var[vi].discretization == FV && fv_var_index == 0
+                        fv_var_index += var[vi].index;
+                    elseif fe_var_index == 0;
+                        fe_var_index += var[vi].index;
+                    end
+                end
+            else
+                # This shouldn't happen?
+                if var.discretization == FV
+                    fv_var_index = var.index;
+                else
+                    fe_var_index = var.index;
+                end
+            end
+            
+            vol_lhs = [];
+            vol_rhs = [];
+            surf_lhs = [];
+            surf_rhs = [];
+            if fe_var_index > 0
+                push!(vol_lhs, bilinears[fe_var_index]);
+                push!(vol_rhs, linears[fe_var_index]);
+                push!(surf_lhs, face_bilinears[fe_var_index]);
+                push!(surf_rhs, face_linears[fe_var_index]);
+            else
+                push!(vol_lhs, nothing);
+                push!(vol_rhs, nothing);
+                push!(surf_lhs, nothing);
+                push!(surf_rhs, nothing);
+            end
+            
+            if fv_var_index > 0
+                push!(vol_lhs, bilinears[fv_var_index]);
+                push!(vol_rhs, linears[fv_var_index]);
+                push!(surf_lhs, face_bilinears[fv_var_index]);
+                push!(surf_rhs, face_linears[fv_var_index]);
+            else
+                push!(vol_lhs, nothing);
+                push!(vol_rhs, nothing);
+                push!(surf_lhs, nothing);
+                push!(surf_rhs, nothing);
+            end
+            loop_func = assembly_loops[fv_var_index];
+            
+            if prob.time_dependent
+                time_stepper = init_stepper(grid_data.allnodes, time_stepper);
+                if use_specified_steps
+                    time_stepper.dt = specified_dt;
+				    time_stepper.Nsteps = specified_Nsteps;
+                end
+				if (nonlinear)
+                	printerr("Nonlinear solver not ready for mixed solver");
+                    return;
+				else
+                	t = @elapsed(result = solver.linear_solve(var, vol_lhs, vol_rhs, surf_lhs, surf_rhs, time_stepper, loop_func));
+				end
+                # result is already stored in variables
+                log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
+            else
+                # does this make sense?
+                printerr("FV assumes time dependence. Set initial conditions etc.");
+            end
+            
         end
     end
     

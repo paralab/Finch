@@ -1,37 +1,42 @@
 #=
-# 1D Poisson, Dirichlet bc
+# 2D Poisson, Dirichlet bc
 # CG, Linear element
 # Simplest test possible
 =#
-if !@isdefined(Finch)
-    include("../Finch.jl");
-    using .Finch
-end
+
+### If the Finch package has already been added, use this line #########
+using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+
+### If not, use these four lines (working from the examples directory) ###
+# if !@isdefined(Finch)
+#     include("../Finch.jl");
+#     using .Finch
+# end
+##########################################################################
+
 init_finch("poisson2d");
 
-# Try making an optional log
-@useLog("poisson2dlog")
+useLog("poisson2dlog", level=3)
 
 # Set up the configuration (order doesn't matter)
-@domain(2, SQUARE, UNIFORM_GRID)    # dimension, geometry, decomposition
-@solver(CG)                         # DG, CG, etc.
-@functionSpace(LEGENDRE, 1)         # function, order (or use testFunction and trialFunction)
-@nodes(LOBATTO)                     # elemental node arrangement
+domain(2)              # dimension
+functionSpace(order=2) # basis function polynomial order
 
 # Specify the problem
-@mesh(QUADMESH, [20,10], 1, [0,2,0,1])                   # .msh file or generate our own
+mesh(QUADMESH, elsperdim=[20,10], interval=[0,2,0,1])
 
-@variable(u)                        # same as @variable(u, SCALAR)
+variable("u")
+testSymbol("v")
 
-@testSymbol(v)                    # sets the symbol for a test function
-
-@boundary(u, 1, DIRICHLET, 0)
+boundary(u, 1, DIRICHLET, 0)
 
 # Write the weak form 
-@coefficient(f, "-2*pi*pi*sin(pi*x)*sin(pi*y)")
-@weakForm(u, "-dot(grad(u), grad(v)) - f*v")
+coefficient("f", "-2*pi*pi*sin(pi*x)*sin(pi*y)")
+weakForm(u, "-dot(grad(u), grad(v)) - f*v")
 
 solve(u);
+
+finalize_finch()
 
 # exact solution is sin(pi*x)*sin(pi*y)
 # check error
@@ -52,8 +57,4 @@ println("max error = "*string(maxerr));
 # pyplot();
 # display(plot(Finch.grid_data.allnodes[1,:], Finch.grid_data.allnodes[2,:], u.values[:], st=:surface))
 
-# check
-log_dump_config();
-log_dump_prob();
-
-@finalize()
+# output_values(u, "poisson2d", format="vtk");

@@ -4,7 +4,7 @@ Use string values to make printing/interpretation easier
 =#
 export JULIA, CPP, MATLAB, DENDRO, HOMG, CUSTOM_GEN_TARGET,
         SQUARE, IRREGULAR, UNIFORM_GRID, TREE, UNSTRUCTURED, 
-        CG, DG, HDG, FV,
+        CG, DG, HDG, FV, MIXED,
         NODAL, MODAL, CELL, LEGENDRE, UNIFORM, GAUSS, LOBATTO, 
         NONLINEAR_NEWTON, NONLINEAR_SOMETHING, 
         EULER_EXPLICIT, EULER_IMPLICIT, CRANK_NICHOLSON, RK4, LSRK4, PECE, 
@@ -14,7 +14,7 @@ export JULIA, CPP, MATLAB, DENDRO, HOMG, CUSTOM_GEN_TARGET,
         MSH_V2, MSH_V4,
         SCALAR, VECTOR, TENSOR, SYM_TENSOR, VAR_ARRAY,
         LHS, RHS,
-        LINEMESH, QUADMESH, HEXMESH
+        LINEMESH, QUADMESH, TRIMESH, HEXMESH
 
 # Targets for generated code
 const JULIA = "Julia";
@@ -38,6 +38,7 @@ const CG = "CG";
 const DG = "DG";
 const HDG = "HDG";
 const FV = "FV";
+const MIXED = "mixed";
 
 # Value type
 const NODAL = "nodal";
@@ -99,4 +100,5 @@ const RHS = "rhs";
 # simple mesh types
 const LINEMESH = "line_mesh";
 const QUADMESH = "quad_mesh";
+const TRIMESH = "tri_mesh";
 const HEXMESH = "hex_mesh";

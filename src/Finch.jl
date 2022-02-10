@@ -33,15 +33,20 @@ log_file = "";
 log_line_index = 1;
 #mesh
 mesh_data = nothing;    # The basic element information as read from a MSH file or generated here.
-grid_data = nothing;    # The full collection of nodes(including internal nodes) and other mesh info in the actual DOF ordering.
-geo_factors = nothing;  # Geometric factors
-fv_info = nothing;      # Finite volume info
-refel = nothing;        # Reference element (will eventually be an array of refels)
-fv_refel = nothing;        # Reference element for FV
 elemental_order = [];   # Determines the order of the elemental loops
+needed_grid_types = [false, false, false]; # [CG, DG, FV] true if that type is needed
+# FEM specific
+grid_data = nothing;    # The full collection of nodes(including internal nodes) and other mesh info in the actual DOF ordering.
+dg_grid_data = nothing; # This DG version is only made if using mixed CG/DG. Otherwise it is in grid_data.
+geo_factors = nothing;  # Geometric factors
+refel = nothing;        # Reference element(s?)
+# FVM specific
+fv_info = nothing;      # Finite volume info
+fv_refel = nothing;     # Reference element for FV
 parent_maps = nothing;  # For high order FV
-fv_grid = nothing;      # For high order FV
+fv_grid = nothing;      # Similar to grid_data, but only first order CG elements, and includes ghost info when partitioned.
 fv_geo_factors = nothing;# Geometric factors for FV
+
 #problem variables
 var_count = 0;
 variables = [];
@@ -99,7 +104,9 @@ function init_finch(name="unnamedProject")
     global use_log = false;
     global log_line_index = 1;
     global mesh_data = nothing;
+    global needed_grid_types = [false, false, false];
     global grid_data = nothing;
+    global dg_grid_data = nothing;
     global geo_factors = nothing;
     global fv_info = nothing;
     global refel = nothing;
@@ -188,18 +195,33 @@ function set_codegen_parameters(params)
     global codegen_params = params;
 end
 
-# Set the solver module and type
+# Set the needed discretizations and backend
 function set_solver(stype, backend)
-    config.solver_type = stype;
     config.linalg_backend = backend;
-    if stype == DG
+    if typeof(stype) <: Array
+        config.solver_type = MIXED;
+        global solver = MixedSolver;
+        for s in stype
+            if s == CG
+                global needed_grid_types[1] = true;
+            elseif s == DG
+                global needed_grid_types[2] = true;
+            elseif s == FV
+                global needed_grid_types[3] = true;
+            end
+        end
+    elseif stype == DG
+        config.solver_type = stype;
         global solver = DGSolver;
+        global needed_grid_types[2] = true;
     elseif stype == CG
+        config.solver_type = stype;
         global solver = CGSolver;
+        global needed_grid_types[1] = true;
     elseif stype == FV
+        config.solver_type = stype;
         global solver = FVSolver;
-        sourcedir = @__DIR__
-        add_custom_op_file(string(sourcedir)*"/fv_ops.jl");
+        global needed_grid_types[3] = true;
     end
     solver.init_solver();
     
@@ -247,7 +269,19 @@ end
 function add_mesh(mesh; partitions=0)
     global mesh_data = mesh;
     global refel;
+    global fv_refel;
     global grid_data;
+    global dg_grid_data;
+    global fv_grid;
+    global geo_factors;
+    global fv_geo_factors;
+    global fv_info;
+    global elemental_order;
+    
+    # If no method has been specified, assume CG
+    if !(needed_grid_types[1] || needed_grid_types[2] || needed_grid_types[3])
+        set_solver(CG, DEFAULT_SOLVER);
+    end
     
     if partitions==0
         np = config.num_procs; # By default each process gets a partition
@@ -272,10 +306,46 @@ function add_mesh(mesh; partitions=0)
         MPI.Bcast!(epart, 0, MPI.COMM_WORLD);
         
         # Each proc will build a subgrid containing only their elements and ghost neighbors.
-        (refel, grid_data) = partitioned_grid_from_mesh(mesh, epart);
+        # Make a Grid struct for each needed type
+        if needed_grid_types[1] # CG
+            (refel, grid_data) = partitioned_grid_from_mesh(mesh_data, epart, grid_type=CG, order=config.basis_order_min);
+        end
+        if needed_grid_types[2] # DG
+            if needed_grid_types[1] # CG also needed
+                (refel, dg_grid_data) = partitioned_grid_from_mesh(mesh_data, epart, grid_type=DG, order=config.basis_order_min);
+            else
+                (refel, grid_data) = partitioned_grid_from_mesh(mesh_data, epart, grid_type=DG, order=config.basis_order_min);
+            end
+        end
+        if needed_grid_types[3] # FV
+            (fv_refel, fv_grid) = partitioned_grid_from_mesh(mesh_data, epart, grid_type=FV, order=1);
+            # If only FV is used, also set grid_data and refel to this. Just in case.
+            if !(needed_grid_types[1] || needed_grid_types[2])
+                grid_data = fv_grid;
+                refel = fv_refel;
+            end
+        end
         
     else
-        (refel, grid_data) = grid_from_mesh(mesh_data);
+        # Make a Grid struct for each needed type
+        if needed_grid_types[1] # CG
+            (refel, grid_data) = grid_from_mesh(mesh_data, grid_type=CG, order=config.basis_order_min);
+        end
+        if needed_grid_types[2] # DG
+            if needed_grid_types[1] # CG also needed
+                (refel, dg_grid_data) = grid_from_mesh(mesh_data, grid_type=DG, order=config.basis_order_min);
+            else
+                (refel, grid_data) = grid_from_mesh(mesh_data, grid_type=DG, order=config.basis_order_min);
+            end
+        end
+        if needed_grid_types[3] # FV
+            (fv_refel, fv_grid) = grid_from_mesh(mesh_data, grid_type=FV, order=1);
+            # If only FV is used, also set grid_data and refel to this. Just in case.
+            if !(needed_grid_types[1] || needed_grid_types[2])
+                grid_data = fv_grid;
+                refel = fv_refel;
+            end
+        end
     end
     
     # regular parallel sided elements or simplexes have constant Jacobians, so only store one value per element.
@@ -289,14 +359,19 @@ function add_mesh(mesh; partitions=0)
     end
     do_faces = false;
     do_vol = false;
-    if config.solver_type == DG || config.solver_type == FV
+    if config.solver_type == DG || config.solver_type == FV || config.solver_type == MIXED
         do_faces = true;
     end
-    if config.solver_type == FV
+    if config.solver_type == FV || config.solver_type == MIXED
         do_vol = true;
     end
     
-    global geo_factors = build_geometric_factors(refel, grid_data, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
+    # FE version is always made?
+    geo_factors = build_geometric_factors(refel, grid_data, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
+    if needed_grid_types[3] # FV
+        fv_geo_factors = build_geometric_factors(fv_refel, fv_grid, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
+        fv_info = build_FV_info(fv_grid);
+    end
     
     log_entry("Added mesh with "*string(mesh_data.nx)*" vertices and "*string(mesh_data.nel)*" elements.", 1);
     if np > 1
@@ -305,22 +380,14 @@ function add_mesh(mesh; partitions=0)
             e_count[epart[ei]+1] += 1;
         end
         log_entry("Number of elements in each partition: "*string(e_count), 2);
+        log_entry("Full grid has "*string(length(grid_data.global_bdry_index))*" nodes.", 2);
         
     else
         log_entry("Full grid has "*string(size(grid_data.allnodes,2))*" nodes.", 2);
     end
     
-    
-    # If using FV, set up the FV_info
-    if config.solver_type == FV
-        global fv_grid = grid_data;
-        global fv_geo_factors = geo_factors;
-        global fv_refel = refel;
-        global fv_info = build_FV_info(grid_data);
-    end
-    
     # Set elemental loop ordering to match the order from the grid for now.
-    global elemental_order = 1:grid_data.nel_owned;
+    elemental_order = 1:grid_data.nel_owned;
 end
 
 # Write the mesh to a MSH file

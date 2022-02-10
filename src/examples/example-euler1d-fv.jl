@@ -32,15 +32,15 @@ if ord > 1
 end
 
 # Primitive variables
-r = variable("r", SCALAR, CELL)
-u = variable("u", SCALAR, CELL)
-p = variable("p", SCALAR, CELL)
+r = variable("r", location=CELL)
+u = variable("u", location=CELL)
+p = variable("p", location=CELL)
 U = [r, u, p];
 
 # Conserved variables
-q1 = variable("q1", SCALAR, CELL)
-q2 = variable("q2", SCALAR, CELL)
-q3 = variable("q3", SCALAR, CELL)
+q1 = variable("q1", location=CELL)
+q2 = variable("q2", location=CELL)
+q3 = variable("q3", location=CELL)
 Q = [q1, q2, q3];
 
 # Transformations between the variable sets
@@ -227,8 +227,8 @@ finalize_finch()
 
 ##### Uncomment below to plot
 
-# x = Finch.fv_info.cellCenters[:];
+x = Finch.fv_info.cellCenters[:];
 
-# using Plots
-# pyplot();
-# display(plot([x x x], [r.values[:] u.values[:] p.values[:]], markershape=:circle, label=["r" "u" "p"]))
+using Plots
+pyplot();
+display(plot([x x x], [r.values[:] u.values[:] p.values[:]], markershape=:circle, label=["r" "u" "p"]))

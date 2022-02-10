@@ -36,8 +36,8 @@ mesh(QUADMESH, elsperdim=n, bids=4)
 # finiteVolumeOrder(2);
 
 # Variables and BCs
-u1 = variable("u1", SCALAR, CELL) # will use symbolic upwind operator
-u2 = variable("u2", SCALAR, CELL) # will use callback with neighborhood
+u1 = variable("u1", location=CELL) # will use symbolic upwind operator
+u2 = variable("u2", location=CELL) # will use callback with neighborhood
 
 # This boundary provides a pulsing input through a small window on one side
 boundary(u1, 1, FLUX, "(abs(y-0.2) < 0.11 && sin(6*pi*t)>0) ? 1 : 0") # x=0
@@ -55,7 +55,7 @@ timeInterval(T)
 initial(u1, "0")
 initial(u2, "0")
 
-coefficient("a", ["cos(pi*x/2)","sin(pi*x/2)"], VECTOR) # advection velocity
+coefficient("a", ["cos(pi*x/2)","sin(pi*x/2)"], type=VECTOR) # advection velocity
 coefficient("s", "sin(pi*x)^4 * sin(pi*y)^4") # source
 
 # Here is the callback function for the flux that simply does first order upwinding.

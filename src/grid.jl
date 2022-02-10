@@ -67,11 +67,11 @@ etypetoftype=[0,1, 1, 2, 3, 3, 3, 0, 1, 1, 2, 3, 3, 3, 0, 0, 0, 0, 0]; # type of
 
 # Build a grid from a mesh
 # This is for full grids. For partitioned grids see partitioned_grid_from_mesh()
-function grid_from_mesh(mesh)
-    log_entry("Building full grid from mesh data", 2);
+function grid_from_mesh(mesh; grid_type=CG, order=1)
+    log_entry("Building full grid from mesh data. Types = "*string(grid_type), 2);
     t_grid_from_mesh = Base.Libc.time();
     dim = config.dimension;
-    ord = config.basis_order_min;
+    ord = order;
     nfaces = etypetonf[mesh.etypes[1]];
     #totalfaces = nfaces*mesh.nel;
     totalfaces = size(mesh.normals,2);
@@ -86,7 +86,7 @@ function grid_from_mesh(mesh)
     log_entry("Building reference element: "*string(dim)*"D, order="*string(ord)*", nfaces="*string(nfaces), 3);
     refel = build_refel(dim, ord, nfaces, config.elemental_nodes);
     
-    if config.solver_type == DG # || config.solver_type == FV ????
+    if grid_type == DG
         Gness = 2;
     else
         Gness = 1;
@@ -333,11 +333,11 @@ end
 #
 # For FV: only status 1 ghosts are needed.
 # For FE: all ghosts are needed.
-function partitioned_grid_from_mesh(mesh, epart)
+function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     log_entry("Building partitioned grid from mesh data", 2);
     t_grid_from_mesh = Base.Libc.time();
     dim = config.dimension;
-    ord = config.basis_order_min;
+    ord = order;
     nfaces = etypetonf[mesh.etypes[1]]; # faces per elements
     
     # Count the owned faces and owned/ghost elements
@@ -444,7 +444,7 @@ function partitioned_grid_from_mesh(mesh, epart)
             mesh2grid_face[fi] = owned_faces;
         end
     end
-    if config.solver_type == FV
+    if grid_type == FV
         nel = nel_owned + nel_face_ghost;
     else
         nel = nel_owned;
@@ -463,7 +463,7 @@ function partitioned_grid_from_mesh(mesh, epart)
             end
         end
     end
-    if config.solver_type == FV
+    if grid_type == FV
         totalfaces = owned_faces + ghost_faces;
     else
         totalfaces = owned_faces;
@@ -479,7 +479,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     log_entry("Building reference element: "*string(dim)*"D, order="*string(ord)*", nfaces="*string(nfaces), 3);
     refel = build_refel(dim, ord, nfaces, config.elemental_nodes);
     
-    if config.solver_type == DG
+    if grid_type == DG
         Gness = 2;
     else
         Gness = 1;
@@ -509,7 +509,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     
     grid2mesh = zeros(Int, nel); # maps partition elements to global mesh elements
     
-    if config.solver_type == FV
+    if grid_type == FV
         tmpallnodes = zeros(dim, nel*refel.Np);
         element_owners = fill(-1, nel) # partition number of each ghost, or -1 for owned elements
     else
@@ -524,8 +524,8 @@ function partitioned_grid_from_mesh(mesh, epart)
     t_nodes1 = Base.Libc.time();
     for ei=1:mesh.nel
         if (element_status[ei] == 0 || # owned
-            (element_status[ei] == 1 && config.solver_type == FV) || # face_ghost && FV
-            (element_status[ei] > 0 && !(config.solver_type == FV))) # any ghost && FE
+            (element_status[ei] == 1 && grid_type == FV) || # face_ghost && FV
+            (element_status[ei] > 0 && !(grid_type == FV))) # any ghost && FE
             # Find this element's nodes
             n_vert = etypetonv[mesh.etypes[ei]];
             e_vert = mesh.nodes[1:dim, mesh.elements[1:n_vert, ei]];
@@ -565,7 +565,7 @@ function partitioned_grid_from_mesh(mesh, epart)
             # temporary mapping
             loc2glb[:,next_index] = ((next_index-1)*Np+1):(next_index*Np);
             
-            if config.solver_type == FV
+            if grid_type == FV
                 grid2mesh[next_index] = ei;
                 
                 # ghost info
@@ -611,7 +611,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     next_g_index = nel_owned+1; #index for next ghost
     t_faces1 = Base.Libc.time();
     for ei=1:mesh.nel
-        if element_status[ei] == 0 || (element_status[ei] == 1 && config.solver_type == FV)# owned or (ghost && FV) element
+        if element_status[ei] == 0 || (element_status[ei] == 1 && grid_type == FV)# owned or (ghost && FV) element
             n_vert = etypetonv[mesh.etypes[ei]];
             mfids = mesh.element2face[:,ei];
             normals = mesh.normals[:,mfids];
@@ -763,7 +763,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     #### FV ONLY ####
     # Form ghost pairs for send/recv
     # First count how many pairs are needed for each neighbor
-    if config.solver_type == FV
+    if grid_type == FV
         ghost_counts = zeros(Int, num_neighbors)
         for fi=1:owned_faces
             e1 = face2element[1,fi];
@@ -839,7 +839,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     end#### FV ONLY ####
     
     #### FE ONLY ####
-    if !(config.solver_type == FV)
+    if !(grid_type == FV)
         # Build the nodal partition to global map.
         # This requires finding the number of nodes for all lower number partitions, which is a significant task.
         #
@@ -1155,7 +1155,7 @@ function partitioned_grid_from_mesh(mesh, epart)
     t_grid_from_mesh = Base.Libc.time() - t_grid_from_mesh;
     log_entry("Partitioned grid building time: "*string(t_grid_from_mesh), 2);
     
-    if config.solver_type == FV
+    if grid_type == FV
         return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
             true, nel_owned, nel_face_ghost, owned_faces, ghost_faces, 0, 0, element_owners, zeros(Int,0), grid2mesh, zeros(Int,0), 

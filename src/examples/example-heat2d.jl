@@ -14,14 +14,11 @@ using Finch # Note: to add the package, first do: ]add "https://github.com/paral
 
 init_finch("heat2d");
 
-# Optionally generate a log
 useLog("heat2dlog")
 
-# Set up the configuration (order doesn't matter)
+# Set up the configuration
 domain(2)                   # dimension
-solverType(CG)              # Use CG solver (default)
 functionSpace(order=2)      # basis polynomial order
-nodeType(LOBATTO)           # GLL elemental node arrangement (default)
 timeStepper(RK4)            # time stepper (optional second arg is CFL#)
 
 # Specify the problem
@@ -42,13 +39,10 @@ weakForm(u, "Dt(u*v) + 0.01 * dot(grad(u),grad(v)) - f*v")
 
 solve(u);
 
-# solution is stored in the variable's "values"
+## Uncomment below to plot ##
+# # solution is stored in the variable's "values"
 # using Plots
 # pyplot();
 # display(plot(Finch.grid_data.allnodes[1,:], Finch.grid_data.allnodes[2,:], u.values[:], st = :surface))
-
-# Dump things to the log if desired
-log_dump_config();
-log_dump_prob();
 
 finalize_finch() # Finish writing and close any files
