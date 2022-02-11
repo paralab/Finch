@@ -235,7 +235,7 @@ function finiteVolumeOrder(order)
     set_parent_and_child(parent, child, order);
 end
 
-function variable(name, type=SCALAR, location=NODAL; method=CG, index=nothing)
+function variable(name; type=SCALAR, location=NODAL, method=CG, index=nothing)
     varind = var_count + 1;
     varsym = Symbol(name);
     # Not the default method?
@@ -248,13 +248,13 @@ function variable(name, type=SCALAR, location=NODAL; method=CG, index=nothing)
     return var;
 end
 
-function coefficient(name, val, type=SCALAR, location=NODAL; element_array=false)
+function coefficient(name, val; type=SCALAR, location=NODAL, element_array=false)
     csym = Symbol(name);
     nfuns = makeFunctions(val); # if val is constant, nfuns will be 0
     return add_coefficient(csym, type, location, val, nfuns, element_array);
 end
 
-function parameter(name, val, type=SCALAR)
+function parameter(name, val; type=SCALAR)
     if length(parameters) == 0
         coefficient("parameterCoefficientForx", "x")
         coefficient("parameterCoefficientFory", "y")
@@ -282,7 +282,7 @@ function parameter(name, val, type=SCALAR)
     return add_parameter(Symbol(name), type, newval);
 end
 
-function testSymbol(symb, type=SCALAR)
+function testSymbol(symb; type=SCALAR)
     add_test_function(Symbol(symb), type);
 end
 

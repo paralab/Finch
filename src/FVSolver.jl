@@ -446,7 +446,7 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                                 facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                             elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
                                 # Set variable array and handle after the face loop
-                                var[vi].values[compo,eid] = FV_evaluate_bd(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
+                                var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
                             else
                                 printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
                             end
@@ -468,7 +468,7 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                             facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                         elseif prob.bc_type[var.index, fbid] == DIRICHLET
                             # Set variable array and handle after the face loop
-                            var.values[compo,eid] = FV_evaluate_bd(prob.bc_func[var.index, fbid][d], eid, fid, t);
+                            var.values[compo,eid] = FV_evaluate_bc(prob.bc_func[var.index, fbid][d], eid, fid, t);
                         else
                             printerr("Unsupported boundary condition type: "*prob.bc_type[var.index, fbid]);
                         end
@@ -607,7 +607,7 @@ function assemble_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allo
                                 # TODO How to modify LHS
                             elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
                                 # Set variable array and handle after the face loop
-                                var[vi].values[compo,eid] = FV_evaluate_bd(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
+                                var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
                             else
                                 printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
                             end
@@ -629,7 +629,7 @@ function assemble_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allo
                             facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                         elseif prob.bc_type[var.index, fbid] == DIRICHLET
                             # Set variable array and handle after the face loop
-                            var.values[compo,eid] = FV_evaluate_bd(prob.bc_func[var.index, fbid][d], eid, fid, t);
+                            var.values[compo,eid] = FV_evaluate_bc(prob.bc_func[var.index, fbid][d], eid, fid, t);
                         else
                             printerr("Unsupported boundary condition type: "*prob.bc_type[var.index, fbid]);
                         end
@@ -791,7 +791,7 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
                                     facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                                 elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
                                     # Set variable array and handle after the face loop
-                                    var[vi].values[compo,eid] = FV_evaluate_bd(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
+                                    var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
                                 else
                                     printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
                                 end
@@ -813,7 +813,7 @@ function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux
                                 facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                             elseif prob.bc_type[var.index, fbid] == DIRICHLET
                                 # Set variable array and handle after the face loop
-                                var.values[compo,eid] = FV_evaluate_bd(prob.bc_func[var.index, fbid][d], eid, fid, t);
+                                var.values[compo,eid] = FV_evaluate_bc(prob.bc_func[var.index, fbid][d], eid, fid, t);
                             else
                                 printerr("Unsupported boundary condition type: "*prob.bc_type[var.index, fbid]);
                             end

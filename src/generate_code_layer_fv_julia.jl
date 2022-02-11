@@ -297,11 +297,11 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                             piece_needed[8] = true; # normal
                         else
                             if cellside < 4
-                                code *= cname * " = sum(Finch.variables["*string(cval)*"].values["*indstr*", Finch.grid_data.face2glb[:,fid]]) / size(Finch.grid_data.face2glb, 1);\n";
+                                code *= cname * " = sum(Finch.variables["*string(cval)*"].values["*indstr*", Finch.grid_data.face2glb[:,1,fid]]) / size(Finch.grid_data.face2glb, 1);\n";
                             elseif cellside == 4 # neighborhood
                                 # This is a special case only for callback functions.
                                 # Rather than representing a value, it constructs a Neighborhood object to be passed.
-                                code *= cname * " = sum(Finch.variables["*string(cval)*"].values["*indstr*", Finch.grid_data.face2glb[:,fid]]) / size(Finch.grid_data.face2glb, 1);\n";
+                                code *= cname * " = sum(Finch.variables["*string(cval)*"].values["*indstr*", Finch.grid_data.face2glb[:,1,fid]]) / size(Finch.grid_data.face2glb, 1);\n";
                                 code *= cname * " = Finch.Neighborhood(els, cellx, ["*cname*", "*cname*"]);\n";
                                 piece_needed[4] = true; # cellx
                             end
