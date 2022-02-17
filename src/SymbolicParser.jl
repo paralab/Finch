@@ -7,7 +7,6 @@ export sp_parse, add_custom_op, add_custom_op_file, sym_var
 # See finch_import_symbols.jl for a list of all imported symbols.
 import ..Finch: @import_finch_symbols
 @import_finch_symbols()
-import ..Finch: reformat_for_stepper, reformat_for_stepper_fv, reformat_for_stepper_fv_flux, reformat_for_stepper_fv_source
 import ..Finch: build_symexpressions
 
 using SymEngine, LinearAlgebra
@@ -60,6 +59,7 @@ custom_ops = [];
 #####################################
 
 include("basic_ops.jl");
+include("symbolic_stepper_reformat.jl");
 
 # These are special function symbols that need to be defined.
 # They can be used in operators.
@@ -279,15 +279,19 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
     
     # If needed, reformat for time stepper
     if timederiv || is_FV
+        stepper_type = config.stepper;
         if is_FV
+            if stepper_type == MIXED_STEPPER && typeof(time_stepper) <: Array
+                stepper_type = time_stepper[2].type;
+            end
             # There is an assumed Dt(u) added which is the only time derivative.
             if is_flux
                 log_entry("flux, before modifying for time: "*string(lhs)*" - "*string(rhs));
-                (newlhs, newrhs) = reformat_for_stepper_fv_flux(lhs, rhs, config.stepper);
+                (newlhs, newrhs) = reformat_for_stepper_fv_flux(lhs, rhs, stepper_type);
                 log_entry("flux, modified for time stepping: "*string(newlhs)*" + "*string(newrhs));
             else # source
                 log_entry("source, before modifying for time: "*string(lhs)*" - "*string(rhs));
-                (newlhs, newrhs) = reformat_for_stepper_fv_source(lhs, rhs, config.stepper);
+                (newlhs, newrhs) = reformat_for_stepper_fv_source(lhs, rhs, stepper_type);
                 log_entry("source, modified for time stepping: "*string(newlhs)*" + "*string(newrhs));
             end
             # Parse Basic->Expr and insert placeholders
@@ -299,9 +303,12 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
             rhs = rhs_symexpr;
             
         else # FE
+            if stepper_type == MIXED_STEPPER && typeof(time_stepper) <: Array
+                stepper_type = time_stepper[1].type;
+            end
             if has_surface
                 log_entry("Weak form, before modifying for time: Dt("*string(dtlhs)*") + "*string(lhs)*" + surface("*string(surflhs)*") = "*string(rhs)*" + surface("*string(surfrhs)*")");
-                (newlhs, newrhs, newsurflhs, newsurfrhs) = reformat_for_stepper((dtlhs, lhs), rhs, surflhs, surfrhs, config.stepper);
+                (newlhs, newrhs, newsurflhs, newsurfrhs) = reformat_for_stepper((dtlhs, lhs), rhs, surflhs, surfrhs, stepper_type);
                 log_entry("Weak form, modified for time stepping: "*string(newlhs)*" + surface("*string(newsurflhs)*") = "*string(newrhs)*" + surface("*string(newsurfrhs)*")");
                 # Parse Basic->Expr and insert placeholders
                 newlhs = basic_to_expr_and_place(newlhs, placeholders)
@@ -316,7 +323,7 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
                 surfrhs = rhs_surf_symexpr;
             else # no surface
                 log_entry("Weak form, before modifying for time: Dt("*string(dtlhs)*") + "*string(lhs)*" = "*string(rhs));
-                (newlhs, newrhs) = reformat_for_stepper((dtlhs, lhs), rhs, config.stepper);
+                (newlhs, newrhs) = reformat_for_stepper((dtlhs, lhs), rhs, stepper_type);
                 log_entry("Weak form, modified for time stepping: "*string(newlhs)*" = "*string(newrhs));
                 # Parse Basic->Expr and insert placeholders
                 newlhs = basic_to_expr_and_place(newlhs, placeholders)

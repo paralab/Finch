@@ -19,7 +19,13 @@ useLog("fefv1dlog")
 # Configuration setup
 domain(1)
 solverType([CG,FV])
-timeStepper(EULER_EXPLICIT)
+
+# Select one of these time stepper setups. First type is for FE, second for FV. They are same if only one is given.
+# timeStepper(EULER_EXPLICIT)
+# timeStepper([EULER_IMPLICIT, EULER_EXPLICIT])
+# timeStepper([RK4, EULER_EXPLICIT])
+# timeStepper([CRANK_NICHOLSON, EULER_EXPLICIT])
+timeStepper([LSRK4, LSRK4])
 
 # Mesh
 n = 40 # number of elements
@@ -56,15 +62,15 @@ solve([u,w])
 finalize_finch()
 
 ##### Uncomment below to plot
-xc = Finch.fv_info.cellCenters[:];
-xn = Finch.grid_data.allnodes[1,:];
-nnodes = length(xn); # The initial condition
-u0 = zeros(nnodes);
-for i=1:nnodes
-    u0[i] = sin(2*pi*xn[i])^4
-end
+# xc = Finch.fv_info.cellCenters[:];
+# xn = Finch.grid_data.allnodes[1,:];
+# nnodes = length(xn); # The initial condition
+# u0 = zeros(nnodes);
+# for i=1:nnodes
+#     u0[i] = sin(2*pi*xn[i])^4
+# end
 
-using Plots
-pyplot();
-display(plot([xn xn], [u0 u.values[:]], markershape=:circle, label=["initial" "u, t="*string(T)]))
-plot!(xc, w.values[:], markershape=:square, label="w, t="*string(T))
+# using Plots
+# pyplot();
+# display(plot([xn xn], [u0 u.values[:]], markershape=:circle, label=["initial" "u, t="*string(T)]))
+# plot!(xc, w.values[:], markershape=:square, label="w, t="*string(T))

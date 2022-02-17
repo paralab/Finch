@@ -11,6 +11,7 @@ using LinearAlgebra, SparseArrays
 import ..Finch: @import_finch_symbols
 @import_finch_symbols()
 
+include("mixed_time_step.jl");
 include("fe_boundary.jl");
 include("fv_boundary.jl");
 include("cg_matrixfree.jl");
@@ -32,25 +33,16 @@ function init_solver()
     global post_step_function = default_post_step;
 end
 
-# The inputs vol_lhs, vol_rhs, etc. are split into two-piece arrays: [FE_piece, FV_piece]
+# The input should be in arrays like [fe_version, fv_version]
 function linear_solve(var, vol_lhs, vol_rhs, surf_lhs, surf_rhs, stepper=nothing, assemble_func=nothing)
-    # Treat explicit and implicit solvers differently
-    if stepper === nothing
-        printerr("FV assumes a time dependent problem. Set time stepper and initial conditions.", fatal=true)
-    elseif stepper.implicit
-        printerr("FV only ready for explicit stepper", fatal=true);
-    else # explicit
-        return linear_solve_explicit(var, vol_lhs, vol_rhs, surf_lhs, surf_rhs, stepper, assemble_func)
-    end
-end
-
-# The explicit version first steps the FV variables(no linear solve needed) then 
-# assembles and solves for the FE variables.
-function linear_solve_explicit(var, vol_lhs, vol_rhs, surf_lhs, surf_rhs, stepper, assemble_func)
     # if config.linalg_matrixfree
     #     return solve_matrix_free_sym(var, bilinear, linear, stepper, assemble_func=assemble_func);
     #     #return solve_matrix_free_asym(var, bilinear, linear, stepper);
     # end
+    
+    if stepper === nothing
+        printerr("FV assumes a time dependent problem. Set time stepper and initial conditions.", fatal=true)
+    end
     
     # Separate FE and FV variables
     # These should both have at least one var
@@ -92,6 +84,22 @@ function linear_solve_explicit(var, vol_lhs, vol_rhs, surf_lhs, surf_rhs, steppe
         end
     end
     
+    if typeof(stepper) <: Array
+        fe_stepper = stepper[1];
+        fv_stepper = stepper[2];
+    else
+        fe_stepper = stepper;
+        fv_stepper = stepper;
+    end
+    
+    if typeof(assemble_func) <: Array
+        fe_assemble_func = assemble_func[1];
+        fv_assemble_func = assemble_func[2];
+    else
+        fe_assemble_func = assemble_func;
+        fv_assemble_func = assemble_func;
+    end
+    
     #########################################
     # FE parts
     N1 = size(grid_data.allnodes,2);
@@ -130,13 +138,13 @@ function linear_solve_explicit(var, vol_lhs, vol_rhs, surf_lhs, surf_rhs, steppe
     
     # First assemble LHS
     assemble_t = @elapsed begin
-                    (A, b) = assemble(fe_var, vol_lhs[1], vol_rhs[1], allocated_vecs, dofs_per_node_fe, dofs_per_loop_fe, 0, stepper.dt, assemble_loops=assemble_func);
+                    (A, b) = assemble(fe_var, vol_lhs[1], vol_rhs[1], allocated_vecs, dofs_per_node_fe, dofs_per_loop_fe, 0, fe_stepper.dt, assemble_loops=fe_assemble_func);
                     (A, b) = gather_system(A, b, N1, dofs_per_node_fe, b_order, b_sizes);
                 end
     
     log_entry("Initial assembly took "*string(assemble_t)*" seconds");
 
-    log_entry("Beginning "*string(stepper.Nsteps)*" time steps.");
+    log_entry("Beginning "*string(fe_stepper.Nsteps)*" time steps.");
     t = 0;
     fe_sol = get_var_vals(fe_var);
     if config.num_partitions > 1 exchange_ghosts(fv_var, fv_grid, 0); end
@@ -149,244 +157,312 @@ function linear_solve_explicit(var, vol_lhs, vol_rhs, surf_lhs, surf_rhs, steppe
     last10update = 0;
     
     # allocate any temporary storage needed by steppers
-    if stepper.type == LSRK4
+    if fe_stepper.type == LSRK4
         tmppi = zeros(size(b));
         tmpki = zeros(size(b));
-        fv_tmppi = zeros(size(fv_sol));
-        fv_tmpki = zeros(size(fv_sol));
-    elseif stepper.stages > 1
+        fe_storage = (A, b, fe_sol, allocated_vecs, b_order, b_sizes, tmppi, tmpki);
+        perform_fe_time_step = mixed_lsrk4_step;
+        
+    elseif fe_stepper.type == RK4
         tmpresult = zeros(size(b));
-        tmpki = zeros(length(b), stepper.stages);
-        fv_tmpvals = zeros(size(fv_sol));
-        fv_tmpki = zeros(length(fv_sol), stepper.stages);
+        tmpki = zeros(length(b), fe_stepper.stages);
+        fe_storage = (A, b, fe_sol, allocated_vecs, b_order, b_sizes, tmpresult, tmpki);
+        perform_fe_time_step = mixed_rk4_step;
+        
+    elseif fe_stepper.type == EULER_EXPLICIT
+        fe_storage = (A, b, fe_sol, allocated_vecs, b_order, b_sizes);
+        perform_fe_time_step = mixed_euler_explicit_step;
+        
+    elseif fe_stepper.type == EULER_IMPLICIT
+        fe_storage = (A, b, fe_sol, allocated_vecs, b_order, b_sizes);
+        perform_fe_time_step = mixed_euler_implicit_step;
+        
+    elseif fe_stepper.type == CRANK_NICHOLSON
+        fe_storage = (A, b, fe_sol, allocated_vecs, b_order, b_sizes);
+        perform_fe_time_step = mixed_crank_nicholson_step;
+        
+    elseif fe_stepper.stages > 1
+        tmpresult = zeros(size(b));
+        tmpki = zeros(length(b), fe_stepper.stages);
+        fe_storage = (A, b, fe_sol, allocated_vecs, b_order, b_sizes, tmpresult, tmpki);
+        perform_fe_time_step = mixed_multistage_step;
     end
     
+    # same for FV
+    if fv_stepper.type == LSRK4
+        fv_tmppi = zeros(size(fv_sol));
+        fv_tmpki = zeros(size(fv_sol));
+        fv_storage = (fv_sol, fv_allocated_vecs, fv_tmppi, fv_tmpki);
+        perform_fv_time_step = mixed_lsrk4_step;
+        
+    elseif fv_stepper.type == RK4
+        fv_tmpvals = zeros(size(fv_sol));
+        fv_tmpki = zeros(length(fv_sol), fv_stepper.stages);
+        fv_storage = (fv_sol, fv_allocated_vecs, fv_tmpvals, fv_tmpki);
+        perform_fv_time_step = mixed_rk4_step;
+        
+    elseif fv_stepper.type == EULER_EXPLICIT
+        fv_storage = (fv_sol, fv_allocated_vecs);
+        perform_fv_time_step = mixed_euler_explicit_step;
+        
+    elseif fv_stepper.type == EULER_IMPLICIT
+        # perform_fv_time_step = mixed_euler_implicit_step;
+        printerr("implicit stepper not ready for FV", fatal=true)
+        
+    elseif fv_stepper.type == CRANK_NICHOLSON
+        # perform_fv_time_step = mixed_crank_nicholson_step;
+        printerr("implicit stepper not ready for FV", fatal=true)
+        
+    elseif fv_stepper.stages > 1
+        fv_tmpvals = zeros(size(fv_sol));
+        fv_tmpki = zeros(length(fv_sol), fv_stepper.stages);
+        fv_storage = (fv_sol, fv_allocated_vecs, fv_tmpvals, fv_tmpki);
+        perform_fv_time_step = mixed_multistage_step;
+    end
+    
+    # Info to be passed to step functions
+    step_info = (fe_stepper, fv_stepper, dofs_per_node_fe, dofs_per_loop_fe, fe_assemble_func, dofs_per_node_fv, dofs_per_loop_fv, fv_assemble_func);
+    
+    # The time step loop
     print("Time stepping progress(%): 0");
-    for i=1:stepper.Nsteps
-        if stepper.stages > 1
-            # LSRK4 is a special case, low storage
-            if stepper.type == LSRK4
-                # Low storage RK4: 
-                # p0 = u
-                #   ki = ai*k(i-1) + dt*f(p(i-1), t+ci*dt)
-                #   pi = p(i-1) + bi*ki
-                # u = p5
-                
-                tmppi = get_var_vals(fe_var, tmppi);
-                fv_tmppi = get_var_vals(fv_var, fv_tmppi);
-                for rki=1:stepper.stages
-                    rktime = t + stepper.c[rki]*stepper.dt;
-                    # p(i-1) is currently in u
-                    if config.num_partitions > 1 exchange_ghosts(fv_var, fv_grid, i); end
-                    pre_step_function();
-                    
-                    ### First step the FE part #######################################################################################
-                    assemble_t += @elapsed begin
-                                        b = assemble(fe_var, nothing, vol_rhs[1], allocated_vecs, dofs_per_node_fe, dofs_per_loop_fe, rktime, stepper.dt; rhs_only = true, assemble_loops=assemble_func);
-                                        b = gather_system(nothing, b, N1, dofs_per_node_fe, b_order, b_sizes);
-                                    end
-                    
-                    linsolve_t += @elapsed(fe_sol = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node_fe, b_order, b_sizes));
-                    
-                    # At this point sol holds the boundary values
-                    # directly write them to the variable values and zero sol.
-                    copy_bdry_vals_to_variables(fe_var, fe_sol, grid_data, dofs_per_node_fe, zero_vals=true);
-                    
-                    if rki == 1 # because a1 == 0
-                        tmpki = stepper.dt .* fe_sol;
-                    else
-                        tmpki = stepper.a[rki].*tmpki + stepper.dt.*fe_sol;
-                    end
-                    tmppi = tmppi + stepper.b[rki].*tmpki
-                    
-                    copy_bdry_vals_to_vector(fe_var, tmppi, grid_data, dofs_per_node_fe);
-                    place_sol_in_vars(fe_var, tmppi, stepper);
-                    
-                    ### Then step the FV part ######################################################################################
-                    fv_sol = fv_assemble(fv_var, vol_lhs[2], vol_rhs[2], surf_lhs[2], surf_rhs[2], fv_allocated_vecs, dofs_per_node_fv, dofs_per_loop_fv, rktime, stepper.dt, assemble_loops=assemble_func);
-                        
-                    if rki == 1 # because a1 == 0
-                        fv_tmpki = stepper.dt .* fv_sol;
-                    else
-                        fv_tmpki = stepper.a[rki].*fv_tmpki + stepper.dt.*fv_sol;
-                    end
-                    fv_tmppi = fv_tmppi + stepper.b[rki].*fv_tmpki
-                    
-                    FV_copy_bdry_vals_to_vector(fv_var, fv_tmppi, fv_grid, dofs_per_node_fv);
-                    place_sol_in_vars(fv_var, fv_tmppi, stepper);
-                    
-                    post_step_function();
-                end
-                
-            else
-                # Explicit multi-stage methods: 
-                # x = x + dt*sum(bi*ki)
-                # ki = rhs(t+ci*dt, x+dt*sum(aij*kj)))   j < i
-                
-                # solution will be placed in var.values for each stage
-                for stage=1:stepper.stages
-                    stime = t + stepper.c[stage]*stepper.dt;
-                    
-                    # Update the values in vars to be used in this stage
-                    if stage > 1
-                        initialized_tmpresult = false;
-                        for j=1:stage
-                            if stepper.a[stage, j] > 0
-                                if !initialized_tmpresult
-                                    initialized_tmpresult = true;
-                                    for k=1:length(fe_sol)
-                                        tmpresult[k] = fe_sol[k] + stepper.dt * stepper.a[stage, j] * tmpki[k,j];
-                                    end
-                                    for k=1:length(fv_sol)
-                                        fv_tmpresult[k] = fv_sol[k] + stepper.dt * stepper.a[stage, j] * fv_tmpki[k,j];
-                                    end
-                                else
-                                    for k=1:length(fe_sol)
-                                        tmpresult[k] += stepper.dt * stepper.a[stage, j] * tmpki[k,j];
-                                    end
-                                    for k=1:length(fv_sol)
-                                        fv_tmpresult[k] += stepper.dt * stepper.a[stage, j] * fv_tmpki[k,j];
-                                    end
-                                end
-                            end
-                        end
-                        
-                        if initialized_tmpresult
-                            copy_bdry_vals_to_vector(fe_var, tmpresult, grid_data, dofs_per_node_fe);
-                            place_sol_in_vars(fe_var, tmpresult, stepper);
-                            FV_copy_bdry_vals_to_vector(fv_var, fv_tmpresult, fv_grid, dofs_per_node_fv);
-                            place_sol_in_vars(fv_var, fv_tmpresult, stepper);
-                        end
-                        post_step_function(); # seems weird, but imagine this is happening after stage-1
-                    end
-                    
-                    if config.num_partitions > 1 exchange_ghosts(fv_var, fv_grid, i); end
-                    pre_step_function();
-                    
-                    ### First step the FE part #######################################################################################
-                    assemble_t += @elapsed begin
-                                        b = assemble(fe_var, nothing, vol_rhs[1], allocated_vecs, dofs_per_node_fe, dofs_per_loop_fe, stime, stepper.dt; rhs_only = true, assemble_loops=assemble_func);
-                                        b = gather_system(nothing, b, N1, dofs_per_node_fe, b_order, b_sizes);
-                                    end
-                    
-                    linsolve_t += @elapsed(tmpki[:,stage] = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node_fe, b_order, b_sizes));
-                    
-                    # At this point tmpki[:,stage] holds the boundary values
-                    # directly write them to the variable values and zero sol.
-                    copy_bdry_vals_to_variables(fe_var, tmpki[:,stage], grid_data, dofs_per_node_fe, zero_vals=true);
-                    
-                    ### Then step the FV part ######################################################################################
-                    tmpki[:,stage] = fv_assemble(fv_var, vol_lhs[2], vol_rhs[2], surf_lhs[2], surf_rhs[2], fv_allocated_vecs, dofs_per_node_fv, dofs_per_loop_fv, stime, stepper.dt, assemble_loops=assemble_func);
-                    
-                end
-                for stage=1:stepper.stages
-                    fe_sol += stepper.dt * stepper.b[stage] .* tmpki[:, stage];
-                    fv_sol += stepper.dt * stepper.b[stage] .* fv_tmpki[:, stage];
-                end
-                copy_bdry_vals_to_vector(fe_var, fe_sol, grid_data, dofs_per_node_fe);
-                FV_copy_bdry_vals_to_vector(fv_var, fv_sol, fv_grid, dofs_per_node_fv);
-                place_sol_in_vars(fe_var, fe_sol, stepper);
-                place_sol_in_vars(fv_var, fv_sol, stepper);
-                
-                post_step_function();
-            end
-            
-        elseif stepper.type == EULER_EXPLICIT
-            if config.num_partitions > 1 exchange_ghosts(fv_var, fv_grid, i); end
-            pre_step_function();
-            
-            ### First step the FE part #######################################################################################
-            assemble_t += @elapsed begin
-                                        b = assemble(fe_var, nothing, vol_rhs[1], allocated_vecs, dofs_per_node_fe, dofs_per_loop_fe, t, stepper.dt; rhs_only = true, assemble_loops=assemble_func);
-                                        b = gather_system(nothing, b, N1, dofs_per_node_fe, b_order, b_sizes);
-                                    end
-            
-            linsolve_t += @elapsed(tmpvec = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node_fe, b_order, b_sizes));
-            
-            # At this point tmpvec holds the boundary values
-            # directly write them to the variable values and zero sol.
-            copy_bdry_vals_to_variables(fe_var, tmpvec, grid_data, dofs_per_node_fe, zero_vals=true);
-            
-            fe_sol = fe_sol .+ stepper.dt .* tmpvec;
-            
-            copy_bdry_vals_to_vector(fe_var, fe_sol, grid_data, dofs_per_node_fe);
-            place_sol_in_vars(fe_var, fe_sol, stepper);
-            
-            ### Then step the FV part ######################################################################################
-            fv_sol = fv_sol .+ stepper.dt .*fv_assemble(fv_var, vol_lhs[2], vol_rhs[2], surf_lhs[2], surf_rhs[2], fv_allocated_vecs, dofs_per_node_fv, dofs_per_loop_fv, t, stepper.dt, assemble_loops=assemble_func);
-            
-            FV_copy_bdry_vals_to_vector(fv_var, fv_sol, fv_grid, dofs_per_node_fv);
-            place_sol_in_vars(fv_var, fv_sol, stepper);
-            
-            post_step_function();
-            
-        elseif stepper.type == PECE
-            # Predictor (explicit Euler)
-            if config.num_partitions > 1 exchange_ghosts(fv_var, fv_grid, i); end
-            pre_step_function();
-            
-            ### First step the FE part #######################################################################################
-            assemble_t += @elapsed begin
-                                        b = assemble(fe_var, nothing, vol_rhs[1], allocated_vecs, dofs_per_node_fe, dofs_per_loop_fe, t, stepper.dt; rhs_only = true, assemble_loops=assemble_func);
-                                        b = gather_system(nothing, b, N1, dofs_per_node_fe, b_order, b_sizes);
-                                    end
-            
-            linsolve_t += @elapsed(fe_tmpsol = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node_fe, b_order, b_sizes));
-            
-            # At this point fe_tmpsol holds the boundary values
-            # directly write them to the variable values and zero sol.
-            copy_bdry_vals_to_variables(fe_var, fe_tmpsol, grid_data, dofs_per_node_fe, zero_vals=true);
-            
-            fe_tmpsol = fe_sol .+ stepper.dt .* fe_tmpsol;
-            
-            copy_bdry_vals_to_vector(fe_var, fe_tmpsol, grid_data, dofs_per_node_fe);
-            place_sol_in_vars(fe_var, fe_tmpsol, stepper);
-            
-            ### Then step the FV part ######################################################################################
-            fv_tmpsol = fv_sol .+ stepper.dt .*fv_assemble(fv_var, vol_lhs[2], vol_rhs[2], surf_lhs[2], surf_rhs[2], fv_allocated_vecs, dofs_per_node_fv, dofs_per_loop_fv, t, stepper.dt, assemble_loops=assemble_func);
-            
-            FV_copy_bdry_vals_to_vector(fv_var, fv_tmpsol, fv_grid, dofs_per_node_fv);
-            place_sol_in_vars(fv_var, fv_tmpsol, stepper);
-            
-            post_step_function();
-            
-            # Corrector (implicit Euler)
-            if config.num_partitions > 1 exchange_ghosts(fv_var, fv_grid, i); end
-            pre_step_function();
-            
-            ### First step the FE part #######################################################################################
-            assemble_t += @elapsed begin
-                b = assemble(fe_var, nothing, vol_rhs[1], allocated_vecs, dofs_per_node_fe, dofs_per_loop_fe, t+stepper.dt, stepper.dt; rhs_only = true, assemble_loops=assemble_func);
-                b = gather_system(nothing, b, N1, dofs_per_node_fe, b_order, b_sizes);
-            end
-
-            linsolve_t += @elapsed(fe_tmpsol = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node_fe, b_order, b_sizes));
-
-            # At this point fe_tmpsol holds the boundary values
-            # directly write them to the variable values and zero sol.
-            copy_bdry_vals_to_variables(fe_var, fe_tmpsol, grid_data, dofs_per_node_fe, zero_vals=true);
-
-            fe_sol = fe_sol .+ stepper.dt .* fe_tmpsol;
-
-            copy_bdry_vals_to_vector(fe_var, fe_sol, grid_data, dofs_per_node_fe);
-            place_sol_in_vars(fe_var, fe_sol, stepper);
-
-            ### Then step the FV part ######################################################################################
-            fv_sol = fv_sol .+ stepper.dt .*fv_assemble(fv_var, vol_lhs[2], vol_rhs[2], surf_lhs[2], surf_rhs[2], fv_allocated_vecs, dofs_per_node_fv, dofs_per_loop_fv, t+stepper.dt, stepper.dt, assemble_loops=assemble_func);
-
-            FV_copy_bdry_vals_to_vector(fv_var, fv_sol, fv_grid, dofs_per_node_fv);
-            place_sol_in_vars(fv_var, fv_sol, stepper);
-
-            post_step_function();
-            
-        else
-            printerr("Unknown explicit stepper: "*string(stepper.type))
-            return sol;
-        end
+    for i=1:fe_stepper.Nsteps
         
-        t += stepper.dt;
+        (at, lt) = perform_fe_time_step(fe_var, nothing, vol_lhs, vol_rhs, surf_lhs, surf_rhs, t, step_info, fe_storage, nothing);
+        assemble_t += at;
+        linsolve_t += lt;
         
-        progressPercent = Int(floor(i*100.0/stepper.Nsteps));
+        (at, lt) = perform_fv_time_step(nothing, fv_var, vol_lhs, vol_rhs, surf_lhs, surf_rhs, t, step_info, nothing, fv_storage);
+        assemble_t += at;
+        linsolve_t += lt;
+        
+        
+        
+        # This will be removed eventually, but keep it here for now.
+        
+        # if stepper.stages > 1
+        #     # LSRK4 is a special case, low storage
+        #     if stepper.type == LSRK4
+        #         # Low storage RK4: 
+        #         # p0 = u
+        #         #   ki = ai*k(i-1) + dt*f(p(i-1), t+ci*dt)
+        #         #   pi = p(i-1) + bi*ki
+        #         # u = p5
+                
+        #         tmppi = get_var_vals(fe_var, tmppi);
+        #         fv_tmppi = get_var_vals(fv_var, fv_tmppi);
+        #         for rki=1:stepper.stages
+        #             rktime = t + stepper.c[rki]*stepper.dt;
+        #             # p(i-1) is currently in u
+        #             if config.num_partitions > 1 exchange_ghosts(fv_var, fv_grid, i); end
+        #             pre_step_function();
+                    
+        #             ### First step the FE part #######################################################################################
+        #             assemble_t += @elapsed begin
+        #                                 b = assemble(fe_var, nothing, vol_rhs[1], allocated_vecs, dofs_per_node_fe, dofs_per_loop_fe, rktime, stepper.dt; rhs_only = true, assemble_loops=assemble_func);
+        #                                 b = gather_system(nothing, b, N1, dofs_per_node_fe, b_order, b_sizes);
+        #                             end
+                    
+        #             linsolve_t += @elapsed(fe_sol = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node_fe, b_order, b_sizes));
+                    
+        #             # At this point sol holds the boundary values
+        #             # directly write them to the variable values and zero sol.
+        #             copy_bdry_vals_to_variables(fe_var, fe_sol, grid_data, dofs_per_node_fe, zero_vals=true);
+                    
+        #             if rki == 1 # because a1 == 0
+        #                 tmpki = stepper.dt .* fe_sol;
+        #             else
+        #                 tmpki = stepper.a[rki].*tmpki + stepper.dt.*fe_sol;
+        #             end
+        #             tmppi = tmppi + stepper.b[rki].*tmpki
+                    
+        #             copy_bdry_vals_to_vector(fe_var, tmppi, grid_data, dofs_per_node_fe);
+        #             place_sol_in_vars(fe_var, tmppi, stepper);
+                    
+        #             ### Then step the FV part ######################################################################################
+        #             fv_sol = fv_assemble(fv_var, vol_lhs[2], vol_rhs[2], surf_lhs[2], surf_rhs[2], fv_allocated_vecs, dofs_per_node_fv, dofs_per_loop_fv, rktime, stepper.dt, assemble_loops=assemble_func);
+                        
+        #             if rki == 1 # because a1 == 0
+        #                 fv_tmpki = stepper.dt .* fv_sol;
+        #             else
+        #                 fv_tmpki = stepper.a[rki].*fv_tmpki + stepper.dt.*fv_sol;
+        #             end
+        #             fv_tmppi = fv_tmppi + stepper.b[rki].*fv_tmpki
+                    
+        #             FV_copy_bdry_vals_to_vector(fv_var, fv_tmppi, fv_grid, dofs_per_node_fv);
+        #             place_sol_in_vars(fv_var, fv_tmppi, stepper);
+                    
+        #             post_step_function();
+        #         end
+                
+        #     else
+        #         # Explicit multi-stage methods: 
+        #         # x = x + dt*sum(bi*ki)
+        #         # ki = rhs(t+ci*dt, x+dt*sum(aij*kj)))   j < i
+                
+        #         # solution will be placed in var.values for each stage
+        #         for stage=1:stepper.stages
+        #             stime = t + stepper.c[stage]*stepper.dt;
+                    
+        #             # Update the values in vars to be used in this stage
+        #             if stage > 1
+        #                 initialized_tmpresult = false;
+        #                 for j=1:stage
+        #                     if stepper.a[stage, j] > 0
+        #                         if !initialized_tmpresult
+        #                             initialized_tmpresult = true;
+        #                             for k=1:length(fe_sol)
+        #                                 tmpresult[k] = fe_sol[k] + stepper.dt * stepper.a[stage, j] * tmpki[k,j];
+        #                             end
+        #                             for k=1:length(fv_sol)
+        #                                 fv_tmpresult[k] = fv_sol[k] + stepper.dt * stepper.a[stage, j] * fv_tmpki[k,j];
+        #                             end
+        #                         else
+        #                             for k=1:length(fe_sol)
+        #                                 tmpresult[k] += stepper.dt * stepper.a[stage, j] * tmpki[k,j];
+        #                             end
+        #                             for k=1:length(fv_sol)
+        #                                 fv_tmpresult[k] += stepper.dt * stepper.a[stage, j] * fv_tmpki[k,j];
+        #                             end
+        #                         end
+        #                     end
+        #                 end
+                        
+        #                 if initialized_tmpresult
+        #                     copy_bdry_vals_to_vector(fe_var, tmpresult, grid_data, dofs_per_node_fe);
+        #                     place_sol_in_vars(fe_var, tmpresult, stepper);
+        #                     FV_copy_bdry_vals_to_vector(fv_var, fv_tmpresult, fv_grid, dofs_per_node_fv);
+        #                     place_sol_in_vars(fv_var, fv_tmpresult, stepper);
+        #                 end
+        #                 post_step_function(); # seems weird, but imagine this is happening after stage-1
+        #             end
+                    
+        #             if config.num_partitions > 1 exchange_ghosts(fv_var, fv_grid, i); end
+        #             pre_step_function();
+                    
+        #             ### First step the FE part #######################################################################################
+        #             assemble_t += @elapsed begin
+        #                                 b = assemble(fe_var, nothing, vol_rhs[1], allocated_vecs, dofs_per_node_fe, dofs_per_loop_fe, stime, stepper.dt; rhs_only = true, assemble_loops=assemble_func);
+        #                                 b = gather_system(nothing, b, N1, dofs_per_node_fe, b_order, b_sizes);
+        #                             end
+                    
+        #             linsolve_t += @elapsed(tmpki[:,stage] = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node_fe, b_order, b_sizes));
+                    
+        #             # At this point tmpki[:,stage] holds the boundary values
+        #             # directly write them to the variable values and zero sol.
+        #             copy_bdry_vals_to_variables(fe_var, tmpki[:,stage], grid_data, dofs_per_node_fe, zero_vals=true);
+                    
+        #             ### Then step the FV part ######################################################################################
+        #             tmpki[:,stage] = fv_assemble(fv_var, vol_lhs[2], vol_rhs[2], surf_lhs[2], surf_rhs[2], fv_allocated_vecs, dofs_per_node_fv, dofs_per_loop_fv, stime, stepper.dt, assemble_loops=assemble_func);
+                    
+        #         end
+        #         for stage=1:stepper.stages
+        #             fe_sol += stepper.dt * stepper.b[stage] .* tmpki[:, stage];
+        #             fv_sol += stepper.dt * stepper.b[stage] .* fv_tmpki[:, stage];
+        #         end
+        #         copy_bdry_vals_to_vector(fe_var, fe_sol, grid_data, dofs_per_node_fe);
+        #         FV_copy_bdry_vals_to_vector(fv_var, fv_sol, fv_grid, dofs_per_node_fv);
+        #         place_sol_in_vars(fe_var, fe_sol, stepper);
+        #         place_sol_in_vars(fv_var, fv_sol, stepper);
+                
+        #         post_step_function();
+        #     end
+            
+        # elseif stepper.type == EULER_EXPLICIT
+        #     if config.num_partitions > 1 exchange_ghosts(fv_var, fv_grid, i); end
+        #     pre_step_function();
+            
+        #     ### First step the FE part #######################################################################################
+        #     assemble_t += @elapsed begin
+        #                                 b = assemble(fe_var, nothing, vol_rhs[1], allocated_vecs, dofs_per_node_fe, dofs_per_loop_fe, t, stepper.dt; rhs_only = true, assemble_loops=assemble_func);
+        #                                 b = gather_system(nothing, b, N1, dofs_per_node_fe, b_order, b_sizes);
+        #                             end
+            
+        #     linsolve_t += @elapsed(tmpvec = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node_fe, b_order, b_sizes));
+            
+        #     # At this point tmpvec holds the boundary values
+        #     # directly write them to the variable values and zero sol.
+        #     copy_bdry_vals_to_variables(fe_var, tmpvec, grid_data, dofs_per_node_fe, zero_vals=true);
+            
+        #     fe_sol = fe_sol .+ stepper.dt .* tmpvec;
+            
+        #     copy_bdry_vals_to_vector(fe_var, fe_sol, grid_data, dofs_per_node_fe);
+        #     place_sol_in_vars(fe_var, fe_sol, stepper);
+            
+        #     ### Then step the FV part ######################################################################################
+        #     fv_sol = fv_sol .+ stepper.dt .*fv_assemble(fv_var, vol_lhs[2], vol_rhs[2], surf_lhs[2], surf_rhs[2], fv_allocated_vecs, dofs_per_node_fv, dofs_per_loop_fv, t, stepper.dt, assemble_loops=assemble_func);
+            
+        #     FV_copy_bdry_vals_to_vector(fv_var, fv_sol, fv_grid, dofs_per_node_fv);
+        #     place_sol_in_vars(fv_var, fv_sol, stepper);
+            
+        #     post_step_function();
+            
+        # elseif stepper.type == PECE
+        #     # Predictor (explicit Euler)
+        #     if config.num_partitions > 1 exchange_ghosts(fv_var, fv_grid, i); end
+        #     pre_step_function();
+            
+        #     ### First step the FE part #######################################################################################
+        #     assemble_t += @elapsed begin
+        #                                 b = assemble(fe_var, nothing, vol_rhs[1], allocated_vecs, dofs_per_node_fe, dofs_per_loop_fe, t, stepper.dt; rhs_only = true, assemble_loops=assemble_func);
+        #                                 b = gather_system(nothing, b, N1, dofs_per_node_fe, b_order, b_sizes);
+        #                             end
+            
+        #     linsolve_t += @elapsed(fe_tmpsol = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node_fe, b_order, b_sizes));
+            
+        #     # At this point fe_tmpsol holds the boundary values
+        #     # directly write them to the variable values and zero sol.
+        #     copy_bdry_vals_to_variables(fe_var, fe_tmpsol, grid_data, dofs_per_node_fe, zero_vals=true);
+            
+        #     fe_tmpsol = fe_sol .+ stepper.dt .* fe_tmpsol;
+            
+        #     copy_bdry_vals_to_vector(fe_var, fe_tmpsol, grid_data, dofs_per_node_fe);
+        #     place_sol_in_vars(fe_var, fe_tmpsol, stepper);
+            
+        #     ### Then step the FV part ######################################################################################
+        #     fv_tmpsol = fv_sol .+ stepper.dt .*fv_assemble(fv_var, vol_lhs[2], vol_rhs[2], surf_lhs[2], surf_rhs[2], fv_allocated_vecs, dofs_per_node_fv, dofs_per_loop_fv, t, stepper.dt, assemble_loops=assemble_func);
+            
+        #     FV_copy_bdry_vals_to_vector(fv_var, fv_tmpsol, fv_grid, dofs_per_node_fv);
+        #     place_sol_in_vars(fv_var, fv_tmpsol, stepper);
+            
+        #     post_step_function();
+            
+        #     # Corrector (implicit Euler)
+        #     if config.num_partitions > 1 exchange_ghosts(fv_var, fv_grid, i); end
+        #     pre_step_function();
+            
+        #     ### First step the FE part #######################################################################################
+        #     assemble_t += @elapsed begin
+        #         b = assemble(fe_var, nothing, vol_rhs[1], allocated_vecs, dofs_per_node_fe, dofs_per_loop_fe, t+stepper.dt, stepper.dt; rhs_only = true, assemble_loops=assemble_func);
+        #         b = gather_system(nothing, b, N1, dofs_per_node_fe, b_order, b_sizes);
+        #     end
+
+        #     linsolve_t += @elapsed(fe_tmpsol = distribute_solution( linear_system_solve(A,b) , N1, dofs_per_node_fe, b_order, b_sizes));
+
+        #     # At this point fe_tmpsol holds the boundary values
+        #     # directly write them to the variable values and zero sol.
+        #     copy_bdry_vals_to_variables(fe_var, fe_tmpsol, grid_data, dofs_per_node_fe, zero_vals=true);
+
+        #     fe_sol = fe_sol .+ stepper.dt .* fe_tmpsol;
+
+        #     copy_bdry_vals_to_vector(fe_var, fe_sol, grid_data, dofs_per_node_fe);
+        #     place_sol_in_vars(fe_var, fe_sol, stepper);
+
+        #     ### Then step the FV part ######################################################################################
+        #     fv_sol = fv_sol .+ stepper.dt .*fv_assemble(fv_var, vol_lhs[2], vol_rhs[2], surf_lhs[2], surf_rhs[2], fv_allocated_vecs, dofs_per_node_fv, dofs_per_loop_fv, t+stepper.dt, stepper.dt, assemble_loops=assemble_func);
+
+        #     FV_copy_bdry_vals_to_vector(fv_var, fv_sol, fv_grid, dofs_per_node_fv);
+        #     place_sol_in_vars(fv_var, fv_sol, stepper);
+
+        #     post_step_function();
+            
+        # else
+        #     printerr("Unknown explicit stepper: "*string(stepper.type))
+        #     return sol;
+        # end
+        
+        t += fe_stepper.dt;
+        
+        progressPercent = Int(floor(i*100.0/fe_stepper.Nsteps));
         if progressPercent - last2update >= 2
             last2update = progressPercent;
             if progressPercent - last10update >= 10
@@ -689,7 +765,7 @@ function insert_bilinear!(AI, AJ, AV, Astart, ael, glb, dof, Ndofs)
     
 end
 
-function place_sol_in_vars(var, sol, stepper)
+function place_sol_in_vars(var, sol, stepper=nothing)
     # place the values in the variable value arrays
     if typeof(var) <: Array
         tmp = 0;
@@ -700,22 +776,14 @@ function place_sol_in_vars(var, sol, stepper)
         for vi=1:length(var)
             components = var[vi].total_components;
             for compi=1:components
-                if stepper.type == EULER_EXPLICIT
-                    var[vi].values[compi,:] = sol[(compi+tmp):totalcomponents:end];
-                else 
-                    var[vi].values[compi,:] = sol[(compi+tmp):totalcomponents:end];
-                end
+                var[vi].values[compi,:] = sol[(compi+tmp):totalcomponents:end];
                 tmp = tmp + 1;
             end
         end
     else
         components = var.total_components;
         for compi=1:components
-            if stepper.type == EULER_EXPLICIT
-                var.values[compi,:] = sol[compi:components:end];
-            else
-                var.values[compi,:] = sol[compi:components:end];
-            end
+            var.values[compi,:] = sol[compi:components:end];
         end
     end
 end

@@ -243,9 +243,18 @@ end
 
 # Sets the time stepper
 function set_stepper(type, cfl)
-    global time_stepper = Stepper(type, cfl);
-    global config.stepper = type;
-    log_entry("Set time stepper to "*type, 1);
+    if typeof(type) <: Array
+        first_stepper = Stepper(type[1], cfl);
+        second_stepper = Stepper(type[2], cfl);
+        
+        global time_stepper = [first_stepper, second_stepper];
+        global config.stepper = MIXED_STEPPER;
+        log_entry("Set mixed time stepper to ["*type[1]*", "*type[2]*"]", 1);
+    else
+        global time_stepper = Stepper(type, cfl);
+        global config.stepper = type;
+        log_entry("Set time stepper to "*type, 1);
+    end
 end
 
 # Time steps can be chosen automatically or specified. This is for manual specifying.

@@ -1206,12 +1206,16 @@ function solve(var, nlvar=nothing; nonlinear=false)
                         fe_var_index += var[vi].index;
                     end
                 end
+                loop_func = [assembly_loops[fe_var_index], assembly_loops[fv_var_index]];
             else
                 # This shouldn't happen?
+                printerr("mixed solver types specified, but only one variable being solved for?")
                 if var.discretization == FV
                     fv_var_index = var.index;
+                    loop_func = assembly_loops[fv_var_index];
                 else
                     fe_var_index = var.index;
+                    loop_func = assembly_loops[fe_var_index];
                 end
             end
             
@@ -1242,14 +1246,33 @@ function solve(var, nlvar=nothing; nonlinear=false)
                 push!(surf_lhs, nothing);
                 push!(surf_rhs, nothing);
             end
-            loop_func = assembly_loops[fv_var_index];
             
             if prob.time_dependent
-                time_stepper = init_stepper(grid_data.allnodes, time_stepper);
-                if use_specified_steps
-                    time_stepper.dt = specified_dt;
-				    time_stepper.Nsteps = specified_Nsteps;
+                if typeof(time_stepper) <: Array
+                    time_stepper[1] = init_stepper(grid_data.allnodes, time_stepper[1]);
+                    time_stepper[2] = init_stepper(grid_data.allnodes, time_stepper[2]);
+                    
+                    if use_specified_steps
+                        time_stepper[1].dt = specified_dt;
+                        time_stepper[1].Nsteps = specified_Nsteps;
+                        time_stepper[2].dt = specified_dt;
+                        time_stepper[2].Nsteps = specified_Nsteps;
+                    else
+                        min_dt = min(time_stepper[1].dt, time_stepper[2].dt);
+                        max_Nsteps = max(time_stepper[1].Nsteps, time_stepper[2].Nsteps);
+                        time_stepper[1].dt = min_dt;
+                        time_stepper[1].Nsteps = max_Nsteps;
+                        time_stepper[2].dt = min_dt;
+                        time_stepper[2].Nsteps = max_Nsteps;
+                    end
+                else
+                    time_stepper = init_stepper(grid_data.allnodes, time_stepper);
+                    if use_specified_steps
+                        time_stepper.dt = specified_dt;
+                        time_stepper.Nsteps = specified_Nsteps;
+                    end
                 end
+                
 				if (nonlinear)
                 	printerr("Nonlinear solver not ready for mixed solver");
                     return;
