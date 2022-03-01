@@ -77,6 +77,7 @@ end
 # x,y,z,t -> no change (provided as input arguments)
 # variable -> Finch.variables[1].values[node_index]
 # coefficient -> evaluate_coefficient(Finch.coefficients[1], x,y,z,t)
+# indexer -> Finch.indexers[1].value
 # parameter -> TODO replaced with its expression
 # normal -> Finch.grid_data.faceNormals[:,face_index]
 # callbackFunction -> callback_functions[1].func
@@ -95,6 +96,7 @@ function replace_symbols_in_conditions(ex)
         if !(ex in [:x, :y, :z, :t, :node_index, :face_index]) # don't change these
             v_index = variable_index_from_symbol(ex);
             c_index = coefficient_index_from_symbol(ex);
+            i_index = indexer_index_from_symbol(ex);
             cb_index = callback_index_from_symbol(ex);
             if v_index > 0
                 if variables[v_index].type == SCALAR
@@ -111,6 +113,8 @@ function replace_symbols_in_conditions(ex)
                     newex = :([evaluate_coefficient(Finch.coefficients[$c_index], comp, [x,y,z], t, node_index, face_index) for comp in 1:$num_comps]);
                 end
                 ex = newex;
+            elseif i_index > 0
+                ex = :(Finch.indexers[$i_index].value);
             elseif cb_index > 0
                 ex = :(callback_functions[$cb_index].func);
             elseif ex === :normal
@@ -137,6 +141,15 @@ function coefficient_index_from_symbol(s)
     for c in coefficients
         if s === c.symbol
             return c.index;
+        end
+    end
+    return 0;
+end
+
+function indexer_index_from_symbol(s)
+    for i=1:length(indexers)
+        if s === indexers[i].symbol
+            return i;
         end
     end
     return 0;

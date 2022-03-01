@@ -751,7 +751,15 @@ loop_time = Base.Libc.time();
             # loop_start *= "face_done .= 0; # Reset face_done in elemental loop\n";
             loop_end *= "end # loop for elements\n";
         else
-            loop_start *= "for indexing_variable_"*string(indices[i].symbol)*" in "*string(indices[i].range)*"\n";
+            indexer_index = 0;
+            for j=1:length(indexers)
+                if indices[i].symbol === indexers[j].symbol
+                    indexer_index += j;
+                    break;
+                end
+            end
+            loop_start *= "for indexing_variable_"*string(indices[i].symbol)*" in Finch.indexers["*string(indexer_index)*"].range\n";
+            loop_start *= "    Finch.indexers["*string(indexer_index)*"].value = indexing_variable_"*string(indices[i].symbol)*";\n";
             loop_end *= "end # loop for "*string(indices[i].symbol)*"\n";
         end
     end

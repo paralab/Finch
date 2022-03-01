@@ -683,15 +683,79 @@ function add_initial_condition(varindex, ex, nfuns)
         end
         prob.initial[varindex] = vals;
     else
+        var_components = size(variables[varindex].values,1);
         if typeof(ex) == String
-            prob.initial[varindex] = genfunctions[end];
+            prob.initial[varindex] = fill(genfunctions[end], var_components);
         else
-            prob.initial[varindex] = ex;
+            prob.initial[varindex] = fill(ex, var_components);
         end
     end
-
-    log_entry("Initial condition for "*string(variables[varindex].symbol)*" : "*string(prob.initial[varindex]), 2);
+    
+    if length(prob.initial[varindex]) < 10
+        log_entry("Initial condition for "*string(variables[varindex].symbol)*" : "*string(prob.initial[varindex]), 2);
+    else
+        log_entry("Initial condition for "*string(variables[varindex].symbol)*" : "*string(prob.initial[varindex][1:6])*" (truncated for printing)", 2);
+    end
     # hold off on initializing till solve or generate is determined.
+end
+
+# Evaluates all available intitial conditions setting the values for variables.
+function eval_initial_conditions()
+    dim = config.dimension;
+
+    # build initial conditions
+    for vind=1:length(variables)
+        if !(variables[vind].ready) && vind <= length(prob.initial)
+            if !(prob.initial[vind] === nothing)
+                if variables[vind].location == CELL && !(fv_grid === nothing)
+                    # Need to use the fv_grid instead of grid_data
+                    this_grid_data = fv_grid;
+                    this_geo_factors = fv_geo_factors;
+                    this_refel = fv_refel;
+                else
+                    this_grid_data = grid_data;
+                    this_geo_factors = geo_factors;
+                    this_refel = refel;
+                end
+                
+                # Evaluate at nodes
+                nodal_values = zeros(length(prob.initial[vind]), size(this_grid_data.allnodes,2));
+                for ci=1:length(prob.initial[vind])
+                    for ni=1:size(this_grid_data.allnodes,2)
+                        if typeof(prob.initial[vind][ci]) <: Number
+                            nodal_values[ci,ni] = prob.initial[vind][ci];
+                        elseif dim == 1
+                            nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[ni],0,0,0);
+                        elseif dim == 2
+                            nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],0,0);
+                        elseif dim == 3
+                            nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],this_grid_data.allnodes[3,ni],0);
+                        end
+                    end
+                end
+                
+                # compute cell averages using nodal values if needed
+                if variables[vind].location == CELL
+                    nel = size(this_grid_data.loc2glb, 2);
+                    for ei=1:nel
+                        e = elemental_order[ei];
+                        glb = this_grid_data.loc2glb[:,e];
+                        vol = this_geo_factors.volume[e];
+                        detj = this_geo_factors.detJ[e];
+                        
+                        for ci=1:length(prob.initial[vind])
+                            variables[vind].values[ci,e] = detj / vol * (this_refel.wg' * this_refel.Q * (nodal_values[ci,glb][:]))[1];
+                        end
+                    end
+                else
+                    variables[vind].values = nodal_values;
+                end
+                
+                variables[vind].ready = true;
+                log_entry("Built initial conditions for: "*string(variables[vind].symbol));
+            end
+        end
+    end
 end
 
 # Sets boundary condition for a variable and BID.
@@ -706,14 +770,18 @@ function add_boundary_condition(var, bid, type, ex, nfuns)
             nbid = 1;
         end
         
-        tmp1 = Array{String,2}(undef, (var_count, nbid));
-        tmp2 = Array{Any,2}(undef, (var_count, nbid));
+        tmp1 = fill("", var_count, nbid);
+        tmp2 = Array{Any,2}(undef, (var_count, nbid)); # need to keep this array open to any type
+        fill!(tmp2, 0);
         tmp3 = zeros(Int, (var_count, nbid));
-        fill!(tmp1, "");
-        fill!(tmp2, GenFunction("","","",0,0));
-        tmp1[1:size(prob.bc_func,1), 1:size(prob.bc_func,2)] = Base.deepcopy(prob.bc_type);
-        tmp2[1:size(prob.bc_func,1), 1:size(prob.bc_func,2)] = Base.deepcopy(prob.bc_func);
-        tmp3[1:size(prob.bc_func,1), 1:size(prob.bc_func,2)] = prob.bid;
+        
+        for i=1:size(prob.bc_func,1)
+            for j=1:size(prob.bc_func,2)
+                tmp1[i,j] = prob.bc_type[i,j];
+                tmp2[i,j] = prob.bc_func[i,j];
+                tmp3[i,j] = prob.bid[i,j];
+            end
+        end
         prob.bc_type = tmp1;
         prob.bc_func = tmp2;
         prob.bid = tmp3;
@@ -744,14 +812,15 @@ function add_boundary_condition(var, bid, type, ex, nfuns)
         valstr *= "]";
         prob.bc_func[var.index, bid] = vals;
     else
+        var_components = size(var.values,1);
         if typeof(ex) <: Number
-            prob.bc_func[var.index, bid] = [ex];
+            prob.bc_func[var.index, bid] = fill(ex, var_components); 
             valstr = string(ex);
         elseif typeof(ex) == String
-            prob.bc_func[var.index, bid] = [genfunctions[end]];
+            prob.bc_func[var.index, bid] = fill(genfunctions[end], var_components); 
             valstr = genfunctions[end].name;
         else # callback
-            prob.bc_func[var.index, bid] = [ex];
+            prob.bc_func[var.index, bid] = fill(ex, var_components); 
             valstr = ex.name;
         end
     end

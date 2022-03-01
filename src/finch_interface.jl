@@ -914,96 +914,9 @@ function printLatex(var)
 end
 
 # Evaluate all of the initial conditions
-function evalInitialConditions() eval_initial_conditions(); end # Just for consistent style because this is also an internal function
-function eval_initial_conditions()
-    dim = config.dimension;
-
-    # build initial conditions
-    for vind=1:length(variables)
-        if !(variables[vind].ready) && vind <= length(prob.initial)
-            if !(prob.initial[vind] === nothing)
-                if variables[vind].location == CELL && !(fv_grid === nothing)
-                    # Need to use the fv_grid instead of grid_data
-                    this_grid_data = fv_grid;
-                    this_geo_factors = fv_geo_factors;
-                    this_refel = fv_refel;
-                else
-                    this_grid_data = grid_data;
-                    this_geo_factors = geo_factors;
-                    this_refel = refel;
-                end
-                
-                if typeof(prob.initial[vind]) <: Array
-                    # Evaluate at nodes
-                    nodal_values = zeros(length(prob.initial[vind]), size(this_grid_data.allnodes,2));
-                    for ci=1:length(prob.initial[vind])
-                        for ni=1:size(this_grid_data.allnodes,2)
-                            if typeof(prob.initial[vind][ci]) <: Number
-                                nodal_values[ci,ni] = prob.initial[vind][ci];
-                            elseif dim == 1
-                                nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[ni],0,0,0);
-                            elseif dim == 2
-                                nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],0,0);
-                            elseif dim == 3
-                                nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],this_grid_data.allnodes[3,ni],0);
-                            end
-                        end
-                    end
-                    
-                    # compute cell averages using nodal values if needed
-                    if variables[vind].location == CELL
-                        nel = size(this_grid_data.loc2glb, 2);
-                        for ei=1:nel
-                            e = elemental_order[ei];
-                            glb = this_grid_data.loc2glb[:,e];
-                            vol = this_geo_factors.volume[e];
-                            detj = this_geo_factors.detJ[e];
-                            
-                            for ci=1:length(prob.initial[vind])
-                                variables[vind].values[ci,e] = detj / vol * (this_refel.wg' * this_refel.Q * (nodal_values[ci,glb][:]))[1];
-                            end
-                        end
-                    else
-                        variables[vind].values = nodal_values;
-                    end
-                    
-                else # scalar
-                    nodal_values = zeros(1, size(this_grid_data.allnodes,2));
-                    for ni=1:size(this_grid_data.allnodes,2)
-                        if typeof(prob.initial[vind]) <: Number
-                            nodal_values[ni] = prob.initial[vind];
-                        elseif dim == 1
-                            nodal_values[ni] = prob.initial[vind].func(this_grid_data.allnodes[ni],0,0,0);
-                        elseif dim == 2
-                            nodal_values[ni] = prob.initial[vind].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],0,0);
-                        elseif dim == 3
-                            nodal_values[ni] = prob.initial[vind].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],this_grid_data.allnodes[3,ni],0);
-                        end
-                    end
-                    
-                    # compute cell averages using nodal values if needed
-                    if variables[vind].location == CELL
-                        nel = size(this_grid_data.loc2glb, 2);
-                        for e=1:nel
-                            glb = this_grid_data.loc2glb[:,e];
-                            vol = this_geo_factors.volume[e];
-                            detj = this_geo_factors.detJ[e];
-                            
-                            variables[vind].values[e] = detj / vol * (this_refel.wg' * this_refel.Q * nodal_values[glb])[1];
-                        end
-                        
-                    else
-                        variables[vind].values = nodal_values;
-                    end
-                    
-                end
-                
-                variables[vind].ready = true;
-                log_entry("Built initial conditions for: "*string(variables[vind].symbol));
-            end
-        end
-    end
-end
+function evalInitialConditions() 
+    eval_initial_conditions(); 
+end # Just for consistent style because this is also an internal function
 
 # This will either solve the problem or generate the code for an external target.
 function solve(var, nlvar=nothing; nonlinear=false)

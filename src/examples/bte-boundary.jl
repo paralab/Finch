@@ -25,8 +25,9 @@
                 si_dot_n = si[1]*normal[1] + si[2]*normal[2];
                 if si_dot_n > 1e-6 # out of bdry and not too close to parallel
                     # Specular (takes dos portion of reflection directly)
-                    how_close = abs(si[1] - sspec[1])+abs(si[2] - sspec[2]);
-                    if how_close < close_to_specular
+                    #how_close = abs(si[1] - sspec[1])+abs(si[2] - sspec[2]);
+                    #if how_close < close_to_specular
+                    if reflect[dir] == di
                         specular_part = specularity * intensity[di + (band-1)*ndirs] * si_dot_n;
                         close_to_specular = how_close;
                         # if debug println("specular got "*string(specular_part)*" from "*string(di)) end
@@ -58,23 +59,23 @@
         iso_intensity = equilibrium_intensity(center_freq[band], delta_freq, temp);
         sdotn = sx[dir]*normal[1] + sy[dir]*normal[2];
         if sdotn > 0
-            result = -vg[band] * interior_intensity * sdotn;
+            result = vg[band] * interior_intensity * sdotn;
         else
-            result = -vg[band] * iso_intensity * sdotn;
+            result = vg[band] * iso_intensity * sdotn;
         end
         return result;
     end
 )
 @callbackFunction(
-    function symmetric_bdry(intensity, vg, sx, sy, band, dir, normal, temp)
-        # This is essentially the same as isothermal.
+    function symmetric_bdry(intensity, vg, sx, sy, band, dir, normal)
+        # This is essentially the same as pure specular reflection?
         interior_intensity = intensity[dir + (band-1)*ndirs];
-        iso_intensity = equilibrium_intensity(center_freq[band], delta_freq, temp);
+        sym_intensity = intensity[reflect[dir] + (band-1)*ndirs];
         sdotn = sx[dir]*normal[1] + sy[dir]*normal[2];
         if sdotn > 0
             result = -vg[band] * interior_intensity * sdotn;
         else
-            result = -vg[band] * iso_intensity * sdotn;
+            result = -vg[band] * sym_intensity * sdotn;
         end
         return result;
     end

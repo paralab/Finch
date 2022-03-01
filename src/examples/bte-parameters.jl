@@ -41,11 +41,35 @@ a_u_LAS = 9.51e-47;
 function get_directions_2d(n)
     dir_x = zeros(n);
     dir_y = zeros(n);
+    reflect = zeros(Int,n); # The index of the reflecting direction
+    dphi = 2*pi/n;
+    phione = dphi/2;
     for di=1:n
-        dir_x[di] = cos(2*pi*(di-1)/n);
-        dir_y[di] = sin(2*pi*(di-1)/n);
+        # dir_x[di] = cos(2*pi*(di-1)/n);
+        # dir_y[di] = sin(2*pi*(di-1)/n);
+        
+        # modified to match original
+        thisphi = phione + (di-1)*dphi;
+        dir_x[di] = sin(thisphi);
+        dir_y[di] = cos(thisphi);
     end
-    return (dir_x, dir_y);
+    if mod(n,2) == 0
+        halfn = Int(n/2);
+        for di=1:halfn
+            reflect[di] = n-di+1;
+            reflect[n-di+1] = di;
+        end
+    else
+        println("Please use an even number of directions for reflection purposes. These will be incorrect.")
+        halfn = Int(floor(n/2));
+        for di=1:halfn
+            reflect[di] = n-di+1;
+            reflect[n-di+1] = di;
+        end
+        reflect[halfn+1] = 1;
+    end
+    
+    return (dir_x, dir_y, reflect);
 end
 
 # Frequency bands
@@ -176,7 +200,8 @@ function equilibrium_intensity(freq::Number, dw, temp::Number; polarization="T")
     intensity = 0.0;
     for gi=1:5
         fi = freq + dw/2 * xi[gi]; # frequency at gauss point
-        intensity += (fi * (-vs + sqrt(vs*vs + 4*fi*c))^2 / (exp(hobol*fi/temp) - 1)) * wi[gi];
+        K2 = (-vs + sqrt(vs*vs + 4*fi*c))^2; # K^2 * (2*c)^2   the (2*c)^2 is put in the const_part
+        intensity += (fi * K2 / (exp(hobol*fi/temp) - 1)) * wi[gi];
     end
     intensity *= const_part;
     
@@ -202,6 +227,7 @@ end
 # Derivative of equilibrium intensity with respect to temperature
 # input: frequency bands, bandwidth, temperature at each cell
 # output: dI/dT at each cell
+# NOTE: This produces an array of dIdT for every cell and band. Single cell/band version is below
 function dIdT(freq, dw, temp; polarization="T")
     if polarization=="T"
         vs = vs_TAS;
@@ -224,12 +250,46 @@ function dIdT(freq, dw, temp; polarization="T")
             tmp = 0.0;
             for gi=1:5 # gaussian quadrature
                 fi = freq[j] + dw/2 * xi[gi]; # frequency at gauss point
-                K2 = ((-vs + sqrt(vs*vs + 4*fi*c)) / (2*c))^2; # K^2
-                tmp += (exp(hobol*fi/temp[i]) * fi * K2 / (exp(hobol*fi/temp[i]) - 1)^2) * wi[gi];
+                # K2 = ((-vs + sqrt(vs*vs + 4*fi*c)) / (2*c))^2; # K^2
+                tmpK = (-vs + sqrt(vs*vs + 4*fi*c)) / (2*c); # K updated to match ipcalc
+                tmp2 = exp(hobol*fi/temp[i]);
+                # tmp += (tmp2 * fi * K2 / (tmp2 - 1)^2) * wi[gi];
+                tmp += (tmp2 * (fi * tmpK)^2 / (tmp2 - 1)^2) * 2 * wi[gi]; # updated to match ipcalc
             end
             didt[j, i] = const_part * tmp / temp[i]^2;
         end
     end
+    
+    return didt;
+end
+
+# Derivative of equilibrium intensity with respect to temperature
+# input: center frequency, bandwidth, temperature at one cell
+# output: dI/dT for one cell and band
+# NOTE: This is for one cell and band. Full cells/bands version above.
+function dIdT_single(freq, dw, temp; polarization="T")
+    if polarization=="T"
+        vs = vs_TAS;
+        c = c_TAS;
+    else # L
+        vs = vs_LAS;
+        c = c_LAS;
+    end
+    
+    # Use 5-point gaussian quadrature for the integrals
+    xi = [-0.906179845938664, -0.538469310105683, 0.0, 0.538469310105683, 0.906179845938664]; # gaussian quadrature points
+    wi = [0.23692688505618908, 0.47862867049936647, 0.5688888888888889, 0.47862867049936647, 0.23692688505618908]; # gaussian weights
+    
+    tmp = 0.0;
+    for gi=1:5 # gaussian quadrature
+        fi = freq + dw/2 * xi[gi]; # frequency at gauss point
+        # K2 = ((-vs + sqrt(vs*vs + 4*fi*c)) / (2*c))^2; # K^2
+        tmpK = (-vs + sqrt(vs*vs + 4*fi*c)) / (2*c); # K updated to match ipcalc
+        tmp2 = exp(hobol*fi/temp);
+        # tmp += (tmp2 * fi * K2 / (tmp2 - 1)^2) * wi[gi];
+        tmp += (tmp2 * (fi * tmpK)^2 / (tmp2 - 1)^2) * 2 * wi[gi]; # updated to match ipcalc
+    end
+    didt = tmp * 3.2473482785757725e-48 / (temp * temp); # dirac^2 / (8*pi^3 * boltzman) = 3.2473482785757725e-48
     
     return didt;
 end
@@ -251,7 +311,7 @@ function get_next_temp!(temp_next, temp_last, I_last, I_next, freq, dw; polariza
     
     G_last = get_integrated_intensity(I_last, ndirs, nbands);
     G_next = get_integrated_intensity(I_next, ndirs, nbands);
-    didt = dIdT(freq, dw, temp_last, polarization=polarization);
+    # didt = dIdT(freq, dw, temp_last, polarization=polarization); # Use single version in loop instead
     
     dt = Finch.time_stepper.dt;
     
@@ -266,12 +326,13 @@ function get_next_temp!(temp_next, temp_last, I_last, I_next, freq, dw; polariza
             tmp_bottom = 0.0;
             for j=1:m # loop over bands
                 tmp_inv_relaxtime = 1/tau.values[j] + 1/dt;
+                didt = dIdT_single(freq[j], dw, temp_last[i], polarization=polarization);
                 tmp_top += (4*pi*(Io_last[j,i] / tau.values[j] - Io_next[j,i] * tmp_inv_relaxtime) +
                             G_next[j,i] * tmp_inv_relaxtime - G_last[j,i] / dt) / vg.value[j];
-                tmp_bottom += 4*pi/vg.value[j] * didt[j,i] * tmp_inv_relaxtime;
+                tmp_bottom += 4*pi/vg.value[j] * didt * tmp_inv_relaxtime;
             end
             
-            if abs(tmp_bottom) > (1e-16 * tmp_top)
+            if abs(tmp_bottom) > abs(1e-16 * tmp_top)
                 delta_T = tmp_top / tmp_bottom;
                 temp_next[i] = temp_last[i] + delta_T;
                 change += delta_T - last_delta_T;
