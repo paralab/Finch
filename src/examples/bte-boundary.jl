@@ -59,9 +59,9 @@
         iso_intensity = equilibrium_intensity(center_freq[band], delta_freq, temp);
         sdotn = sx[dir]*normal[1] + sy[dir]*normal[2];
         if sdotn > 0
-            result = vg[band] * interior_intensity * sdotn;
+            result = -vg[band] * interior_intensity * sdotn;
         else
-            result = vg[band] * iso_intensity * sdotn;
+            result = -vg[band] * iso_intensity * sdotn;
         end
         return result;
     end

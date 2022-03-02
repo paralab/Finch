@@ -33,6 +33,29 @@ a_u_TAS = 37.8e-47;
 a_n_LAS = 7.10e-20;
 a_u_LAS = 9.51e-47;
 
+# 5-point gaussian quadrature
+g5xi = [-0.906179845938664, -0.538469310105683, 0.0, 0.538469310105683, 0.906179845938664]; # gaussian quadrature points
+g5wi = [0.23692688505618908, 0.47862867049936647, 0.5688888888888889, 0.47862867049936647, 0.23692688505618908]; # gaussian weights
+
+# 20-point gaussian quadrature
+g20xi = zeros(20);
+g20wi = zeros(20);
+g20xi[1] = 0.076526521133497; g20wi[1] = 0.152753387130725;
+g20xi[2] = 0.227785851141645; g20wi[2] = 0.149172986472603;
+g20xi[3] = 0.373706088715419; g20wi[3] = 0.142096109318382;
+g20xi[4] = 0.510867001950827; g20wi[4] = 0.131688638449176;
+g20xi[5] = 0.636053680726515; g20wi[5] = 0.118194531961518;
+g20xi[6] = 0.746331906460150; g20wi[6] = 0.101930119817240;
+g20xi[7] = 0.839116971822218; g20wi[7] = 0.083276741576704;
+g20xi[8] = 0.912234428251325; g20wi[8] = 0.062672048334109;
+g20xi[9] = 0.963971927277913; g20wi[9] = 0.040601429800386;
+g20xi[10] = 0.993128599185094; g20wi[10] = 0.017614007139152;
+for i = 1:10
+    g20xi[10+i] = -g20xi[i];
+    g20wi[10+i] = g20wi[i];
+end
+
+
 ############################################################################
 
 # Direction vectors
@@ -167,16 +190,13 @@ function equilibrium_intensity!(intensity::Array, freq::Array, dw, temp::Array; 
     
     n = length(temp); # should be number of cells
     # dirac/(32*pi^3) = 1.062861036647414e-37
-    const_part = 1.062861036647414e-37 / (c*c) * dw/2; # constants to pull out of integral
-    # For each band use 5-point gaussian quadrature for the integral
-    xi = [-0.906179845938664, -0.538469310105683, 0.0, 0.538469310105683, 0.906179845938664]; # gaussian quadrature points
-    wi = [0.23692688505618908, 0.47862867049936647, 0.5688888888888889, 0.47862867049936647, 0.23692688505618908]; # gaussian weights
+    const_part = 1.062861036647414e-37 / (c*c) * dw; # constants to pull out of integral
     for ci=1:n # loop over cells
         for i=1:length(freq) # loop over bands
             tmp = 0.0;
-            for gi=1:5
-                fi = freq[i] + dw/2 * xi[gi]; # frequency at gauss point
-                tmp += (fi * (-vs + sqrt(vs*vs + 4*fi*c))^2 / (exp(hobol*fi/temp[ci]) - 1)) * wi[gi];
+            for gi=1:20
+                fi = freq[i] + dw/2 * g20xi[gi]; # frequency at gauss point
+                tmp += (fi * (-vs + sqrt(vs*vs + 4*fi*c))^2 / (exp(hobol*fi/temp[ci]) - 1)) * g20wi[gi];
             end
             intensity[i,ci] = tmp * const_part;
         end
@@ -192,16 +212,13 @@ function equilibrium_intensity(freq::Number, dw, temp::Number; polarization="T")
         c = c_LAS;
     end
     
-    # dirac/(32*pi^3) / 2 = 5.31430518323707e-38
-    const_part = 5.31430518323707e-38 * dw / (c*c); # constants to pull out of integral
-    # For each band use 5-point gaussian quadrature for the integral
-    xi = [-0.906179845938664, -0.538469310105683, 0.0, 0.538469310105683, 0.906179845938664]; # gaussian quadrature points
-    wi = [0.23692688505618908, 0.47862867049936647, 0.5688888888888889, 0.47862867049936647, 0.23692688505618908]; # gaussian weights
+    # dirac/(32*pi^3) = 1.062861036647414e-37
+    const_part = 1.062861036647414e-37 * dw / (c*c); # constants to pull out of integral
     intensity = 0.0;
-    for gi=1:5
-        fi = freq + dw/2 * xi[gi]; # frequency at gauss point
+    for gi=1:20
+        fi = freq + dw/2 * g20xi[gi]; # frequency at gauss point
         K2 = (-vs + sqrt(vs*vs + 4*fi*c))^2; # K^2 * (2*c)^2   the (2*c)^2 is put in the const_part
-        intensity += (fi * K2 / (exp(hobol*fi/temp) - 1)) * wi[gi];
+        intensity += (fi * K2 / (exp(hobol*fi/temp) - 1)) * g20wi[gi];
     end
     intensity *= const_part;
     
@@ -211,7 +228,7 @@ end
 # The integrated intensity in each band in each cell (integrated over directions)
 function get_integrated_intensity(intensity, ndirs, nbands)
     n = size(intensity,2); # num cells
-    omega = 2*pi/ndirs; # angle per direction
+    omega = 2*pi/ndirs; # angle per direction*2  why *2?
     int_intensity = zeros(nbands, n);
     for i=1:n
         for j=1:nbands
@@ -240,23 +257,20 @@ function dIdT(freq, dw, temp; polarization="T")
     n = length(temp); # number of cells
     m = length(freq); # number of bands
     didt = zeros(m, n);
-    const_part = dirac^2 / (8*pi^3 * boltzman);
-    # Use 5-point gaussian quadrature for the integrals
-    xi = [-0.906179845938664, -0.538469310105683, 0.0, 0.538469310105683, 0.906179845938664]; # gaussian quadrature points
-    wi = [0.23692688505618908, 0.47862867049936647, 0.5688888888888889, 0.47862867049936647, 0.23692688505618908]; # gaussian weights
+    const_part = dirac * hobol / (8*pi^3);
     
     for i=1:n # loop over cells
         for j=1:m # loop over bands
             tmp = 0.0;
-            for gi=1:5 # gaussian quadrature
-                fi = freq[j] + dw/2 * xi[gi]; # frequency at gauss point
+            for gi=1:29 # gaussian quadrature
+                fi = freq[j] + dw/2 * g20xi[gi]; # frequency at gauss point
                 # K2 = ((-vs + sqrt(vs*vs + 4*fi*c)) / (2*c))^2; # K^2
                 tmpK = (-vs + sqrt(vs*vs + 4*fi*c)) / (2*c); # K updated to match ipcalc
                 tmp2 = exp(hobol*fi/temp[i]);
                 # tmp += (tmp2 * fi * K2 / (tmp2 - 1)^2) * wi[gi];
-                tmp += (tmp2 * (fi * tmpK)^2 / (tmp2 - 1)^2) * 2 * wi[gi]; # updated to match ipcalc
+                tmp += (tmp2 * (fi * tmpK)^2 / (tmp2 - 1)^2) * g20wi[gi]; # updated to match ipcalc
             end
-            didt[j, i] = const_part * tmp / temp[i]^2;
+            didt[j, i] = const_part * dw * tmp / temp[i]^2;
         end
     end
     
@@ -276,20 +290,16 @@ function dIdT_single(freq, dw, temp; polarization="T")
         c = c_LAS;
     end
     
-    # Use 5-point gaussian quadrature for the integrals
-    xi = [-0.906179845938664, -0.538469310105683, 0.0, 0.538469310105683, 0.906179845938664]; # gaussian quadrature points
-    wi = [0.23692688505618908, 0.47862867049936647, 0.5688888888888889, 0.47862867049936647, 0.23692688505618908]; # gaussian weights
-    
     tmp = 0.0;
-    for gi=1:5 # gaussian quadrature
-        fi = freq + dw/2 * xi[gi]; # frequency at gauss point
+    for gi=1:20 # gaussian quadrature
+        fi = freq + dw/2 * g20xi[gi]; # frequency at gauss point
         # K2 = ((-vs + sqrt(vs*vs + 4*fi*c)) / (2*c))^2; # K^2
         tmpK = (-vs + sqrt(vs*vs + 4*fi*c)) / (2*c); # K updated to match ipcalc
         tmp2 = exp(hobol*fi/temp);
         # tmp += (tmp2 * fi * K2 / (tmp2 - 1)^2) * wi[gi];
-        tmp += (tmp2 * (fi * tmpK)^2 / (tmp2 - 1)^2) * 2 * wi[gi]; # updated to match ipcalc
+        tmp += (tmp2 * (fi * tmpK)^2 / (tmp2 - 1)^2) * g20wi[gi]; # updated to match ipcalc
     end
-    didt = tmp * 3.2473482785757725e-48 / (temp * temp); # dirac^2 / (8*pi^3 * boltzman) = 3.2473482785757725e-48
+    didt = tmp * dw * 3.2473482785757725e-48 / (temp * temp); # dirac * hobol / (8*pi^3) = 3.2473482785757725e-48
     
     return didt;
 end
@@ -303,63 +313,58 @@ function get_next_temp!(temp_next, temp_last, I_last, I_next, freq, dw; polariza
     n = length(temp_last); # number of cells
     m = length(freq); # number of bands
     
-    # I_last is equilibrium I from previous temp
+    # Io_last is equilibrium I from previous temp
     Io_last = Io.values;
-    # I_next is from this step, which is not yet known.
-    # Iteratively attempt to find it.
-    Io_next = deepcopy(Io_last);
     
     G_last = get_integrated_intensity(I_last, ndirs, nbands);
     G_next = get_integrated_intensity(I_next, ndirs, nbands);
     # didt = dIdT(freq, dw, temp_last, polarization=polarization); # Use single version in loop instead
     
     dt = Finch.time_stepper.dt;
+    idt = 1/dt;
     
     tol = 1e-4;
-    maxiters = 10;
-    delta_T = 0;
-    last_delta_T = 100;
-    for iter=1:maxiters # iteratively refine delta_T
-        change = 0.0;
-        for i=1:n # loop over cells
-            tmp_top = 0.0;
-            tmp_bottom = 0.0;
+    maxiters = 50;
+    for i=1:n # loop over cells
+        # old values are not updated
+        uold = 0.0; # These strange names are taken from the fortran code
+        gnb = 0.0;  #
+        for j=1:m # loop over bands
+            uold += Io_last[j,i] * idt / group_v[j];
+            gnb += G_last[j,i] * idt / group_v[j];
+        end
+        uold = 4*pi*uold;
+        
+        delta_T = 0;
+        for iter=1:maxiters # iteratively refine delta_T
+            unew = 0.0; # These strange names are taken from the fortran code
+            gna = 0.0;  #
+            uprime = 0.0;
             for j=1:m # loop over bands
-                tmp_inv_relaxtime = 1/tau.values[j] + 1/dt;
+                beta = 1 / get_time_scale(freq[j], temp_next[i], polarization=polarization);
                 didt = dIdT_single(freq[j], dw, temp_last[i], polarization=polarization);
-                tmp_top += (4*pi*(Io_last[j,i] / tau.values[j] - Io_next[j,i] * tmp_inv_relaxtime) +
-                            G_next[j,i] * tmp_inv_relaxtime - G_last[j,i] / dt) / vg.value[j];
-                tmp_bottom += 4*pi/vg.value[j] * didt * tmp_inv_relaxtime;
-            end
-            
-            if abs(tmp_bottom) > abs(1e-16 * tmp_top)
-                delta_T = tmp_top / tmp_bottom;
-                temp_next[i] = temp_last[i] + delta_T;
-                change += delta_T - last_delta_T;
                 
-            else
-                delta_T = 0;
-                temp_next[i] = temp_last[i];
+                unew += equilibrium_intensity(freq[j], dw, temp_next[i], polarization=polarization) * (beta + idt) / group_v[j];
+                gna += G_next[j,i] * (beta + idt) / group_v[j];
+                uprime += 4*pi * didt * (beta + idt) / group_v[j];
             end
-        end
-        change /= n; # average change in this iteration
-        
-        if debug println("change: "*string(change)); end
-        
-        if abs(change) < tol
-            break;
-        else
-            if iter==maxiters
-                println("Temperature change didn't converge.")
-                if abs(change) > 1
-                    println("change > 1")
+            unew = 4*pi*unew;
+            
+            delta_T = (uold + gna - gnb - unew) / uprime;
+            
+            if debug println("cell "*string(i)*" ("*string(uold)*", "*string(unew)*", "*string(gna)*", "*string(gnb)*", "*string(uprime)*") : "*string(delta_T)) end
+            
+            temp_next[i] = temp_next[i] + delta_T;
+            
+            if abs(delta_T) < tol
+                break;
+            else
+                if iter==maxiters
+                    println("Temperature change didn't converge. Last delta_T = "*string(delta_T));
                 end
-            else
-                equilibrium_intensity!(Io_next, freq, dw, temp_next, polarization=polarization);
-                last_delta_T = delta_T;
             end
-        end
-    end
+        end# iterative refinement
+    end# cell loop
     
     return temp_next;
 end

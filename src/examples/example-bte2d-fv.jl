@@ -3,13 +3,13 @@ This will gradually evolve into working BTE code.
 =#
 
 ### If the Finch package has already been added, use this line #########
-# using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
 
 ### If not, use these four lines (working from the examples directory) ###
-if !@isdefined(Finch)
-    include("../Finch.jl");
-    using .Finch
-end
+# if !@isdefined(Finch)
+#     include("../Finch.jl");
+#     using .Finch
+# end
 ##########################################################################
 
 init_finch("FVbte2d");
@@ -96,19 +96,19 @@ finalize_finch()
 
 ##### Uncomment below to plot ######
 
-xy = Finch.fv_info.cellCenters
+# xy = Finch.fv_info.cellCenters
 
-using Plots
-pyplot();
-p1 = plot(xy[1,:], xy[2,:], I.values[1,:], st=:surface)#, zlims=(0,Inf))
-p2 = plot(xy[1,:], xy[2,:], I.values[2,:], st=:surface)#, zlims=(0,Inf))
-p3 = plot(xy[1,:], xy[2,:], I.values[3,:], st=:surface)#, zlims=(0,Inf))
-p4 = plot(xy[1,:], xy[2,:], I.values[4,:], st=:surface)#, zlims=(0,Inf))
-p5 = plot(xy[1,:], xy[2,:], I.values[5,:], st=:surface)#, zlims=(0,Inf))
-p6 = plot(xy[1,:], xy[2,:], I.values[6,:], st=:surface)#, zlims=(0,Inf))
-p7 = plot(xy[1,:], xy[2,:], I.values[7,:], st=:surface)#, zlims=(0,Inf))
-p8 = plot(xy[1,:], xy[2,:], I.values[8,:], st=:surface)#, zlims=(0,Inf))
-display(plot(p1, p2, p3, p4, p5, p6, p7, p8, layout=8))
+# using Plots
+# pyplot();
+# # p1 = plot(xy[1,:], xy[2,:], I.values[1,:], st=:surface)#, zlims=(0,Inf))
+# # p2 = plot(xy[1,:], xy[2,:], I.values[2,:], st=:surface)#, zlims=(0,Inf))
+# # p3 = plot(xy[1,:], xy[2,:], I.values[3,:], st=:surface)#, zlims=(0,Inf))
+# # p4 = plot(xy[1,:], xy[2,:], I.values[4,:], st=:surface)#, zlims=(0,Inf))
+# # p5 = plot(xy[1,:], xy[2,:], I.values[5,:], st=:surface)#, zlims=(0,Inf))
+# # p6 = plot(xy[1,:], xy[2,:], I.values[6,:], st=:surface)#, zlims=(0,Inf))
+# # p7 = plot(xy[1,:], xy[2,:], I.values[7,:], st=:surface)#, zlims=(0,Inf))
+# # p8 = plot(xy[1,:], xy[2,:], I.values[8,:], st=:surface)#, zlims=(0,Inf))
+# # display(plot(p1, p2, p3, p4, p5, p6, p7, p8, layout=8))
 
 # display(plot(xy[1,:], xy[2,:], temperature.values[:], st=:surface));
 
