@@ -316,9 +316,9 @@ function reformat_for_stepper_fv_source(lhs, rhs, stepper)
         # reformat depending on stepper type
         if stepper == EULER_EXPLICIT || stepper == RK4 || stepper == LSRK4 || stepper == PECE
             # du/dt = -lhs + rhs
-            for i=1:length(lhs)
-                lhs[i] = -lhs[i];
-            end
+            # for i=1:length(lhs)
+            #     lhs[i] = -lhs[i]; # don't change sign here because it is done by parser?
+            # end
             for i=1:length(rhs)
                 rhs[i] = -rhs[i]; # need to change sign here?
             end

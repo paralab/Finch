@@ -436,12 +436,38 @@ function sym_neighborhood_op(f)
     return result;
 end
 
-function sym_upwind_op(v, f, alpha=Basic(0))
+function sym_upwind_op(v, f)
     # Input will be an array of Basic. Output should be in a similar array.
     if typeof(f) <: Array
         result = copy(f);
         for i=1:length(result)
-            result[i] = sym_upwind_op(v, f[i], alpha);
+            result[i] = sym_upwind_op(v, f[i]);
+        end
+        
+    elseif typeof(f) == Basic
+        # Apply a CELLn tag to signal to the code generator which side of the face the value is from.
+        side1 = apply_flag_to_all_symbols("CELL1", f);
+        side2 = apply_flag_to_all_symbols("CELL2", f);
+        # The formula for an adjustable first order upwind scheme.
+        # F(u) = 0.5*(side1+side2)*(v.normal) + 0.5*(side1-side2)*abs(v.normal)*(1-alpha)
+        result = conditional(isgreaterthan(sym_dot_op(v, sym_normal_op())[1], Basic(0)), 
+                    (sym_dot_op(v, sym_normal_op()) .* side1)[1],
+                    # else
+                    (sym_dot_op(v, sym_normal_op()) .* side2)[1]) # Note that the arguments to conditional and isgreaterthan are not in arrays.
+        
+    elseif typeof(f) <: Number
+        # If the input was just a constant, the result will just be that constant.
+        result = Basic(f);
+    end
+    return result;
+end
+
+function sym_upwindA_op(v, f, alpha=Basic(0))
+    # Input will be an array of Basic. Output should be in a similar array.
+    if typeof(f) <: Array
+        result = copy(f);
+        for i=1:length(result)
+            result[i] = sym_upwindA_op(v, f[i], alpha);
         end
         
     elseif typeof(f) == Basic
@@ -497,11 +523,11 @@ end
 # Load them into the global arrays
 op_names = [:dot, :inner, :cross, :transpose, :surface, :ave, :jump, :normal, 
             :Dt, :deriv, :grad, :div, :curl, :laplacian,
-            :left, :right, :central, :neighborhood, :upwind, :burgerGodunov];
+            :left, :right, :central, :neighborhood, :upwind, :upwindA, :burgerGodunov];
 _handles = [sym_dot_op, sym_inner_op, sym_cross_op, sym_transpose_op, sym_surface_op, sym_ave_op, sym_jump_op, 
             sym_normal_op, sym_Dt_op, sym_deriv_op, sym_grad_op, 
             sym_div_op, sym_curl_op, sym_laplacian_op,
-            sym_left_op, sym_right_op, sym_central_op, sym_neighborhood_op, sym_upwind_op, sym_burgerGodunov_op];
+            sym_left_op, sym_right_op, sym_central_op, sym_neighborhood_op, sym_upwind_op, sym_upwindA_op, sym_burgerGodunov_op];
 for i=1:length(op_names)
     push!(ops, SymOperator(op_names[i], _handles[i]));
 end

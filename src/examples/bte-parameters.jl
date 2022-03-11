@@ -4,9 +4,9 @@
 # These numbers were adapted from constants_module.f90 from the original code
 
 # Fundamental
-dirac = 1.054571628e-34;
-boltzman = 1.3806503e-23;
-hobol = 7.63822401661014e-12; # dirac/boltzman
+const dirac = 1.054571628e-34;
+const boltzman = 1.3806503e-23;
+const hobol = 7.63822401661014e-12; # dirac/boltzman
 
 # Material
 # NOTE: many of these have a 3-letter suffix like "_LAS"
@@ -14,24 +14,32 @@ hobol = 7.63822401661014e-12; # dirac/boltzman
 #   2nd: A = accoustic phonons, O = optical phonons
 #   3rd: S = silicon, G = germanium
 # For this test we are only considering TAS. Later LAS will be added.
-freq_min_TAS = 0;
-freq_max_TAS = 2.97927417405992e13;
-c_TAS = -2.26e-7; # c and vs are coefficients in the wave vector equation:
-vs_TAS= 5230;     # wk = wo + vs*|K| + c*|K|^2   where wo=0 for Transverse.
+const freq_min_TAS = 0;
+const freq_max_TAS = 2.97927417405992e13;
+const c_TAS = -2.26e-7; # c and vs are coefficients in the wave vector equation:
+const vs_TAS= 5230;     # wk = wo + vs*|K| + c*|K|^2   where wo=0 for Transverse.
 
-freq_min_LAS = freq_max_TAS; # In the original code this was 0??
-freq_max_LAS = 7.728337675901222e13;
-c_LAS = -2.0e-7;
-vs_LAS= 9010;
+const freq_min_LAS = freq_max_TAS; # In the original code this was 0??
+const freq_max_LAS = 7.728337675901222e13;
+const c_LAS = -2.0e-7;
+const vs_LAS= 9010;
 
 # Others to be added as needed
 
+# For relaxation time (non-Broido)
+const wmax_half = 2.417e13;
+const lattice_const = 5.43e-10;
+const rho = 2.33e3;
+const btu = 5.5e-18;
+const bl = 2.0e-24;
+const btn =9.3e-13;
+
 # For Broido relaxation time 
-debye_temp = 636.0;
-a_n_TAS = 10.9e-20;
-a_u_TAS = 37.8e-47;
-a_n_LAS = 7.10e-20;
-a_u_LAS = 9.51e-47;
+const debye_temp = 636.0;
+const a_n_TAS = 10.9e-20;
+const a_u_TAS = 37.8e-47;
+const a_n_LAS = 7.10e-20;
+const a_u_LAS = 9.51e-47;
 
 # 5-point gaussian quadrature
 g5xi = [-0.906179845938664, -0.538469310105683, 0.0, 0.538469310105683, 0.906179845938664]; # gaussian quadrature points
@@ -83,7 +91,7 @@ function get_directions_2d(n)
             reflect[n-di+1] = di;
         end
     else
-        println("Please use an even number of directions for reflection purposes. These will be incorrect.")
+        println("Please use an even number of directions for reflection purposes. Reflections will be incorrect.")
         halfn = Int(floor(n/2));
         for di=1:halfn
             reflect[di] = n-di+1;
@@ -135,41 +143,37 @@ function get_group_speeds(freq; polarization="T")
     return gv;
 end
 
-# Scattering time scale using Broido data from relaxtime_broido.f90
-# input: tau array to update, band center frequencies, temperature
-# output: band average time scales
-function get_time_scale!(tau::Array, freq::Array, temp::Array; polarization="T")
-    if polarization=="T"
-        a_n = a_n_TAS;
-        a_u = a_u_TAS;
-    else # L
-        a_n = a_n_LAS;
-        a_u = a_u_LAS;
-    end
-    
+# Scattering time scale from relaxtime.f90 (NOT Broido version)
+# input: beta array to update, band center frequencies, temperature
+# output: band average inverse time scales (beta = 1/tau)
+function get_time_scale!(beta::Array, freq::Array, temp::Array; polarization="T")
     n = length(temp); # number of cells
     m = length(freq); # number of bands
     for j=1:n # loop over cells
         for i=1:m # loop over bands
-            tmp = temp[j]*(1 - exp(-3*temp[j]/debye_temp));
-            tau[i, j] = 1 / (a_n * freq[i]^2 * tmp + a_u * freq[i]^4 * tmp);
+            if polarization == "T"
+                beta[i, j] = btn * (temp[j]^4) * freq[i]
+                if freq[i] >= wmax_half                  
+                    beta[i, j] += btu * (freq[i]*freq[i]) / sinh(hobol * freq[i] / temp[j]);             
+                end
+            else
+                beta[i, j] = bl * (temp[j]^3) * (freq[i]*freq[i]);  
+            end
         end
     end
 end
 # Similar to above, but for a single band and temp
 function get_time_scale(freq::Number, temp::Number; polarization="T")
-    if polarization=="T"
-        a_n = a_n_TAS;
-        a_u = a_u_TAS;
-    else # L
-        a_n = a_n_LAS;
-        a_u = a_u_LAS;
+    if polarization == "T"
+        beta = btn * (temp^4) * freq
+        if freq >= wmax_half                  
+            beta += btu * (freq*freq) / sinh(hobol * freq / temp);             
+        end
+    else
+        beta = bl * (temp^3) * (freq*freq);  
     end
     
-    tmp = temp*(1 - exp(-3*temp/debye_temp));
-    tau = 1 / (a_n * freq^2 * tmp + a_u * freq^4 * tmp); 
-    
-    return tau;
+    return beta;
 end
 
 # Equilibrium intensity
@@ -183,20 +187,22 @@ function equilibrium_intensity!(intensity::Array, freq::Array, dw, temp::Array; 
     if polarization=="T"
         vs = vs_TAS;
         c = c_TAS;
+        extra_factor = 2;
     else # L
         vs = vs_LAS;
         c = c_LAS;
+        extra_factor = 1;
     end
     
     n = length(temp); # should be number of cells
     # dirac/(32*pi^3) = 1.062861036647414e-37
-    const_part = 1.062861036647414e-37 / (c*c) * dw; # constants to pull out of integral
+    const_part = 1.062861036647414e-37 / (c*c) * dw/2; # constants to pull out of integral
     for ci=1:n # loop over cells
         for i=1:length(freq) # loop over bands
             tmp = 0.0;
             for gi=1:20
                 fi = freq[i] + dw/2 * g20xi[gi]; # frequency at gauss point
-                tmp += (fi * (-vs + sqrt(vs*vs + 4*fi*c))^2 / (exp(hobol*fi/temp[ci]) - 1)) * g20wi[gi];
+                tmp += (fi * (-vs + sqrt(vs*vs + 4*fi*c))^2 / (exp(hobol*fi/temp[ci]) - 1)) * g20wi[gi] * extra_factor;
             end
             intensity[i,ci] = tmp * const_part;
         end
@@ -207,18 +213,20 @@ function equilibrium_intensity(freq::Number, dw, temp::Number; polarization="T")
     if polarization=="T"
         vs = vs_TAS;
         c = c_TAS;
+        extra_factor = 2;
     else # L
         vs = vs_LAS;
         c = c_LAS;
+        extra_factor = 1;
     end
     
     # dirac/(32*pi^3) = 1.062861036647414e-37
-    const_part = 1.062861036647414e-37 * dw / (c*c); # constants to pull out of integral
+    const_part = 1.062861036647414e-37 * dw/2 / (c*c); # constants to pull out of integral
     intensity = 0.0;
     for gi=1:20
         fi = freq + dw/2 * g20xi[gi]; # frequency at gauss point
         K2 = (-vs + sqrt(vs*vs + 4*fi*c))^2; # K^2 * (2*c)^2   the (2*c)^2 is put in the const_part
-        intensity += (fi * K2 / (exp(hobol*fi/temp) - 1)) * g20wi[gi];
+        intensity += (fi * K2 / (exp(hobol*fi/temp) - 1)) * g20wi[gi] * extra_factor;
     end
     intensity *= const_part;
     
@@ -323,7 +331,12 @@ function get_next_temp!(temp_next, temp_last, I_last, I_next, freq, dw; polariza
     dt = Finch.time_stepper.dt;
     idt = 1/dt;
     
-    tol = 1e-4;
+    if debug
+        max_iters = 0;
+        ave_iters = 0;
+    end
+    
+    tol = 1e-10;
     maxiters = 50;
     for i=1:n # loop over cells
         # old values are not updated
@@ -357,6 +370,10 @@ function get_next_temp!(temp_next, temp_last, I_last, I_next, freq, dw; polariza
             temp_next[i] = temp_next[i] + delta_T;
             
             if abs(delta_T) < tol
+                if debug
+                    max_iters = max(max_iters, iter);
+                    ave_iters += iter;
+                end
                 break;
             else
                 if iter==maxiters
@@ -365,6 +382,9 @@ function get_next_temp!(temp_next, temp_last, I_last, I_next, freq, dw; polariza
             end
         end# iterative refinement
     end# cell loop
+    if debug
+        println("ave iterations: "*string(ave_iters/n)*"  max: "*string(max_iters))
+    end
     
     return temp_next;
 end
@@ -377,8 +397,8 @@ function update_temperature(temp, I_last, I_next, freq, dw)
     
     get_next_temp!(temp, temp_last, I_last, I_next, freq, dw);
     
-    equilibrium_intensity!(Io.values, freq, dw, temperature.values);
-    get_time_scale!(tau.values, freq, temperature.values);
+    equilibrium_intensity!(Io.values, freq, dw, temp);
+    get_time_scale!(beta.values, freq, temp);
     
     # update I_last here as well
     for i=1:length(I_next)
@@ -389,3 +409,43 @@ function update_temperature(temp, I_last, I_next, freq, dw)
         end
     end
 end
+
+#############################################################################
+## alternative models.
+
+# # Scattering time scale using Broido data from relaxtime_broido.f90
+# # input: tau array to update, band center frequencies, temperature
+# # output: band average time scales
+# function get_time_scale!(tau::Array, freq::Array, temp::Array; polarization="T")
+#     if polarization=="T"
+#         a_n = a_n_TAS;
+#         a_u = a_u_TAS;
+#     else # L
+#         a_n = a_n_LAS;
+#         a_u = a_u_LAS;
+#     end
+    
+#     n = length(temp); # number of cells
+#     m = length(freq); # number of bands
+#     for j=1:n # loop over cells
+#         for i=1:m # loop over bands
+#             tmp = temp[j]*(1 - exp(-3*temp[j]/debye_temp));
+#             tau[i, j] = 1 / (a_n * freq[i]^2 * tmp + a_u * freq[i]^4 * tmp);
+#         end
+#     end
+# end
+# # Similar to above, but for a single band and temp
+# function get_time_scale(freq::Number, temp::Number; polarization="T")
+#     if polarization=="T"
+#         a_n = a_n_TAS;
+#         a_u = a_u_TAS;
+#     else # L
+#         a_n = a_n_LAS;
+#         a_u = a_u_LAS;
+#     end
+    
+#     tmp = temp*(1 - exp(-3*temp/debye_temp));
+#     tau = 1 / (a_n * freq^2 * tmp + a_u * freq^4 * tmp); 
+    
+#     return tau;
+# end
