@@ -1,15 +1,15 @@
 #=
-This will gradually evolve into working BTE code.
+2D explicit BTE.
 =#
 
 ### If the Finch package has already been added, use this line #########
-# using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
 
 ### If not, use these four lines (working from the examples directory) ###
-if !@isdefined(Finch)
-    include("../Finch.jl");
-    using .Finch
-end
+# if !@isdefined(Finch)
+#     include("../Finch.jl");
+#     using .Finch
+# end
 ##########################################################################
 
 init_finch("FVbte2d");
@@ -26,7 +26,7 @@ domain(2)
 solverType(FV)
 timeStepper(EULER_EXPLICIT)
 dt = 2.5e-12;
-nsteps = 1000
+nsteps = 20
 setSteps(dt, nsteps);
 
 # A simple mesh is internally generated for convenience
@@ -76,9 +76,9 @@ next_step = 1;
 # F and S in the following equation:
 # Dt(int(u dx)/A) = int(S dx) - int(F.n ds)
 # BTE:
-# Dt(int(Iij dx)) = int((Io-Iij)/tau dx) ) - vg * int(Iij * Si.n ds)
+# Dt(int(Iij dx)) = int((Io-Iij)*beta dx) ) - vg * int(Iij * Si.n ds)
 flux(I, "vg[band] * upwind([Sx[direction];Sy[direction]] , I[direction,band])") 
-source(I, "(Io[band] - I[direction,band]) ./ beta[band]")
+source(I, "(Io[band] - I[direction,band]) ./ beta[band]") # <- Shouldn't this be multiplied by beta, not divided?
 
 assemblyLoops(I, ["elements", band, direction])
 
@@ -88,10 +88,7 @@ evalInitialConditions();
 I_last = deepcopy(I.values);
 
 println(Io.values[1])
-# After each time step the temperature, equilibrium I, and time scales are updated\
-# @postStepFunction(
-#     update_temperature(temperature.values, I_last, I.values, center_freq, delta_freq);
-# );
+# After each time step the temperature, equilibrium I, and time scales are updated
 function post_step()
     update_temperature(temperature.values, I_last, I.values, center_freq, delta_freq);
     global next_step += 1;
@@ -108,10 +105,10 @@ finalize_finch()
 
 ##### Uncomment below to plot ######
 
-xy = Finch.fv_info.cellCenters
+# xy = Finch.fv_info.cellCenters
+# using Plots
+# pyplot();
 
-using Plots
-pyplot();
 # p1 = plot(xy[1,:], xy[2,:], I.values[1,:], st=:surface)#, zlims=(0,Inf))
 # p2 = plot(xy[1,:], xy[2,:], I.values[2,:], st=:surface)#, zlims=(0,Inf))
 # p3 = plot(xy[1,:], xy[2,:], I.values[3,:], st=:surface)#, zlims=(0,Inf))
@@ -130,7 +127,7 @@ pyplot();
 # p16 = plot(xy[1,:], xy[2,:], I.values[16,:], st=:surface)#, zlims=(0,Inf))
 # display(plot(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, layout=16))
 
-display(plot(xy[1,:], xy[2,:], temperature.values[:], st=:surface));
+# display(plot(xy[1,:], xy[2,:], temperature.values[:], st=:surface));
 
 # display(plot(mean_temp));
 
