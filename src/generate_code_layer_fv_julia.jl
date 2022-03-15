@@ -66,7 +66,8 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
     for i=1:length(entities)
         cname = make_entity_name(entities[i]);
         if is_unknown_var(entities[i], var) && lorr == LHS
-            # TODO
+            # The unknown variable will not be included as it is being solved for,
+            # but it should be checked to make sure it is just a linear dependence. TODO
             
         else
             # Is coefficient(number or function) or variable(array)?
@@ -534,9 +535,9 @@ function make_elemental_computation_fv_julia(terms, var, dofsper, offset_ind, lo
             code *= "result = zeros("*string(dofsper)*"); # Allocate for returned values.\n"
         else
             if vors == "volume"
-                code *= "cell_matrix = zeros(refel.Np * "*string(dofsper)*", "*string(dofsper)*"); # Allocate for returned matrix.\n"
+                code *= "result = zeros("*string(dofsper)*", "*string(dofsper)*"); # Allocate for returned values.\n"
             else
-                code *= "cell_matrix = zeros(refel.Nfp[frefelind[1]] * "*string(dofsper)*", "*string(dofsper)*"); # Allocate for returned matrix.\n"
+                code *= "result = zeros(2 * "*string(dofsper)*", "*string(dofsper)*"); # Allocate for returned values.\n"
             end
         end
     end
@@ -643,13 +644,13 @@ return result;
         terms = terms[1];
         if lorr == LHS
             if vors == "volume"
-                result = "zeros(refel.Np)";
+                result = "0";
             else
-                result = "zeros(refel.Nfp[frefelind[1]])";
+                result = "0,0";
             end
             
         else
-            result = "[0]";
+            result = "0";
         end
         
         #process each term
@@ -686,14 +687,16 @@ function generate_term_calculation_fv_julia(term, var, lorr)
     # Note: separate_factors return test and trial info, but FV will not have any test functions.
     # trial_part refers to the unknown variable part.
     # example:
-    # 0.1*D1__u_1*_FACENORMAL1_1    ->  ???               on LHS
-    #                             ->  0.1 * (coef_D1xu_1 .* normal[1])     on RHS
+    # 0.1*D1__u_1*_FACENORMAL1_1  ->  0.1 * normal[1]                    on LHS
+    #                             ->  0.1 * (coef_D1xu_1 .* normal[1])   on RHS
     if lorr == LHS
         (test_part, var_part, coef_part, test_ind, var_ind) = separate_factors(term, var);
-        # # LHS: ??
-        # TODO
-        #
-        # Seriously, need to do
+        # The var_part should be checked here. TODO
+        if coef_part === nothing
+            result = "1";
+        else
+            result = string(replace_entities_with_symbols(coef_part));
+        end
         
     else
         (test_part, var_part, coef_part, test_ind, var_ind) = separate_factors(term);
@@ -737,10 +740,21 @@ function generate_assembly_loop_fv_julia(var, indices)
     
     code = 
 "# Label things that were allocated externally
-sourcevec = allocated_vecs[1];
-fluxvec = allocated_vecs[2];
-facefluxvec = allocated_vecs[3];
-face_done = allocated_vecs[4];
+if is_explicit
+    sourcevec = allocated_vecs[1];
+    fluxvec = allocated_vecs[2];
+    facefluxvec = allocated_vecs[3];
+    face_done = allocated_vecs[4];
+else
+    lhsmatI = allocated_vecs[1];
+    lhsmatJ = allocated_vecs[2];
+    lhsmatV = allocated_vecs[3];
+    lhsfaceflux = allocated_vecs[4];
+    sourcevec = allocated_vecs[5]; # In the implicit case, these vectors are for the RHS
+    fluxvec = allocated_vecs[6];
+    facefluxvec = allocated_vecs[7];
+    face_done = allocated_vecs[8];
+end
 
 "
     # generate the loop structures

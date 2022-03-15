@@ -75,7 +75,7 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
     fluxvec = zeros(Nn);
     facefluxvec = zeros(Nf);
     face_done = zeros(nfaces); # Increment when the corresponding flux value is computed.
-    allocated_vecs = [sourcevec, fluxvec, facefluxvec, face_done];
+    allocated_vecs = (sourcevec, fluxvec, facefluxvec, face_done);
     
     if prob.time_dependent && !(stepper === nothing)
         log_entry("Beginning "*string(stepper.Nsteps)*" time steps.");
@@ -275,31 +275,30 @@ function linear_solve_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
         nfaces = size(fv_grid.face2element, 2);
     end
     
-    Nn = dofs_per_node * nel;
-    Nf = dofs_per_node * nfaces
+    Nn = dofs_per_node * nel; # dofs values for each cell
+    Nf = dofs_per_node * nfaces; # dofs values per face
+    Nn2 = dofs_per_node * dofs_per_node * nel; # dofs values per dof per cell
+    Nf2 = dofs_per_node * dofs_per_node * nfaces * 4; # dofs values per dof per face * 4
     
     # Allocate arrays that will be used by assemble
+    sourcevec = zeros(Nn);
+    fluxvec = zeros(Nn);
     face_done = zeros(nfaces); # true when the corresponding flux value is computed.
     facefluxvec = zeros(Nf);
-    rhsvec = zeros(Nn);
-    lhsmatI = zeros(Int, Nn+Nf);
-    lhsmatJ = zeros(Int, Nn+Nf);
-    lhsmatV = zeros(Nn+Nf);
-    allocated_vecs = [rhsvec, lhsmatI, lhsmatJ, lhsmatV, facefluxvec, face_done];
+    lhsmatI = zeros(Int, Nn2+Nf2);
+    lhsmatJ = zeros(Int, Nn2+Nf2);
+    lhsmatV = zeros(Nn2+Nf2);
+    allocated_vecs = (lhsmatI, lhsmatJ, lhsmatV, sourcevec, fluxvec, facefluxvec, face_done);
+    
+    # The spare matrix indices only need to be set once
+    set_matrix_indices!(lhsmatI, lhsmatJ, dofs_per_node);
+    
+    sol = get_var_vals(var);
     
     if prob.time_dependent && !(stepper === nothing)
         log_entry("Beginning "*string(stepper.Nsteps)*" time steps.");
         t = 0;
         if config.num_partitions > 1 exchange_ghosts(var, grid, 0); end
-        sol = get_var_vals(var);
-        
-        # allocate storage used by steppers
-        if stepper.type == LSRK4
-            tmppi = zeros(size(sol));
-            tmpki = zeros(size(sol));
-        elseif stepper.type == RK4
-            tmpki = zeros(length(sol), stepper.stages);
-        end
         
         start_t = Base.Libc.time();
         last2update = 0;
@@ -310,8 +309,12 @@ function linear_solve_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                 if config.num_partitions > 1 exchange_ghosts(var, grid, i); end
                 pre_step_function();
                 
-                (A, b) = assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func);
-                sol = sol .+ stepper.dt .* (A\b);
+                b = assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func, is_explicit=false);
+                # The matrix IJV vectors are now set.
+                # The dt part should already be included.
+                A = sparse(lhsmatI, lhsmatJ, lhsmatV);
+                scoper = sol;
+                sol = A\b;
                 
                 FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
                 place_sol_in_vars(var, sol, stepper);
@@ -355,42 +358,73 @@ function linear_solve_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
 end
 
 #
-function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; assemble_loops=nothing)
+function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; assemble_loops=nothing, is_explicit=true)
     # If an assembly loop function was provided, use it
     if !(assemble_loops === nothing)
-        return assemble_loops.func(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt);
+        return assemble_loops.func(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt, is_explicit=is_explicit);
     end
     # If parent maps were created for high order flux, use a slightly different function
     if !(parent_maps === nothing)
-        return assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt);
+        return assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt, is_explicit=is_explicit);
     end
     
     nel = fv_grid.nel_owned;
+    dofs_squared = dofs_per_node*dofs_per_node;
     
     # Label things that were allocated externally
-    sourcevec = allocated_vecs[1];
-    fluxvec = allocated_vecs[2];
-    facefluxvec = allocated_vecs[3];
-    face_done = allocated_vecs[4];
+    if is_explicit
+        sourcevec = allocated_vecs[1];
+        fluxvec = allocated_vecs[2];
+        facefluxvec = allocated_vecs[3];
+        face_done = allocated_vecs[4];
+    else
+        # lhsmatI = allocated_vecs[1]; # Don't need these here. Already set
+        # lhsmatJ = allocated_vecs[2];
+        lhsmatV = allocated_vecs[3];
+        sourcevec = allocated_vecs[4]; # In the implicit case, these vectors are for the RHS
+        fluxvec = allocated_vecs[5];
+        facefluxvec = allocated_vecs[6];
+        face_done = allocated_vecs[7];
+    end
     
-    face_done .= 0;
+    for i=1:length(face_done)
+        face_done[i] = 0;
+    end
+    for i=1:length(lhsmatV)
+        lhsmatV[i] = 0;
+    end
     
     # Elemental loop
     for ei=1:nel
         eid = elemental_order[ei]; # The index of this element
+        first_ind = (eid-1)*dofs_per_node + 1; # First global index for this element
+        last_ind = eid*dofs_per_node; # last global index
+        
         # Zero the result vectors for this element
-        sourcevec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] .= 0;
-        fluxvec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] .= 0;
+        sourcevec[first_ind:last_ind] .= 0;
+        fluxvec[first_ind:last_ind] .= 0;
         
         ##### Source integrated over the cell #####
         # Compute RHS volume integral
         if !(source_rhs === nothing)
-            #sourceargs = prepare_args(var, eid, 0, RHS, "volume", t, dt); # (var, e, nodex, loc2glb, refel, detj, J, t, dt)
             sourceargs = (var, eid, 0, fv_grid, fv_geo_factors, fv_info, refel, t, dt);
-            # source = source_rhs.func(sourceargs) ./ fv_geo_factors.volume[eid];
             source = source_rhs.func(sourceargs);
             # Add to global source vector
-            sourcevec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] = source;
+            sourcevec[first_ind:last_ind] = source;
+        end
+        
+        # Compute LHS volume integral = (block)diagonal components
+        if !(source_lhs === nothing) && !is_explicit
+            sourceargs = (var, eid, 0, fv_grid, fv_geo_factors, fv_info, refel, t, dt);
+            source = source_lhs.func(sourceargs);
+            # Add to global matrix
+            for di = 1:dofs_per_node
+                first = (eid-1)*dofs_squared + (di-1)*dofs_per_node + 1;
+                last = first + dofs_per_node - 1;
+                lhsmatV[first:last] = source[((di-1)*dofs_per_node + 1):(di*dofs_per_node)];
+                # lhsmatI[first:last] .= first_ind + di - 1; # previously set
+                # lhsmatJ[first:last] = first_ind:last_ind;
+            end
         end
         
         ##### Flux integrated over the faces #####
@@ -404,9 +438,11 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
             else
                 neighborhood = [[leftel],[rightel]];
             end
+            do_face_here = (face_done[fid] == 0);
             
+            # RHS surface integral
             if !(flux_rhs === nothing)
-                if face_done[fid] == 0
+                if do_face_here
                     face_done[fid] = 1; # Possible race condition, but in the worst case it will be computed twice.
                     
                     fluxargs = (var, eid, fid, neighborhood, fv_grid, fv_geo_factors, fv_info, refel, t, dt);
@@ -420,6 +456,68 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                     # This flux has either been computed or is being computed by another thread.
                     # The state will need to be known before paralellizing, but for now assume it's complete.
                     fluxvec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] -= facefluxvec[((fid-1)*dofs_per_node + 1):(fid*dofs_per_node)] ./ fv_geo_factors.volume[eid];
+                end
+            end
+            
+            # LHS surface integral
+            if !(flux_lhs === nothing) && !is_explicit
+                # These update the (block)diagonal for eid and one (block of)off diagonal for neighborID
+                if do_face_here
+                    face_done[fid] = 1; # Possible race condition.
+                    neighborID = (rightel==eid ? leftel : rightel);
+                    eid_flux_index = (leftel==eid ? 1 : 2);
+                    neighbor_flux_index = (leftel==eid ? 2 : 1);
+                    nfirst_ind = (neighborID-1)*dofs_per_node + 1;
+                    nlast_ind = neighborID*dofs_per_node;
+                    
+                    fluxargs = (var, eid, fid, neighborhood, fv_grid, fv_geo_factors, fv_info, refel, t, dt);
+                    flux = flux_lhs.func(fluxargs) .* fv_geo_factors.area[fid];
+                    # insert the matrix elements
+                    for di = 1:dofs_per_node
+                        # The eid components
+                        first = nel * dofs_squared + (fid-1)*dofs_squared*4 + (di-1)*dofs_per_node + 1;
+                        last = first + dofs_per_node - 1;
+                        lhsmatV[first:last] = flux[((di-1)*dofs_per_node + 1):(di*dofs_per_node), eid_flux_index] ./ fv_geo_factors.volume[eid];
+                        # lhsmatI[first:last] .= first_ind + di - 1; # previously set
+                        # lhsmatJ[first:last] = first_ind:last_ind;
+                        
+                        # The neighborID components
+                        if neighborID > 0
+                            # first = nel * dofs_squared + (fid-1)*dofs_squared*4 + dofs_squared + (di-1)*dofs_per_node + 1;
+                            # last = first + dofs_per_node - 1;
+                            first += dofs_squared;
+                            last += dofs_squared;
+                            lhsmatV[first:last] = flux[((di-1)*dofs_per_node + 1):(di*dofs_per_node), neighbor_flux_index] ./ fv_geo_factors.volume[eid];
+                            # lhsmatI[first:last] .= first_ind + di - 1; # previously set
+                            # lhsmatJ[first:last] = nfirst_ind:nlast_ind;
+                        end
+                    end
+                    
+                    # While we're here, set the components for the neighborID rows as well.
+                    if neighborID > 0
+                        for di = 1:dofs_per_node
+                            # The eid components
+                            first = nel * dofs_squared + (fid-1)*dofs_squared*4 + dofs_squared*2 + (di-1)*dofs_per_node + 1;
+                            last = first + dofs_per_node - 1;
+                            lhsmatV[first:last] = -flux[((di-1)*dofs_per_node + 1):(di*dofs_per_node), eid_flux_index] ./ fv_geo_factors.volume[neighborID];
+                            # lhsmatI[first:last] .= nfirst_ind + di - 1; # previously set
+                            # lhsmatJ[first:last] = first_ind:last_ind;
+                            
+                            # The neighborID components
+                            # first = nel * dofs_squared + (fid-1)*dofs_squared*4 + dofs_squared*3 + (di-1)*dofs_per_node + 1;
+                            # last = first + dofs_per_node - 1;
+                            first += dofs_squared;
+                            last += dofs_squared;
+                            
+                            lhsmatV[first:last] = -flux[((di-1)*dofs_per_node + 1):(di*dofs_per_node), neighbor_flux_index] ./ fv_geo_factors.volume[neighborID];
+                            # lhsmatI[first:last] .= nfirst_ind + di - 1; # previously set
+                            # lhsmatJ[first:last] = nfirst_ind:nlast_ind;
+                        end
+                    end
+                    
+                else
+                    # This flux has either been computed or is being computed by another thread.
+                    # Everything was set there.
                 end
             end
             
@@ -441,12 +539,19 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                                 # Qvec = Qvec ./ fv_geo_factors.area[fid];
                                 # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
                                 bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fid, t) .* fv_geo_factors.area[fid];
+                                if !is_explicit
+                                    bflux = bflux .* dt;
+                                end
                                 
                                 fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
                                 facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                             elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
                                 # Set variable array and handle after the face loop
                                 var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
+                                # If implicit, this needs to be handled before solving
+                                if !is_explicit
+                                    #TODO
+                                end
                             else
                                 printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
                             end
@@ -463,173 +568,19 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                             # Qvec = Qvec ./ fv_geo_factors.area[fid];
                             # bflux = FV_flux_bc_rhs_only(prob.bc_func[var.index, fbid][d], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
                             bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t) .* fv_geo_factors.area[fid];
+                            if !is_explicit
+                                bflux = bflux .* dt;
+                            end
                             
                             fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
                             facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
                         elseif prob.bc_type[var.index, fbid] == DIRICHLET
                             # Set variable array and handle after the face loop
                             var.values[d,eid] = FV_evaluate_bc(prob.bc_func[var.index, fbid][d], eid, fid, t);
-                        else
-                            printerr("Unsupported boundary condition type: "*prob.bc_type[var.index, fbid]);
-                        end
-                    end
-                end
-            end# BCs
-            
-        end# face loop
-        
-    end# element loop
-    
-    return sourcevec + fluxvec;
-end
-
-function assemble_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; assemble_loops=nothing, rhs_only=false)
-    # If an assembly loop function was provided, use it
-    if !(assemble_loops === nothing)
-        return assemble_loops.func(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt);
-    end
-    # If parent maps were created for high order flux, use a slightly different function
-    if !(parent_maps === nothing)
-        return assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt);
-    end
-    
-    nel = fv_grid.nel_owned;
-    
-    # Label things that were allocated externally
-    b = allocated_vecs[1];
-    if !rhs_only
-        AI = allocated_vecs[2];
-        AJ = allocated_vecs[3];
-        AV = allocated_vecs[4];
-    end
-    facefluxvec = allocated_vecs[5]
-    face_done = allocated_vecs[6];
-    # zero b
-    b .= 0;
-    face_done .= 0;
-    
-    # Elemental loop
-    for ei=1:nel
-        eid = elemental_order[ei]; # The index of this element
-        # Each element owns (1+nfaces)*dofs_per_node elements of the A matrix
-        nfaces = size(grid.element2face,1); # eventually this should be modified different element types
-        first_index = (eid-1)*(nfaces+1)*dofs_per_node + 1;
-        last_index = eid*(nfaces+1)*dofs_per_node;
-        # Zero A for this element
-        AI[first_index:last_index] .= 0;
-        AJ[first_index:last_index] .= 0;
-        AV[first_index:last_index] .= 0;
-        
-        ##### Source
-        sourceargs = (var, eid, 0, fv_grid, fv_geo_factors, fv_info, refel, t, dt);
-        if !(source_lhs === nothing)
-            source = source_lhs.func(sourceargs);
-            # These are the diagonal elements of A
-            AI[first_index:first_index+dofs_per_node] = ((eid-1)*dofs_per_node + 1):eid*dofs_per_node;
-            AJ[first_index:first_index+dofs_per_node] = ((eid-1)*dofs_per_node + 1):eid*dofs_per_node;
-            AV[first_index:first_index+dofs_per_node] = source;
-        end
-        if !(source_rhs === nothing)
-            source = source_rhs.func(sourceargs);
-            # RHS vector b
-            b[((eid-1)*dofs_per_node+1):eid*dofs_per_node] = source;
-        end
-        
-        ##### Flux
-        # Loop over this element's faces.
-        for i=1:refel.Nfaces
-            fid = fv_grid.element2face[i, eid];
-            fbid = fv_grid.facebid[fid]; # BID of this face
-            
-            # Only one element on either side is available here. For more use parent/child version.
-            (leftel, rightel) = fv_grid.face2element[:,fid];
-            if rightel == 0
-                neighborhood = [[leftel],[]];
-                neighbor_id = eid;
-            else
-                neighborhood = [[leftel],[rightel]];
-                if leftel == eid
-                    neighbor_id = rightel;
-                else
-                    neighbor_id = leftel;
-                end
-            end
-            
-            if face_done[fid] == 0
-                face_done[fid] = 1;
-                
-                fluxargs = (var, eid, fid, neighborhood, fv_grid, fv_geo_factors, fv_info, refel, t, dt);
-                if !(flux_rhs === nothing)
-                    flux = flux_rhs.func(fluxargs) .* fv_geo_factors.area[fid];
-                    # Add to global flux vector for faces
-                    facefluxvec[((fid-1)*dofs_per_node + 1):(fid*dofs_per_node)] = flux;
-                    # Combine all flux for this element
-                    b[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] += flux ./ fv_geo_factors.volume[eid];
-                end
-                if !(flux_lhs === nothing)
-                    flux = flux_lhs.func(fluxargs) .* fv_geo_factors.area[fid];
-                    # These are the off-diagonal elements of A
-                    AI[first_index:first_index+dofs_per_node] = ((eid-1)*dofs_per_node + 1):eid*dofs_per_node; # row for this element
-                    AJ[first_index:first_index+dofs_per_node] = ((neighbor_id-1)*dofs_per_node + 1):neighbor_id*dofs_per_node; # col for neighbor
-                    AV[first_index:first_index+dofs_per_node] = flux ./ fv_geo_factors.volume[eid];
-                end
-                
-            else # This flux has either been computed or is being computed by another thread.
-                 # The state will need to be known before paralellizing, but for now assume it's complete.
-                if !(flux_rhs === nothing)
-                    b[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] -= facefluxvec[((fid-1)*dofs_per_node + 1):(fid*dofs_per_node)] ./ fv_geo_factors.volume[eid];
-                end
-                if !(flux_lhs === nothing)
-                    fluxargs = (var, eid, fid, neighborhood, fv_grid, fv_geo_factors, fv_info, refel, t, dt);
-                    flux = flux_lhs.func(fluxargs) .* fv_geo_factors.area[fid];
-                    # These are the off-diagonal elements of A
-                    AI[first_index:first_index+dofs_per_node] = ((eid-1)*dofs_per_node + 1):eid*dofs_per_node; # row for this element
-                    AJ[first_index:first_index+dofs_per_node] = ((neighbor_id-1)*dofs_per_node + 1):neighbor_id*dofs_per_node; # col for neighbor
-                    AV[first_index:first_index+dofs_per_node] = flux ./ fv_geo_factors.volume[eid];
-                end
-            end
-            
-            # Boundary conditions are applied to flux
-            if fbid > 0
-                if typeof(var) <: Array
-                    dofind = 0;
-                    for vi=1:length(var)
-                        for compo=1:length(var[vi].symvar)
-                            dofind = dofind + 1;
-                            if prob.bc_type[var[vi].index, fbid] == NO_BC
-                                # do nothing
-                            elseif prob.bc_type[var[vi].index, fbid] == FLUX
-                                # compute the value and add it to the flux directly
-                                bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var[vi].index, fbid][compo], fid, t) .* fv_geo_factors.area[fid];
-                                
-                                b[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
-                                facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
-                                # TODO How to modify LHS
-                            elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
-                                # Set variable array and handle after the face loop
-                                var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
-                            else
-                                printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
+                            # If implicit, this needs to be handled before solving
+                            if !is_explicit
+                                #TODO
                             end
-                        end
-                    end
-                else
-                    for d=1:dofs_per_node
-                        dofind = d;
-                        if prob.bc_type[var.index, fbid] == NO_BC
-                            # do nothing
-                        elseif prob.bc_type[var.index, fbid] == FLUX
-                            # compute the value and add it to the flux directly
-                            # Qvec = (refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, refel.face2local[fv_grid.faceRefelInd[1,fid]]]
-                            # Qvec = Qvec ./ fv_geo_factors.area[fid];
-                            # bflux = FV_flux_bc_rhs_only(prob.bc_func[var.index, fbid][d], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
-                            bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t) .* fv_geo_factors.area[fid];
-                            
-                            b[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
-                            facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
-                        elseif prob.bc_type[var.index, fbid] == DIRICHLET
-                            # Set variable array and handle after the face loop
-                            var.values[d,eid] = FV_evaluate_bc(prob.bc_func[var.index, fbid][d], eid, fid, t);
                         else
                             printerr("Unsupported boundary condition type: "*prob.bc_type[var.index, fbid]);
                         end
@@ -641,14 +592,17 @@ function assemble_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allo
         
     end# element loop
     
-    # Construct the sparse matrix A
-    A = Sparse(AI, AJ, AV);
-    
-    return (A, b);
+    for i=1:length(sourcevec)
+        sourcevec[i] += fluxvec[i];
+    end
+    return sourcevec;
 end
 
-function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0)
+function assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; is_explicit=true)
     debug = false;
+    if !is_explicit
+        printerr("Higher order FV is not ready for implicit time stepping. Sorry.", fatal=true);
+    end
     
     # Label things that were allocated externally
     sourcevec = allocated_vecs[1];
@@ -1047,6 +1001,88 @@ function get_var_vals(var, vect=nothing)
     end
     
     return vect;
+end
+
+# Set the i,j indices in the ai and aj vectors for building the sparse matrix
+function set_matrix_indices!(ai, aj, dofs_per_node)
+    dofs_squared = dofs_per_node*dofs_per_node;
+    nel = fv_grid.nel_owned;
+    nfaces = size(fv_grid.face2element, 2);
+    face_done = fill(false, nfaces);
+    
+    # Elemental loop
+    for ei=1:nel
+        eid = elemental_order[ei]; # The index of this element
+        first_ind = (eid-1)*dofs_per_node + 1; # First global index for this element
+        last_ind = eid*dofs_per_node; # last global index
+        
+        # Diagonal blocks for each cell
+        for di = 1:dofs_per_node
+            first = (eid-1)*dofs_squared + (di-1)*dofs_per_node + 1;
+            last = first + dofs_per_node - 1;
+            ai[first:last] .= first_ind + di - 1;
+            aj[first:last] = first_ind:last_ind;
+        end
+        
+        # Diagonal and off diagonal blocks for each face
+        # Loop over this element's faces.
+        for i=1:refel.Nfaces
+            fid = fv_grid.element2face[i, eid];
+            
+            if !face_done[fid]
+                face_done[fid] = true;
+                (leftel, rightel) = fv_grid.face2element[:,fid];
+                neighborID = (rightel==eid ? leftel : rightel);
+                nfirst_ind = (neighborID-1)*dofs_per_node + 1;
+                nlast_ind = neighborID*dofs_per_node;
+                
+                for di = 1:dofs_per_node
+                    # The eid components
+                    first = nel * dofs_squared + (fid-1)*dofs_squared*4 + (di-1)*dofs_per_node + 1;
+                    last = first + dofs_per_node - 1;
+                    ai[first:last] .= first_ind + di - 1;
+                    aj[first:last] = first_ind:last_ind;
+                    
+                    # The neighborID components
+                    if neighborID > 0
+                        first += dofs_squared;
+                        last += dofs_squared;
+                        ai[first:last] .= first_ind + di - 1;
+                        aj[first:last] = nfirst_ind:nlast_ind;
+                    end
+                end
+                
+                # While we're here, set the components for the neighborID rows as well.
+                if neighborID > 0
+                    for di = 1:dofs_per_node
+                        # The eid components
+                        first = nel * dofs_squared + (fid-1)*dofs_squared*4 + dofs_squared*2 + (di-1)*dofs_per_node + 1;
+                        last = first + dofs_per_node - 1;
+                        ai[first:last] .= nfirst_ind + di - 1;
+                        aj[first:last] = first_ind:last_ind;
+                        
+                        # The neighborID components
+                        first += dofs_squared;
+                        last += dofs_squared;
+                        ai[first:last] .= nfirst_ind + di - 1;
+                        aj[first:last] = nfirst_ind:nlast_ind;
+                    end
+                end
+                
+            else
+                # already done
+            end
+        end# face loop
+    end# element loop
+    
+    # Some indices may be zero due to boundaries. set those all to [1,1] (not the most efficient, but it's consistent)
+    # Since the av part will be zero, this won't change the matrix.
+    for i=1:length(ai)
+        if ai[i]<1 || aj[i]<1
+            ai[i] = 1;
+            aj[i] = 1;
+        end
+    end
 end
 
 end #module
