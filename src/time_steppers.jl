@@ -37,7 +37,7 @@ function init_stepper(x, stepper)
             stepper.cfl = 1;
         end
         stepper.dt = stepper.cfl*dxmin;
-        stepper.Nsteps = (prob.end_time/stepper.dt);
+        stepper.Nsteps = ceil(prob.end_time/stepper.dt);
         stepper.dt = prob.end_time/stepper.Nsteps;
         stepper.stages = 1;
         

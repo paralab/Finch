@@ -275,10 +275,11 @@ function linear_solve_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
         nfaces = size(fv_grid.face2element, 2);
     end
     
+    dofs_squared = dofs_per_node*dofs_per_node;
     Nn = dofs_per_node * nel; # dofs values for each cell
     Nf = dofs_per_node * nfaces; # dofs values per face
-    Nn2 = dofs_per_node * dofs_per_node * nel; # dofs values per dof per cell
-    Nf2 = dofs_per_node * dofs_per_node * nfaces * 4; # dofs values per dof per face * 4
+    Nn2 = dofs_squared * nel; # dofs values per dof per cell
+    Nf2 = dofs_squared * nfaces * 4; # dofs values per dof per face * 4
     
     # Allocate arrays that will be used by assemble
     sourcevec = zeros(Nn);
@@ -310,10 +311,28 @@ function linear_solve_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                 pre_step_function();
                 
                 b = assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func, is_explicit=false);
+                # Need to add var values to b for u(-) + dt*rhs
+                # Need to add identity to A for u(+) + dt*lhs
+                sol = get_var_vals(var, sol);
+                for j=1:length(b)
+                    b[j] += sol[j];
+                end
+                if dofs_per_node == 1
+                    for j=1:nel
+                        lhsmatV[j] += 1;
+                    end
+                else
+                    for j=1:nel
+                        for k=1:dofs_per_node
+                            lhsmatV[(j-1)*dofs_squared + (k-1)*dofs_per_node + k] += 1;
+                        end
+                    end
+                end
+                
                 # The matrix IJV vectors are now set.
                 # The dt part should already be included.
                 A = sparse(lhsmatI, lhsmatJ, lhsmatV);
-                scoper = sol;
+                # scoper = sol;
                 sol = A\b;
                 
                 FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
@@ -322,7 +341,7 @@ function linear_solve_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                 post_step_function();
                 
             else
-                printerr("Problem with stepper: "*string(stepper), fatal=true)
+                printerr("Unknown time stepper: "*string(stepper), fatal=true)
             end
             
             # ########## uncomment to return after one time step
@@ -385,13 +404,14 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
         fluxvec = allocated_vecs[5];
         facefluxvec = allocated_vecs[6];
         face_done = allocated_vecs[7];
+        
+        for i=1:length(lhsmatV)
+            lhsmatV[i] = 0;
+        end
     end
     
     for i=1:length(face_done)
         face_done[i] = 0;
-    end
-    for i=1:length(lhsmatV)
-        lhsmatV[i] = 0;
     end
     
     # Elemental loop

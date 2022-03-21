@@ -631,7 +631,7 @@ function assemblyLoops(var, indices)
     
     if language == JULIA || language == 0
         if config.solver_type == FV
-            args = "var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0";
+            args = "var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; is_explicit=true";
         elseif config.solver_type == CG
             args = "var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; rhs_only=false";
         end

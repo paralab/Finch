@@ -37,6 +37,11 @@ end
 
 # Allocate, compute, or fetch all needed values
 function prepare_needed_values_fv_julia(entities, var, lorr, vors)
+    # If there are no entities, do nothing
+    if length(entities) < 1
+        return "";
+    end
+    
     # Options
     average_coefficients = false; # true to integrate and average coefficients over cells and faces.
     
@@ -77,7 +82,7 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
                 if entities[i].name == "FACENORMAL1"
                     code *= cname * " = normal["*string(entities[i].index)*"]; # normal vector component\n"
                     piece_needed[8] = true;
-                else entities[i].name == "FACENORMAL2"
+                elseif entities[i].name == "FACENORMAL2"
                     code *= cname * " = -normal["*string(entities[i].index)*"]; # reverse normal vector component\n"
                     piece_needed[8] = true;
                 end
@@ -180,18 +185,19 @@ function prepare_needed_values_fv_julia(entities, var, lorr, vors)
             elseif ctype == 3 # a known variable value
                 piece_needed[1] = true;
                 # This generates something like: coef_u_1 = copy((Finch.variables[1]).values[1, gbl])
-                cellside = 0; # 0 means no side flag
-                for flagi=1:length(entities[i].flags)
-                    if occursin("DGSIDE1", entities[i].flags[flagi]) || occursin("CELL1", entities[i].flags[flagi])
-                        cellside = 1;
-                    elseif occursin("DGSIDE2", entities[i].flags[flagi]) || occursin("CELL2", entities[i].flags[flagi])
-                        cellside = 2;
-                    elseif occursin("CENTRAL", entities[i].flags[flagi])
-                        cellside = 3;
-                    elseif occursin("NEIGHBORHOOD", entities[i].flags[flagi])
-                        cellside = 4;
-                    end
-                end
+                # cellside = 0; # 0 means no side flag
+                # for flagi=1:length(entities[i].flags)
+                #     if occursin("DGSIDE1", entities[i].flags[flagi]) || occursin("CELL1", entities[i].flags[flagi])
+                #         cellside = 1;
+                #     elseif occursin("DGSIDE2", entities[i].flags[flagi]) || occursin("CELL2", entities[i].flags[flagi])
+                #         cellside = 2;
+                #     elseif occursin("CENTRAL", entities[i].flags[flagi])
+                #         cellside = 3;
+                #     elseif occursin("NEIGHBORHOOD", entities[i].flags[flagi])
+                #         cellside = 4;
+                #     end
+                # end
+                cellside = get_face_side_info(entities[i]); # in code_generator_utils.jl
                 if vors == "surface"
                     l2gsymbol = "els1"
                 else
@@ -524,9 +530,18 @@ function make_elemental_computation_fv_julia(terms, var, dofsper, offset_ind, lo
     # Where each term, if LHS, involves one unknown component and possibly some coefficients.
     code = "";
     
-    # If there were no terms, 
-    if length(terms) < 1
-        code = "return nothing # There were no terms to compute here";
+    # If there were no terms,
+    how_many_terms = 0;
+    for i=1:length(terms)
+        how_many_terms = how_many_terms + length(terms[i]);
+    end
+    if how_many_terms < 1
+        if lorr == LHS && vors == "surface"
+            code = "return [0   0] # There were no terms to compute here";
+        else
+            code = "return [0] # There were no terms to compute here";
+        end
+        return code;
     end
     
     # Allocate the vector or matrix to be returned if needed
@@ -559,7 +574,7 @@ function make_elemental_computation_fv_julia(terms, var, dofsper, offset_ind, lo
                 # Process the terms for this variable
                 for ci=1:length(terms[vi]) # components
                     for i=1:length(terms[vi][ci])
-                        (term_result, var_ind) = generate_term_calculation_fv_julia(terms[vi][ci][i], var, lorr);
+                        (term_result, var_ind) = generate_term_calculation_fv_julia(terms[vi][ci][i], var, lorr, vors);
                         
                         # println(terms)
                         # println(terms[vi])
@@ -590,7 +605,7 @@ function make_elemental_computation_fv_julia(terms, var, dofsper, offset_ind, lo
             # Process the terms for this variable
             for ci=1:length(terms) # components
                 for i=1:length(terms[ci])
-                    (term_result, var_ind) = generate_term_calculation_fv_julia(terms[ci][i], var, lorr);
+                    (term_result, var_ind) = generate_term_calculation_fv_julia(terms[ci][i], var, lorr, vors);
                     
                     # Find the appropriate submatrix for this term
                     subvec_ind = ci;
@@ -646,7 +661,8 @@ return result;
             if vors == "volume"
                 result = "0";
             else
-                result = "0,0";
+                result1 = "0";
+                result2 = "0";
             end
             
         else
@@ -654,61 +670,175 @@ return result;
         end
         
         #process each term
-        first_term = true;
+        first_term1 = true;
+        first_term2 = true;
         for i=1:length(terms)
-            (term_result, var_ind) = generate_term_calculation_fv_julia(terms[i], var, lorr);
-            
-            if !(term_result == "0")
-                if first_term
-                    result = term_result;
-                    first_term = false;
-                else
-                    result *= " .+ " * term_result;
+            (term_result1, term_result2, var_ind) = generate_term_calculation_fv_julia(terms[i], var, lorr, vors);
+            if lorr == LHS && vors == "surface"
+                # There are two results, one for each side of the face
+                if !(term_result1 == "0" || term_result1 == "")
+                    if first_term1
+                        result1 = term_result1;
+                        first_term1 = false;
+                    else
+                        result1 *= " .+ " * term_result1;
+                    end
+                end
+                if !(term_result2 == "0" || term_result2 == "")
+                    if first_term2
+                        result2 = term_result2;
+                        first_term2 = false;
+                    else
+                        result2 *= " .+ " * term_result2;
+                    end
+                end
+            else # only term_result1 is used
+                if !(term_result1 == "0" || term_result1 == "")
+                    if first_term1
+                        result = term_result1;
+                        first_term1 = false;
+                    else
+                        result *= " .+ " * term_result1;
+                    end
                 end
             end
-        end
-        code *= "result = [" * result * "];\n";
-        if vors == "surface"
+            
+        end # term loop
+        
+        if lorr == LHS && vors == "surface" # LHS surface returns two pieces per dof
+            code *= "result = [" * result1 * "    " * result2 * "];\n";
+            
+        elseif vors == "surface" # RHS surface
+            code *= "result = [" * result * "];\n";
             code *= "
 if els[2][1] == eid && els[1][1] != els[2][1]
     result = -result; # Since this flux is applied to element eid, make sure it's going in the right direction.
 end
 return result;
 "
+        else # volume (LHS and RHS)
+            code *= "result = [" * result * "];\n";
         end
-        
     end
     
     return code;
 end
 
-function generate_term_calculation_fv_julia(term, var, lorr)
-    result = "";
+function generate_term_calculation_fv_julia(term, var, lorr, vors)
+    # This will return 3 things: for volume terms, the first is the result.
+    # For surface terms, there is one for each side.
+    # The third is the var_ind
+    result1 = "";
+    result2 = "";
     # Note: separate_factors return test and trial info, but FV will not have any test functions.
-    # trial_part refers to the unknown variable part.
+    # var_part refers to the unknown variable part.
     # example:
     # 0.1*D1__u_1*_FACENORMAL1_1  ->  0.1 * normal[1]                    on LHS
     #                             ->  0.1 * (coef_D1xu_1 .* normal[1])   on RHS
     if lorr == LHS
         (test_part, var_part, coef_part, test_ind, var_ind) = separate_factors(term, var);
-        # The var_part should be checked here. TODO
-        if coef_part === nothing
-            result = "1";
+        which_side = get_face_side_info(var_part); # 0=none, 1/2=side 1/2, 3=average, 4=neighborhood
+        
+        if coef_part === nothing # Only an unknown variable
+            # handle negative sign
+            if typeof(var_part) == Expr && (var_part.args[1] === :.- || var_part.args[1] === :-)
+                if vors == "surface"
+                    if which_side == 0 || which_side == 3 # average them
+                        result1 = "-0.5";
+                        result2 = "-0.5";
+                    elseif which_side == 1
+                        result1 = "-1";
+                    elseif which_side == 2
+                        result2 = "-1";
+                    else
+                        # neighborhoods are not supported for implicit steppers
+                    end
+                else
+                    result1 = "-1";
+                end
+                
+            else
+                if vors == "surface"
+                    if which_side == 0 || which_side == 3 # average them
+                        result1 = "0.5";
+                        result2 = "0.5";
+                    elseif which_side == 1
+                        result1 = "1";
+                    elseif which_side == 2
+                        result2 = "1";
+                    else
+                        # neighborhoods are not supported for implicit steppers
+                    end
+                else
+                    result1 = "1";
+                end
+            end
+            
         else
-            result = string(replace_entities_with_symbols(coef_part));
+            if vors == "surface"
+                # This is tricky. First make two copies of the coef_part.
+                # Since the coef_part could actually contain a variable hidden in an expression like a conditional,
+                # Set the correct side to 1 and the other side to 0, or if no side, set both to 0.5
+                # Also make side 2 negative... because I need to make upwinding work.
+                # This is a bad way to rig this up, but I'm out of ideas here.
+                coef_side1 = copy(coef_part);
+                coef_side2 = copy(coef_part);
+                coef_side1 = replace_lhs_surface_var_entities(coef_side1, var, 1);
+                coef_side2 = replace_lhs_surface_var_entities(coef_side2, var, 2);
+                if which_side == 0 || which_side == 3 # average them
+                    result1 = string(replace_entities_with_symbols(coef_side1));
+                    result2 = string(replace_entities_with_symbols(coef_side2));
+                elseif which_side == 1
+                    result1 = string(replace_entities_with_symbols(coef_side1));
+                elseif which_side == 2
+                    result2 = string(replace_entities_with_symbols(coef_side2));
+                else
+                    # neighborhoods are not supported for implicit steppers
+                end
+            else
+                result1 = string(replace_entities_with_symbols(coef_part));
+            end
         end
         
     else
         (test_part, var_part, coef_part, test_ind, var_ind) = separate_factors(term);
         # RHS: coef_part
         if !(coef_part === nothing)
-            result = string(replace_entities_with_symbols(coef_part));
+            result1 = string(replace_entities_with_symbols(coef_part));
         else
-            result = "0";
+            result1 = "0";
         end
     end
     
-    return (result, var_ind);
+    return (result1, result2, var_ind);
+end
+
+# A special function for handling LHS surface parts.
+# Swaps variable entities with a number depending on side.
+# negate will make side 2 negative.
+function replace_lhs_surface_var_entities(ex, var, side, negate=true)
+    if typeof(ex) == Expr
+        for i=1:length(ex.args)
+            ex.args[i] = replace_lhs_surface_var_entities(ex.args[i], var, side, negate);
+        end
+    elseif typeof(ex) == SymEntity
+        if is_unknown_var(ex, var)
+            which_side = get_face_side_info(ex);
+            if which_side == 0 || which_side == 3
+                ex = 0.5;
+            elseif which_side == side
+                ex = 1;
+            else
+                ex = 0;
+            end
+            if side == 2 && negate
+                ex = -ex;
+            end
+        end
+    else
+        # number?
+    end
+    return ex;
 end
 
 # Generate the assembly loop structures and insert the content
@@ -746,16 +876,19 @@ if is_explicit
     facefluxvec = allocated_vecs[3];
     face_done = allocated_vecs[4];
 else
-    lhsmatI = allocated_vecs[1];
-    lhsmatJ = allocated_vecs[2];
     lhsmatV = allocated_vecs[3];
-    lhsfaceflux = allocated_vecs[4];
-    sourcevec = allocated_vecs[5]; # In the implicit case, these vectors are for the RHS
-    fluxvec = allocated_vecs[6];
-    facefluxvec = allocated_vecs[7];
-    face_done = allocated_vecs[8];
+    sourcevec = allocated_vecs[4]; # In the implicit case, these vectors are for the RHS
+    fluxvec = allocated_vecs[5];
+    facefluxvec = allocated_vecs[6];
+    face_done = allocated_vecs[7];
+    
+    for i=1:length(lhsmatV)
+        lhsmatV[i] = 0;
+    end
 end
 
+nel = fv_grid.nel_owned;
+dofs_squared = dofs_per_node*dofs_per_node;
 "
     # generate the loop structures
     code *= "# Loops\n"
@@ -764,7 +897,10 @@ end
     for i=1:length(indices)
         if indices[i] == "elements" || indices[i] == "cells"
             loop_start *= "for eid in elemental_order\n";
-            loop_start *= "face_done .= 0; # Reset face_done in elemental loop\n";
+            loop_start *= "
+for i=1:length(face_done)
+    face_done[i] = 0; # Reset face_done in elemental loop
+end\n";
             loop_end *= "end # loop for elements\n";
         else
             indexer_index = 0;
@@ -805,8 +941,10 @@ end
         ind_offset *= ")";
     end
     
-    index_offset = "dofs_per_loop * ("*ind_offset*" - 1 + dofs_per_node * (eid - 1)) + 1"
-    face_index_offset = "dofs_per_loop * ("*ind_offset*" - 1 + dofs_per_node * (fid - 1)) + 1"
+    # index_offset = "dofs_per_loop * ("*ind_offset*" - 1 + dofs_per_node * (eid - 1)) + 1"
+    # face_index_offset = "dofs_per_loop * ("*ind_offset*" - 1 + dofs_per_node * (fid - 1)) + 1"
+    index_offset = "dofs_per_node * (eid - 1) + ("*ind_offset*" - 1) * dofs_per_loop + 1";
+    face_index_offset = "dofs_per_node * (fid - 1) + ("*ind_offset*" - 1) * dofs_per_loop + 1";
     
     code *= loop_start;
     
@@ -814,10 +952,12 @@ end
     code *= "
     # determine index in global vector
     index_offset = "*index_offset*";
+    first_ind = index_offset; # First global index for this loop
+    last_ind = index_offset + dofs_per_loop-1; # last global index
     
     # Zero the result vectors for this element
-    sourcevec[index_offset:(index_offset + dofs_per_loop-1)] .= 0;
-    fluxvec[index_offset:(index_offset + dofs_per_loop-1)] .= 0;
+    sourcevec[first_ind:last_ind] .= 0;
+    fluxvec[first_ind:last_ind] .= 0;
     
     ##### Source integrated over the cell #####
     # Compute RHS volume integral
@@ -827,28 +967,42 @@ end
         source = source_rhs.func(sourceargs; "*index_args*");
         
         # Add to global source vector
-        sourcevec[index_offset:(index_offset + dofs_per_loop-1)] .= source;
+        sourcevec[first_ind:last_ind] .= source;
+    end
+    
+    # Compute LHS volume integral = (block)diagonal components
+    if !(source_lhs === nothing) && !is_explicit
+        sourceargs = (var, eid, 0, fv_grid, fv_geo_factors, fv_info, refel, t, dt);
+        source = source_lhs.func(sourceargs; "*index_args*");
+        # Add to global matrix
+        for di = 1:dofs_per_loop
+            first = (eid-1)*dofs_squared + "*ind_offset*"; # This needs to change for multi dof TODO
+            last = first + dofs_per_loop - 1;
+            lhsmatV[first:last] = source[((di-1)*dofs_per_loop + 1):(di*dofs_per_loop)];
+        end
     end
 
     ##### Flux integrated over the faces #####
     # Loop over this element's faces.
     for i=1:refel.Nfaces
         fid = grid_data.element2face[i, eid];
+        do_face_here = (face_done[fid] < dofs_per_node);
+        if do_face_here
+            face_done[fid] += dofs_per_loop;
+        end
+        # Only one element on either side is available here. For more use parent/child version.
+        (leftel, rightel) = grid_data.face2element[:,fid];
+        if rightel == 0
+            neighborhood = [[leftel],[]];
+        else
+            neighborhood = [[leftel],[rightel]];
+        end
         
         # determine index in global face vector
         face_index_offset = "*face_index_offset*";
         
         if !(flux_rhs === nothing)
-            if face_done[fid] < dofs_per_node
-                face_done[fid] += dofs_per_loop;
-                
-                # Only one element on either side is available here. For more use parent/child version.
-                (leftel, rightel) = grid_data.face2element[:,fid];
-                if rightel == 0
-                    neighborhood = [[leftel],[]];
-                else
-                    neighborhood = [[leftel],[rightel]];
-                end
+            if do_face_here
                 
                 fluxargs = (var, eid, fid, neighborhood, grid_data, geo_factors, fv_info, refel, t, dt);
                 flux = flux_rhs.func(fluxargs; "*index_args*") .* geo_factors.area[fid];
@@ -863,6 +1017,59 @@ end
                 # The state will need to be known before paralellizing, but for now assume it's complete.
                 flux = -facefluxvec[face_index_offset:(face_index_offset + dofs_per_loop-1)];
                 fluxvec[index_offset:(index_offset + dofs_per_loop-1)] .-= facefluxvec[face_index_offset:(face_index_offset + dofs_per_loop-1)] ./ geo_factors.volume[eid];
+            end
+        end
+        
+        # LHS surface integral
+        if !(flux_lhs === nothing) && !is_explicit
+            # These update the (block)diagonal for eid and one (block of)off diagonal for neighborID
+            if do_face_here
+                face_done[fid] = 1; # Possible race condition.
+                neighborID = (rightel==eid ? leftel : rightel);
+                eid_flux_index = (leftel==eid ? 1 : 2);
+                neighbor_flux_index = (leftel==eid ? 2 : 1);
+                nfirst_ind = (neighborID-1)*dofs_per_node + "*ind_offset*";
+                nlast_ind = neighborID*dofs_per_node + "*ind_offset*" - 1;
+                
+                fluxargs = (var, eid, fid, neighborhood, fv_grid, fv_geo_factors, fv_info, refel, t, dt);
+                flux = flux_lhs.func(fluxargs; "*index_args*"); println(flux);
+                flux = flux_lhs.func(fluxargs; "*index_args*") .* fv_geo_factors.area[fid];
+                # insert the matrix elements
+                for di = 1:dofs_per_loop
+                    # The eid components
+                    first = nel * dofs_squared + (fid-1)*dofs_squared*4 + "*ind_offset*";
+                    last = first + dofs_per_loop - 1;
+                    lhsmatV[first:last] = flux[((di-1)*dofs_per_loop + 1):(di*dofs_per_loop), eid_flux_index] ./ fv_geo_factors.volume[eid];
+                    
+                    # The neighborID components
+                    if neighborID > 0
+                        # first = nel * dofs_squared + (fid-1)*dofs_squared*4 + dofs_squared + "*ind_offset*";
+                        # last = first + dofs_per_loop - 1;
+                        first += dofs_squared;
+                        last += dofs_squared;
+                        lhsmatV[first:last] = flux[((di-1)*dofs_per_loop + 1):(di*dofs_per_loop), neighbor_flux_index] ./ fv_geo_factors.volume[eid];
+                    end
+                end
+                
+                # While we're here, set the components for the neighborID rows as well.
+                if neighborID > 0
+                    for di = 1:dofs_per_loop
+                        # The eid components
+                        first = nel * dofs_squared + (fid-1)*dofs_squared*4 + dofs_squared*2 + "*ind_offset*";
+                        last = first + dofs_per_loop - 1;
+                        lhsmatV[first:last] = -flux[((di-1)*dofs_per_loop + 1):(di*dofs_per_loop), eid_flux_index] ./ fv_geo_factors.volume[neighborID];
+                        
+                        # The neighborID components
+                        first += dofs_squared;
+                        last += dofs_squared;
+                        
+                        lhsmatV[first:last] = -flux[((di-1)*dofs_per_loop + 1):(di*dofs_per_loop), neighbor_flux_index] ./ fv_geo_factors.volume[neighborID];
+                    end
+                end
+                
+            else
+                # This flux has either been computed or is being computed by another thread.
+                # Everything was set there.
             end
         end
         

@@ -290,9 +290,20 @@ function reformat_for_stepper_fv_flux(lhs, rhs, stepper)
             append!(newrhs, lhs);
             
         elseif stepper == EULER_IMPLICIT
+            # du/dt + lhs = rhs  ->  u(+) + dt*lhs = u(-) + dt*rhs
+            # Do the *dt part here, but adding u will be done by the solver
+            for i=1:length(lhs)
+                lhs[i] = lhs[i]*dt;
+            end
+            for i=1:length(rhs)
+                rhs[i] = rhs[i]*dt;
+            end
+            
+            newlhs = copy(lhs);
+            newrhs = copy(rhs);
             
         elseif stepper == CRANK_NICHOLSON 
-            
+            printerr("TODO: crank nicholson for FV. Choose something else, please.", fatal=true);
         end
     end
     
@@ -328,9 +339,20 @@ function reformat_for_stepper_fv_source(lhs, rhs, stepper)
             append!(newrhs, lhs);
             
         elseif stepper == EULER_IMPLICIT
+            # du/dt + lhs = rhs  ->  u(+) + dt*lhs = u(-) + dt*rhs
+            # Do the *dt part here, but adding u will be done by the solver
+            for i=1:length(lhs)
+                lhs[i] = -lhs[i]*dt;
+            end
+            for i=1:length(rhs)
+                rhs[i] = -rhs[i]*dt;
+            end
+            
+            newlhs = copy(lhs);
+            newrhs = copy(rhs);
             
         elseif stepper == CRANK_NICHOLSON 
-            
+            printerr("TODO: crank nicholson for FV. Choose something else, please.", fatal=true);
         end
     end
     

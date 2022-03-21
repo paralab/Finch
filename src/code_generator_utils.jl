@@ -500,3 +500,29 @@ function code_string_to_expr(s)
     
     return Meta.parse(clean_string);
 end
+
+# Which side of a face is this entity on?
+# Return a number: 0 = no side specified, 1/2 = side 1/2 in face2element order, 3 = average both, 4 = neighborhood
+function get_face_side_info(ent)
+    side = 0; # 0 means no side flag
+    if typeof(ent) == SymEntity
+        for flagi=1:length(ent.flags)
+            if occursin("DGSIDE1", ent.flags[flagi]) || occursin("CELL1", ent.flags[flagi])
+                return 1;
+            elseif occursin("DGSIDE2", ent.flags[flagi]) || occursin("CELL2", ent.flags[flagi])
+                return 2;
+            elseif occursin("CENTRAL", ent.flags[flagi])
+                return 3;
+            elseif occursin("NEIGHBORHOOD", ent.flags[flagi])
+                return 4;
+            end
+        end
+        
+    elseif typeof(ent) == Expr && length(ent.args) == 2 # This should only be allowed for negative signs :(-ent)
+        side = get_face_side_info(ent.args[2]);
+        
+    # else number or ?? -> 0
+    end
+    
+    return side;
+end
