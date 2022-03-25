@@ -106,7 +106,7 @@ end
 # Frequency bands
 # input: number of bands
 # output: centers of frequency bands, width of bands
-function get_band_frequencies(n; polarization="T")
+function get_band_frequencies(n, low=0, high=0; polarization="T")
     if polarization=="T"
         wmin = freq_min_TAS;
         wmax = freq_max_TAS;
@@ -115,10 +115,17 @@ function get_band_frequencies(n; polarization="T")
         wmax = freq_max_LAS;
     end
     
+    if low==0
+        low = 1;
+    end
+    if high==0
+        high = n;
+    end
+    
     dw = (wmax-wmin)/n;
-    centers = zeros(n);
-    for i=1:n
-        centers[i] = wmin + (n-1)*dw + dw/2;
+    centers = zeros(high-low+1);
+    for i=1:length(centers)
+        centers[i] = wmin + (i - 1)*dw + (low-1)*dw + dw/2;
     end
     return (centers, dw);
 end
@@ -234,19 +241,18 @@ function equilibrium_intensity(freq::Number, dw, temp::Number; polarization="T")
 end
 
 # The integrated intensity in each band in each cell (integrated over directions)
-function get_integrated_intensity(intensity, ndirs, nbands)
+function get_integrated_intensity!(int_intensity, intensity, ndirs, nbands)
     n = size(intensity,2); # num cells
-    omega = 2*pi/ndirs; # angle per direction*2  why *2?
-    int_intensity = zeros(nbands, n);
+    omega = 2*pi/ndirs; # angle per direction
+    # Integrate over local bands and cells
     for i=1:n
         for j=1:nbands
+            int_intensity[j,i] = 0.0;
             for k=1:ndirs
                 int_intensity[j,i] += intensity[(j-1)*ndirs+k, i] * omega;
             end
         end
     end
-    
-    return int_intensity;
 end
 
 # Derivative of equilibrium intensity with respect to temperature
@@ -316,16 +322,14 @@ end
 # input: temperature array to update, previous step temperature, intensity from this and the previous time step, 
 #        temperature from previous time step, frequency bands, bandwidth
 # output: temperature for next step for each cell
-function get_next_temp!(temp_next, temp_last, I_last, I_next, freq, dw; polarization="T")
+function get_next_temp!(temp_next, temp_last, I_next, freq, dw; polarization="T")
     debug = false;
     n = length(temp_last); # number of cells
     m = length(freq); # number of bands
     
-    # Io_last is equilibrium I from previous temp
-    Io_last = Io.values;
-    
-    G_last = get_integrated_intensity(I_last, ndirs, nbands);
-    G_next = get_integrated_intensity(I_next, ndirs, nbands);
+    # G_last = get_integrated_intensity(I_last, ndirs, nbands);
+    # G_next = get_integrated_intensity(I_next, ndirs, nbands);
+    get_integrated_intensity!(G_next.values, I_next, ndirs, nbands);
     # didt = dIdT(freq, dw, temp_last, polarization=polarization); # Use single version in loop instead
     
     dt = Finch.time_stepper.dt;
@@ -343,8 +347,9 @@ function get_next_temp!(temp_next, temp_last, I_last, I_next, freq, dw; polariza
         uold = 0.0; # These strange names are taken from the fortran code
         gnb = 0.0;  #
         for j=1:m # loop over bands
-            uold += Io_last[j,i] * idt / group_v[j];
-            gnb += G_last[j,i] * idt / group_v[j];
+            uold += Io.values[j,i] * idt / group_v[j];
+            gnb += G_last.values[j,i] * idt / group_v[j];
+            G_last.values[j,i] = G_next.values[j,i]; # That was the only place we need G_last, so update it here.
         end
         uold = 4*pi*uold;
         
@@ -358,7 +363,7 @@ function get_next_temp!(temp_next, temp_last, I_last, I_next, freq, dw; polariza
                 didt = dIdT_single(freq[j], dw, temp_last[i], polarization=polarization);
                 
                 unew += equilibrium_intensity(freq[j], dw, temp_next[i], polarization=polarization) * (beta + idt) / group_v[j];
-                gna += G_next[j,i] * (beta + idt) / group_v[j];
+                gna += G_next.values[j,i] * (beta + idt) / group_v[j];
                 uprime += 4*pi * didt * (beta + idt) / group_v[j];
             end
             unew = 4*pi*unew;
@@ -389,20 +394,148 @@ function get_next_temp!(temp_next, temp_last, I_last, I_next, freq, dw; polariza
     return temp_next;
 end
 
+# Band-based parallel version of above
+# Change temperature for one time step
+# input: temperature array to update, previous step temperature, intensity from this and the previous time step, 
+#        temperature from previous time step, frequency bands, bandwidth
+# output: temperature for next step for each cell
+function get_next_temp_par!(temp_next, temp_last, I_next, freq, dw; polarization="T")
+    debug = false;
+    n = length(temp_last); # number of cells
+    m = length(freq); # number of bands
+    
+    get_integrated_intensity!(G_next.values, I_next, ndirs, nbands);
+    # didt = dIdT(freq, dw, temp_last, polarization=polarization); # Use single version in loop instead
+    
+    dt = Finch.time_stepper.dt;
+    idt = 1/dt;
+    
+    if debug
+        max_iters = 0;
+        ave_iters = 0;
+    end
+    
+    tol = 1e-10;
+    maxiters = 50;
+    
+    # First find uold and gnb from the previous step
+    cell_comm_rank = MPI.Comm_rank(cell_comm);
+    offset = cell_comm_rank * n;
+    for i=1:n # loop over cells
+        uold[offset + i] = 0.0;
+        gnb[offset + i] = 0.0;
+        for j=1:m # loop over local bands
+            uold[offset + i] += Io.values[j,i] * idt / group_v[j];
+            gnb[offset + i] += G_last.values[j,i] * idt / group_v[j];
+            G_last.values[j,i] = G_next.values[j,i]; # That was the only place we need G_last, so update it here.
+        end
+        uold[offset + i] = 4*pi*uold[offset + i];
+    end
+    
+    # Allgather across this mesh communicator to combine bands
+    p_data1 = MPI.UBuffer(uold, n, num_band_partitions, MPI.Datatype(Float64));
+    MPI.Allgather!(p_data1, cell_comm);
+    p_data2 = MPI.UBuffer(gnb, n, num_band_partitions, MPI.Datatype(Float64));
+    MPI.Allgather!(p_data2, cell_comm);
+    
+    # reduce
+    for i=1:n # loop over cells
+        for j=2:num_band_partitions # loop over band partitions
+            uold[i] += uold[i + (j-1)*n];
+            gnb[i] += gnb[i + (j-1)*n];
+        end
+    end
+    
+    # Then iteratively refine delta_T
+    converged = fill(false, n);
+    num_not_converged = n;
+    for iter=1:maxiters
+        for i=1:n # loop over cells
+            if converged[i]
+                continue;
+            end
+            
+            unew[offset + i] = 0.0;
+            gna[offset + i] = 0.0;
+            uprime[offset + i] = 0.0;
+            
+            for j=1:m # loop over local bands
+                beta = 1 / get_time_scale(freq[j], temp_next[i], polarization=polarization);
+                didt = dIdT_single(freq[j], dw, temp_last[i], polarization=polarization);
+                
+                unew[offset + i] += equilibrium_intensity(freq[j], dw, temp_next[i], polarization=polarization) * (beta + idt) / group_v[j];
+                gna[offset + i] += G_next.values[j,i] * (beta + idt) / group_v[j];
+                uprime[offset + i] += 4*pi * didt * (beta + idt) / group_v[j];
+            end
+            unew[offset + i] = 4*pi*unew[offset + i];
+        end
+        
+        # Allgather across this mesh communicator to combine bands
+        p_data1 = MPI.UBuffer(unew, n, num_band_partitions, MPI.Datatype(Float64));
+        MPI.Allgather!(p_data1, cell_comm);
+        p_data2 = MPI.UBuffer(gna, n, num_band_partitions, MPI.Datatype(Float64));
+        MPI.Allgather!(p_data2, cell_comm);
+        p_data3 = MPI.UBuffer(uprime, n, num_band_partitions, MPI.Datatype(Float64));
+        MPI.Allgather!(p_data3, cell_comm);
+        
+        # reduce
+        for i=1:n # loop over cells
+            if converged[i]
+                continue;
+            end
+            for j=2:num_band_partitions # loop over band partitions
+                unew[i] += unew[i + (j-1)*n];
+                gna[i] += gna[i + (j-1)*n];
+                uprime[i] += uprime[i + (j-1)*n];
+            end
+            
+            delta_T = (uold[i] + gna[i] - gnb[i] - unew[i]) / uprime[i];
+            
+            if debug println("cell "*string(i)*" ("*string(uold[i])*", "*string(unew[i])*", "*string(gna[i])*", "*string(gnb[i])*", "*string(uprime[i])*") : "*string(delta_T)) end
+            
+            temp_next[i] = temp_next[i] + delta_T;
+            
+            if abs(delta_T) < tol
+                if debug
+                    max_iters = max(max_iters, iter);
+                    ave_iters += iter;
+                end
+                converged[i] = true;
+                num_not_converged = num_not_converged - 1;
+            else
+                if iter==maxiters
+                    println("Temperature change didn't converge. Last delta_T = "*string(delta_T));
+                end
+            end
+        end# cell loop
+        if num_not_converged == 0
+            break;
+        end
+    end# iterative refinement
+    if debug
+        println("ave iterations: "*string(ave_iters/n)*"  max: "*string(max_iters))
+    end
+    
+    return temp_next;
+end
+
 # Update temperature, equilibrium I, and time scale
 #
-function update_temperature(temp, I_last, I_next, freq, dw)
+function update_temperature(temp, I_next, freq, dw, band_parallel=false)
     
     temp_last = deepcopy(temp);
     
-    get_next_temp!(temp, temp_last, I_last, I_next, freq, dw);
+    if band_parallel
+        get_next_temp_par!(temp, temp_last, I_next, freq, dw);
+    else
+        get_next_temp!(temp, temp_last, I_next, freq, dw);
+    end
     
     equilibrium_intensity!(Io.values, freq, dw, temp);
     get_time_scale!(beta.values, freq, temp);
     
-    # update I_last here as well
+    # check for problems
     for i=1:length(I_next)
-        I_last[i] = I_next[i];
         if I_next[i] === NaN
             println("Error: NaN found in I");
             exit(0);

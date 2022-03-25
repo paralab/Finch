@@ -73,9 +73,11 @@ function exchange_ghosts_fv(var, grid, tag)
         for ni=1:grid.num_neighbor_partitions
             requests[ni*2] = MPI.Irecv!(recv_arrays[ni], grid.neighboring_partitions[ni], tag, MPI.COMM_WORLD);
         end
+        
+        # wait for it
+        stats = MPI.Waitall!(requests);
     end
-    # wait for it
-    stats = MPI.Waitall!(requests);
+    
     
     # Put the received ghost values in place
     for ni=1:n_neighbors

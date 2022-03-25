@@ -297,9 +297,12 @@ function add_mesh(mesh; partitions=0)
         config.num_partitions = np;
         config.partition_index = config.proc_rank;
     else
-        np = partitions; # If other partitioning strategies are desired.
+        # If other partitioning strategies are desired.
+        # More than one proc may be assigned to each mesh partition.
+        # They are grouped by partition number: 0,0,0,1,1,1,...,p,p,p
+        np = partitions;
         config.num_partitions = np;
-        config.partition_index = mod(config.proc_rank, np); # This only makes sense if num_procs is a multiple of np.
+        config.partition_index = Int(floor(((config.proc_rank+0.5) * np) / config.num_procs));
     end
     if config.use_mpi && np > 1
         if config.proc_rank == 0

@@ -119,7 +119,7 @@ end
 
 # End configuration functions, begin problem definition functions
 
-function mesh(msh; elsperdim=5, bids=1, interval=[0,1])
+function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
     if msh == LINEMESH
         log_entry("Building simple line mesh with nx elements, nx="*string(elsperdim));
         meshtime = @elapsed(mshdat = simple_line_mesh(elsperdim.+1, bids, interval));
@@ -163,7 +163,7 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1])
     end
     
     # Set this in Finch and build the corresponding Grid
-    add_mesh(mshdat);
+    add_mesh(mshdat, partitions=partitions);
     
     # If bids>1 were specified for built meshes, add them here
     if bids > 1
@@ -605,7 +605,12 @@ function source(var, sex)
 end
 
 # Creates an assembly loop function for a given variable that nests the loops in the given order.
-function assemblyLoops(var, indices)
+# If parallel types are specified, each loop is parallelized using that type
+# Possibilities are "none", "mpi", "threads"
+function assemblyLoops(var, indices, parallel_type=[])
+    if length(parallel_type) < length(indices)
+        parallel_type = fill("none", length(indices));
+    end
     # find the associated indexer objects
     indexer_list = [];
     for i=1:length(indices)
@@ -626,7 +631,7 @@ function assemblyLoops(var, indices)
         
     end
     
-    (loop_string, loop_code) = generate_assembly_loops(var, indexer_list, config.solver_type, language);
+    (loop_string, loop_code) = generate_assembly_loops(var, indexer_list, config.solver_type, language, parallel_type);
     log_entry("assembly loop function: \n\t"*string(loop_string));
     
     if language == JULIA || language == 0

@@ -842,7 +842,7 @@ function replace_lhs_surface_var_entities(ex, var, side, negate=true)
 end
 
 # Generate the assembly loop structures and insert the content
-function generate_assembly_loop_fv_julia(var, indices)
+function generate_assembly_loop_fv_julia(var, indices, parallel_type)
     # Each of the indices must be passed to the functions in a named tuple.
     # Pass all defined indexers.
     index_args = "";
@@ -866,6 +866,7 @@ function generate_assembly_loop_fv_julia(var, indices)
     # If elements were not included, make them the outermost loop
     if !elements_included
         indices = ["elements"; indices];
+        parallel_type = ["none", parallel_type];
     end
     
     code = 
