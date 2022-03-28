@@ -741,7 +741,8 @@ function eval_initial_conditions()
                 if variables[vind].location == CELL
                     nel = size(this_grid_data.loc2glb, 2);
                     for ei=1:nel
-                        e = elemental_order[ei];
+                        # e = elemental_order[ei];
+                        e = ei;
                         glb = this_grid_data.loc2glb[:,e];
                         vol = this_geo_factors.volume[e];
                         detj = this_geo_factors.detJ[e];

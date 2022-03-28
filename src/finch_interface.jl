@@ -15,6 +15,15 @@ export generateFor, useLog, domain, solverType, functionSpace, trialSpace, testS
 
 # Begin configuration setting functions
 
+"""
+    generateFor(lang; filename=project_name, header="", params=nothing)
+
+Specify the generation target. Lang could be one of the included target constants: 
+(MATLAB, DENDRO) or the filename where the target is defined. The keyword argument
+filename refers to the name to be applied to the generated code. The header text 
+will be placed at the top of each generated code file. If the target requires 
+some extra parameters, those are included in params.
+"""
 function generateFor(lang; filename=project_name, header="", params=nothing)
     outputDirPath = pwd()*"/"*filename;
     if config.proc_rank == 0 && !isdir(outputDirPath)
@@ -52,20 +61,47 @@ function generateFor(lang; filename=project_name, header="", params=nothing)
     end
 end
 
+"""
+    useLog(name=project_name; dir=output_dir, level=2)
+
+Turn on logging with the given file name and optional directory.
+The verbosity level can be 1(basic progress info), 2(More details about
+each step), or 3(everything).
+"""
 function useLog(name=project_name; dir=output_dir, level=2)
     init_log(name, dir, level);
 end
 
+"""
+    domain(dims; shape=SQUARE, grid=UNIFORM_GRID)
+
+Set the dimensionality of the domain. The shape(SQUARE, IRREGULAR) and 
+grid type(UNIFORM_GRID, UNSTRUCTURED, TREE) can be set, but may be changed
+when building or importing the mesh.
+"""
 function domain(dims; shape=SQUARE, grid=UNIFORM_GRID)
     config.dimension = dims;
     config.geometry = shape;
     config.mesh_type = grid;
 end
 
+"""
+    solverType(method, backend=DEFAULT_SOLVER)
+
+Select between CG, DG, FV, or MIXED methods. The backend refers to the tools used
+for solving linear systems: DEFAULT_SOLVER, PETSC_SOLVER, CUDA_SOLVER. 
+Not all combinations of options are available yet.
+"""
 function solverType(method, backend=DEFAULT_SOLVER)
     set_solver(method, backend);
 end
 
+"""
+    functionSpace(;space=LEGENDRE, order=0, orderMin=0, orderMax=0)
+
+Set the polynomial order and type of polynomials for FEM.
+Some of these are placeholders, so only use order at this point.
+"""
 function functionSpace(;space=LEGENDRE, order=0, orderMin=0, orderMax=0)
     config.trial_function = space;
     config.test_function = space;
@@ -89,29 +125,66 @@ function testSpace(;space=LEGENDRE, order=0, orderMin=0, orderMax=0)
     functionSpace(space=space, order=order, orderMin=orderMin, orderMax=orderMax);
 end
 
+"""
+    nodeType(type)
+
+For FEM, set the nodal configuration within elements.
+The default is LOBATTO. GAUSS and UNIFORM are available, but should be used with care.
+"""
 function nodeType(type)
     config.elemental_nodes = type;
 end
 
+"""
+    timeStepper(type; cfl=0)
+
+Set the type of time stepping method and optionally the CFL number.
+Options include EULER_EXPLICIT, EULER_IMPLICIT, CRANK_NICHOLSON, RK4, LSRK4, PECE.
+If no CFL number is provided, one will be chosen based on the mesh and stepper type.
+"""
 function timeStepper(type; cfl=0)
     set_stepper(type, cfl);
 end
 
+"""
+    setSteps(dt, steps)
+
+Manually set the time steps if desired.
+"""
 function setSteps(dt, steps)
     set_specified_steps(dt, steps);
 end
 
+"""
+    matrixFree(shallwe=true; maxiters=100, tol=1e-6)
+
+Select a matrix free method for FEM with the given max iterations and tolerance.
+This will use a basic conjugate gradient method.
+"""
 function matrixFree(shallwe=true; maxiters=100, tol=1e-6)
     config.linalg_matrixfree = shallwe;
     config.linalg_matfree_max = maxiters;
     config.linalg_matfree_tol = tol;
 end
 
+"""
+    customOperator(name, handle)
+
+Define a new symbolic operator to be used in PDE expressions. The name is the
+symbol that will be used in expressions. The function handle points to the 
+operator's function.
+"""
 function customOperator(name, handle)
     s = Symbol(name);
     add_custom_op(s, handle);
 end
 
+"""
+    customOperatorFile(filename)
+
+Import a set of symbolic operators defined in a file. The file must contain
+certain elements. See an example.
+"""
 function customOperatorFile(filename)
     log_entry("Adding custom operators from file: "*string(filename), 2);
     add_custom_op_file(filename);
@@ -119,6 +192,14 @@ end
 
 # End configuration functions, begin problem definition functions
 
+"""
+    mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
+
+Build or import a mesh. msh can be either a constant(LINEMESH, QUADMESH, HEXMESH)
+to build a mesh with the built-in simple mesh generator, or a filename for a mesh
+file. Currently GMSH files(.msh), either old or new versions, and MEDIT files(.mesh)
+are supported.
+"""
 function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
     if msh == LINEMESH
         log_entry("Building simple line mesh with nx elements, nx="*string(elsperdim));
@@ -218,6 +299,12 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
     end
 end
 
+"""
+    exportMesh(filename, format=MSH_V2)
+
+Export the mesh to a file with the given name. The format can be MSH_V2 or MSH_V4
+for old and new style GMSH formats.
+"""
 function exportMesh(filename, format=MSH_V2)
     # open the file to write to
     mfile = open(filename, "w");
@@ -226,6 +313,13 @@ function exportMesh(filename, format=MSH_V2)
     close(mfile);
 end
 
+"""
+    finiteVolumeOrder(order)
+
+Set the order of flux reconstruction for FVM.
+For order > 1 this will cause the mesh to be subdivided into a parent/child mesh.
+Take this into account when designing the mesh.
+"""
 function finiteVolumeOrder(order)
     if config.dimension > 2
         printerr("Sorry, higher order FV is not ready for 3D (TODO: build parent/child grid)\n Continuing with first order.");
@@ -235,6 +329,21 @@ function finiteVolumeOrder(order)
     set_parent_and_child(parent, child, order);
 end
 
+"""
+    variable(name; type=SCALAR, location=NODAL, method=CG, index=nothing)
+
+Create a variable entity with name that will be used in expressions.
+Type can be SCALAR, VECTOR, TENSOR, SYM_TENSOR, or VAR_ARRAY.
+Location can be NODAL or CELL. Generally nodal will be used for FEM and 
+cell for FVM. The method can be specified for this variable when using a
+mixed solver, but will otherwise be the current solver type. It the type
+is VAR_ARRAY, it should be indexed using a previously defined indexer or
+an array of indexers.
+
+Note that a variable does not have to represent an unknown. It can be used
+to store any value, and can be used in expressions, but does not need to be 
+solved for explicitly.
+"""
 function variable(name; type=SCALAR, location=NODAL, method=CG, index=nothing)
     varind = var_count + 1;
     varsym = Symbol(name);
@@ -248,12 +357,32 @@ function variable(name; type=SCALAR, location=NODAL, method=CG, index=nothing)
     return var;
 end
 
+"""
+    coefficient(name, val; type=SCALAR, location=NODAL, element_array=false)
+
+Create a coefficient entity with name that will be used in expressions.
+The value can be a numerical constant, a string representing an expression of
+coordinates(x, y, z, t), or an array of numbers corresponding to the location.
+Type can be SCALAR, VECTOR, TENSOR, SYM_TENSOR, or VAR_ARRAY.
+Location can be NODAL or CELL. Generally nodal will be used for FEM and 
+cell for FVM. 
+"""
 function coefficient(name, val; type=SCALAR, location=NODAL, element_array=false)
     csym = Symbol(name);
     nfuns = makeFunctions(val); # if val is constant, nfuns will be 0
     return add_coefficient(csym, type, location, val, nfuns, element_array);
 end
 
+"""
+    parameter(name, val; type=SCALAR)
+
+Create a parameter entity with name that will be used in expressions.
+The value is a string expression that can include coordinates(x, y, z, t) and 
+any variable and coefficient symbols. It is essentially a convenient object to
+simplify more complicated expressions.
+The type is not important as it will be determined by the symbolic expression it
+represents.
+"""
 function parameter(name, val; type=SCALAR)
     if length(parameters) == 0
         coefficient("parameterCoefficientForx", "x")
@@ -282,10 +411,27 @@ function parameter(name, val; type=SCALAR)
     return add_parameter(Symbol(name), type, newval);
 end
 
-function testSymbol(symb; type=SCALAR)
-    add_test_function(Symbol(symb), type);
+"""
+    testSymbol(symbol; type=SCALAR)
+
+Define a symbol for a test function when using FEM.
+Type can be SCALAR, VECTOR, TENSOR, or SYM_TENSOR.
+"""
+function testSymbol(symbol; type=SCALAR)
+    add_test_function(Symbol(symbol), type);
 end
 
+"""
+    index(name; range=[1])
+
+Create an indexer entity to index variables and coefficients with a
+VAR_ARRAY type. The range can be an array of integers or an array
+with the min and max values. Though not strictly necessary, the range
+should start at 1 and increase consecutively. Other configurations
+may cause some issues in the generated code.
+
+range=[1,2,3,4,5] is the same as range=[1,5]
+"""
 function index(name; range=[1])
     if length(range) == 2
         range = Array(range[1]:range[2]);
@@ -295,6 +441,13 @@ function index(name; range=[1])
     return idx;
 end
 
+"""
+    variableTransform(var1, var2, func)
+
+Define a function that will transform var1 into var2.
+var1 and var2 can be variable entities or arrays of them.
+The function should transform numerical values from one to the other.
+"""
 function variableTransform(var1, var2, func)
     # Make sure things are valid
     if typeof(var1) <: Array
@@ -312,6 +465,13 @@ function variableTransform(var1, var2, func)
     end
 end
 
+"""
+    transformVariable(xform::VariableTransform)
+
+Perform a variable transformation using a previously defined transform.
+This can be done, for example, in a postStepFunction or in a callback
+function for boundary conditions.
+"""
 function transformVariable(xform::VariableTransform)
     transform_variable_values(xform);
 end
@@ -328,6 +488,18 @@ function transformVariable(var1, var2)
     end
 end
 
+"""
+    boundary(var, bid, bc_type, bc_exp=0)
+
+Set a boundary condition for a given variable on a boundary region with
+this ID(bid). The type can be DIRICHLET, NEUMANN, NO_BC, FLUX.
+bc_exp can be a constant number or a string expression. NO_BC type
+does not need a bc_exp value.
+
+Possible expressions can include coordinates(x, y, z, t), callback functions,
+coefficients, variables, indexers, and certain other symbols such as "normal",
+"node_index", "face_index".
+"""
 function boundary(var, bid, bc_type, bc_exp=0)
     # The expression may contain variable symbols.
     # Parse it, replace variable symbols with the appropriate parts
@@ -362,6 +534,17 @@ function boundary(var, bid, bc_type, bc_exp=0)
     add_boundary_condition(var, bid, bc_type, newbc_exp, nfuns);
 end
 
+"""
+    addBoundaryID(bid, trueOnBdry)
+
+Create a new boundary region with the given ID number bid. It will be
+assigned to all boundary faces where the center of the face satisfies
+trueOnBdry. It will override any previously set ID for those faces.
+
+trueOnBdry can be a function or a string expression of (x,y,z).
+Note that it only applies to faces that are known boundary faces, not
+interior faces.
+"""
 function addBoundaryID(bid, trueOnBdry)
     # trueOnBdry(x, y, z) = something # points with x,y,z on this bdry segment evaluate true here
     if typeof(trueOnBdry) == String
@@ -370,10 +553,24 @@ function addBoundaryID(bid, trueOnBdry)
     add_boundary_ID_to_grid(bid, trueOnBdry, grid_data);
 end
 
+"""
+    referencePoint(var, pos, val)
+
+Constrain a variable value at a single node to the given value.
+This is needed for certain situations where boundary conditions do not
+uniquely constrain a variable. The node closest to the position in pos
+will be used and it can be a boundary or interior node. 
+"""
 function referencePoint(var, pos, val)
     add_reference_point(var, pos, val);
 end
 
+"""
+    timeInterval(T)
+
+Set the ending time for time stepping. This is overridden if time steps
+are manually specified.
+"""
 function timeInterval(T)
     prob.time_dependent = true;
     if time_stepper === nothing
@@ -382,18 +579,48 @@ function timeInterval(T)
     prob.end_time = T;
 end
 
-function initial(var, ics)
-    nfuns = makeFunctions(ics);
-    add_initial_condition(var.index, ics, nfuns);
+"""
+    initial(var, ics)
+
+Set the initial condition for this variable. The value can be a constant
+number or a string expression of coordinates(x, y, z).
+This does not immediately set the variable values. To do so, use
+evalInitialConditions(), or it will be done automatically before solving.
+"""
+function initial(var, value)
+    nfuns = makeFunctions(value);
+    add_initial_condition(var.index, value, nfuns);
 end
 
+"""
+    preStepFunction(fun)
+
+Set a function to be called before each time step, or stage for multi-stage
+steppers.
+"""
 function preStepFunction(fun)
     solver.set_pre_step(fun);
 end
+
+"""
+    postStepFunction(fun)
+
+Set a function to be called after each time step, or stage for multi-stage
+steppers.
+"""
 function postStepFunction(fun)
     solver.set_post_step(fun);
 end
 
+"""
+    callbackFunction(fun; name="", args=[], body="")
+
+Include a callback function that can be included in expressions such as
+the PDE or boundary conditions.
+A better way to do this is with the macro @callbackFunction before the
+function definition, which will extract the name, arguments, and body 
+automatically.
+"""
 function callbackFunction(fun; name="", args=[], body="")
     if name==""
         name = string(fun);
@@ -406,6 +633,16 @@ function callbackFunction(fun; name="", args=[], body="")
     log_entry("Added callback function: "*name, 2);
 end
 
+"""
+    weakForm(var, wf)
+
+Write the weak form of the PDE in residual form. This should be an expression
+that is assumed to be equal to zero.
+var can be a variable or an array of variables. When using arrays, wf must
+also be an array of matching size.
+wf is a string expression or array of them. It can include numbers, coefficients,
+variables, parameters, indexers, and symbolic operators.
+"""
 function weakForm(var, wf)
     if typeof(var) <: Array
         # multiple simultaneous variables
