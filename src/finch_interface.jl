@@ -7,10 +7,13 @@ export generateFor, useLog, domain, solverType, functionSpace, trialSpace, testS
         mesh, exportMesh, variable, coefficient, parameter, testSymbol, index, boundary, addBoundaryID,
         referencePoint, timeInterval, initial, preStepFunction, postStepFunction, callbackFunction,
         variableTransform, transformVariable,
-        weakForm, fluxAndSource, flux, source, assemblyLoops,
+        weakForm, flux, source, assemblyLoops,
         exportCode, importCode, printLatex,
-        evalInitialConditions, solve, cachesimSolve, finalize_finch, cachesim, outputValues,
-        morton_nodes, hilbert_nodes, tiled_nodes, morton_elements, hilbert_elements, 
+        evalInitialConditions, solve, cachesimSolve, finalizeFinch, cachesim, outputValues,
+        mortonNodes, hilbertNodes, tiledNodes, mortonElements, hilbertElements, 
+        tiledElements, elementFirstNodes, randomNodes, randomElements,
+        # These do not match the interface style, but are kept for legacy support. May be removed.
+        finalize_finch, morton_nodes, hilbert_nodes, tiled_nodes, morton_elements, hilbert_elements, 
         tiled_elements, ef_nodes, random_nodes, random_elements
 
 # Begin configuration setting functions
@@ -736,11 +739,16 @@ function weakForm(var, wf)
     end
 end
 
-function fluxAndSource(var, fex, sex)
-    flux(var, fex);
-    source(var, sex);
-end
+"""
+    flux(var, fex)
 
+Write the surface integral term of the PDE. This is the flux after transforming 
+using the divergence theorem into a surface integral.
+var can be a variable or an array of variables. When using arrays, fex must
+also be an array of matching size.
+fex is a string expression or array of them. It can include numbers, coefficients,
+variables, parameters, indexers, and symbolic operators.
+"""
 function flux(var, fex)
     if typeof(var) <: Array
         # multiple simultaneous variables
@@ -791,6 +799,15 @@ function flux(var, fex)
     end
 end
 
+"""
+    source(var, sex)
+
+Write the volume integral term of the PDE.
+var can be a variable or an array of variables. When using arrays, fex must
+also be an array of matching size.
+sex is a string expression or array of them. It can include numbers, coefficients,
+variables, parameters, indexers, and symbolic operators.
+"""
 function source(var, sex)
     if typeof(var) <: Array
         # multiple simultaneous variables
@@ -841,9 +858,17 @@ function source(var, sex)
     end
 end
 
-# Creates an assembly loop function for a given variable that nests the loops in the given order.
-# If parallel types are specified, each loop is parallelized using that type
-# Possibilities are "none", "mpi", "threads"
+"""
+    assemblyLoops(var, indices, parallel_type=[])
+
+Specify the nesting order of loops for assembling the system.
+This makes sense for problems with indexed variables.
+Var is a variable of array of variables.
+Indices is an array of indexer objects and a string "elements".
+Loops will be nested in that order with outermost first.
+If parallel_type is specified for the loops, they will be generated with 
+that type of parallel strategy. Possibilities are "none", "mpi", "threads".
+"""
 function assemblyLoops(var, indices, parallel_type=[])
     if length(parallel_type) < length(indices)
         parallel_type = fill("none", length(indices));
@@ -884,6 +909,13 @@ function assemblyLoops(var, indices, parallel_type=[])
     end
 end
 
+"""
+    exportCode(filename)
+
+Export all generated code including the elemental calculation and assembly loop
+code for all variables if available.
+
+"""
 function exportCode(filename)
     # For now, only do this for Julia code because others are already output in code files.
     if language == JULIA || language == 0
@@ -943,6 +975,14 @@ function exportCode(filename)
     end
 end
 
+"""
+    importCode(filename)
+
+Import elemental calculation and assembly loop code for all variables if possible.
+The function definition line and ending line must match a specific format to 
+properly match them to the variables, so do not modify those lines from the
+exported code.
+"""
 function importCode(filename)
     # For now, only do this for Julia code because others are already output in code files.
     if language == JULIA || language == 0
@@ -1053,7 +1093,12 @@ function importCode(filename)
     end
 end
 
-# Prints a Latex string for the equation for a variable
+"""
+    printLatex(var)
+
+Print a string of Latex formatted code for the symbolic layer form of the PDE.
+This is somewhat limited and needs to be updated to a more useful output.
+"""
 function printLatex(var)
     if typeof(var) <: Array
         varname = "["*string(var[1].symbol);
@@ -1155,12 +1200,26 @@ function printLatex(var)
     return result;
 end
 
-# Evaluate all of the initial conditions
+"""
+    evalInitialConditions()
+
+Evaluate initial conditions for all variables if possible.
+This puts the initial values into each variable's values array.
+This is called automatically by the solve step, but can be done manually here.
+"""
 function evalInitialConditions() 
     eval_initial_conditions(); 
 end # Just for consistent style because this is also an internal function
 
-# This will either solve the problem or generate the code for an external target.
+"""
+    solve(var, nlvar=nothing; nonlinear=false)
+
+Either solve the problem using an internal target, or generate all code
+files for an external target.
+Var is a variable or array of variables to solve for.
+The keyword arguments are for nonlinear equations which have very limited
+support, so generally they won't be used.
+"""
 function solve(var, nlvar=nothing; nonlinear=false)
     if use_cachesim
         return cachesimSolve(var);
@@ -1447,7 +1506,11 @@ function solve(var, nlvar=nothing; nonlinear=false)
     # At this point all of the final values for the variables in var should be placed in var.values.
 end
 
-# When using cachesim, this will be used to simulate the solve.
+"""
+    cachesimSolve(var, nlvar=nothing; nonlinear=false)
+
+When using the cache simulator target, this is used instead of solve().
+"""
 function cachesimSolve(var, nlvar=nothing; nonlinear=false)
     if !(!generate_external && (language == JULIA || language == 0))
         printerr("Cachesim solve is only ready for Julia direct solve");
@@ -1472,7 +1535,14 @@ function cachesimSolve(var, nlvar=nothing; nonlinear=false)
     end
 end
 
-# Writes the values for each variable to filename in the given format.
+"""
+    outputValues(vars, filename; format="vtk", ascii=false)
+
+Output variable values to a file in a spicified format.
+vars can be a variable or array of variables.
+Possible formats are "vtk", "csv", or "raw"
+Set ascii to true to make ascii type vtk files instead of binary.
+"""
 function outputValues(vars, filename; format="vtk", ascii=false) output_values(vars, filename, format=format, ascii=ascii); end
 function output_values(vars, filename; format="vtk", ascii=false)
     available_formats = ["raw", "csv", "vtk", "try"];
@@ -1507,6 +1577,15 @@ function output_values(vars, filename; format="vtk", ascii=false)
     end
 end
 
+"""
+finalizeFinch()
+
+This closes all files and does any other finalization steps.
+It does not deallocate any data, so further processing can be done after 
+calling this. However, using Finch functions may cause issues because
+files have been closed.
+"""
+function finalizeFinch() finalize_finch() end
 function finalize_finch()
     # Finalize generation
     finalize_code_generator();
@@ -1526,54 +1605,144 @@ end
 
 ### Other specialized functions ###
 
+"""
+    cachesim(use)
+
+Toggle the cache simulator target. Set use=true to use the cachesim target.
+If not using cachesim, don't use this function.
+"""
 function cachesim(use)
     log_entry("Using cachesim - Only cachesim output will be generated.", 1);
     global use_cachesim = use;
 end
 
+"""
+    mortonNodes(griddim)
+
+Reorder the nodes in memory to a Morton ordering in 2D or 3D.
+This currently only works for a uniform grid such as the one generated
+with Finch's internal utility.
+griddim is an array representing the nodal grid size: like [n,n] for 2D or
+[n,n,n] for 3D.
+"""
+function mortonNodes(griddim) morton_nodes(griddim) end
 function morton_nodes(griddim)
     t = @elapsed(global grid_data = reorder_grid_recursive!(grid_data, griddim, MORTON_ORDERING));
     log_entry("Reordered nodes to Morton. Took "*string(t)*" sec.", 2);
 end
 
+"""
+    mortonElements(griddim)
+
+Reorder the elemental loop order to a spacial Morton ordering in 2D or 3D.
+This currently only works for a uniform grid such as the one generated
+with Finch's internal utility.
+griddim is an array representing the elemental grid size: like [n,n] for 2D or
+[n,n,n] for 3D.
+"""
+function mortonElements(griddim) morton_elements(griddim) end
 function morton_elements(griddim)
     global elemental_order = get_recursive_order(MORTON_ORDERING, config.dimension, griddim);
     log_entry("Reordered elements to Morton.", 2);
     ef_nodes();
 end
 
+"""
+    hilbertNodes(griddim)
+
+Reorder the nodes in memory to a Hilbert ordering in 2D or 3D.
+This currently only works for a uniform grid such as the one generated
+with Finch's internal utility.
+griddim is an array representing the nodal grid size: like [n,n] for 2D or
+[n,n,n] for 3D.
+"""
+function hilbertNodes(griddim) hilbert_nodes(griddim) end
 function hilbert_nodes(griddim)
     t = @elapsed(global grid_data = reorder_grid_recursive!(grid_data, griddim, HILBERT_ORDERING));
     log_entry("Reordered nodes to Hilbert. Took "*string(t)*" sec.", 2);
 end
 
+"""
+    hilbertElements(griddim)
+
+Reorder the elemental loop order to a spacial Hilbert ordering in 2D or 3D.
+This currently only works for a uniform grid such as the one generated
+with Finch's internal utility.
+griddim is an array representing the elemental grid size: like [n,n] for 2D or
+[n,n,n] for 3D.
+"""
+function hilbertElements(griddim) hilbert_elements(griddim) end
 function hilbert_elements(griddim)
     global elemental_order = get_recursive_order(HILBERT_ORDERING, config.dimension, griddim);
     log_entry("Reordered elements to Hilbert.", 2);
     ef_nodes();
 end
 
+"""
+    tiledNodes(griddim, tiledim)
+
+Reorder the nodes in memory to a tiled ordering in 2D or 3D.
+This currently only works for a uniform grid such as the one generated
+with Finch's internal utility.
+griddim is an array representing the nodal grid size: like [n,n] for 2D or
+[n,n,n] for 3D.
+tiledim is the desired tile dimensions such as [4,4] for a 4x4 tile in 2D.
+"""
+function tiledNodes(griddim, tiledim) tiled_nodes(griddim, tiledim) end
 function tiled_nodes(griddim, tiledim)
     t = @elapsed(global grid_data = reorder_grid_tiled(grid_data, griddim, tiledim));
     log_entry("Reordered nodes to tiled. Took "*string(t)*" sec.", 2);
 end
 
+"""
+    tiledElements(griddim, tiledim)
+
+Reorder the elemental loop order to a spacial tiled ordering in 2D or 3D.
+This currently only works for a uniform grid such as the one generated
+with Finch's internal utility.
+griddim is an array representing the elemental grid size: like [n,n] for 2D or
+[n,n,n] for 3D.
+tiledim is the desired tile dimensions such as [4,4] for a 4x4 tile in 2D.
+"""
+function tiledElements(griddim, tiledim) tiled_elements(griddim, tiledim) end
 function tiled_elements(griddim, tiledim)
     global elemental_order = get_tiled_order(config.dimension, griddim, tiledim, true);
     log_entry("Reordered elements to tiled("*string(tiledim)*").", 2);
     ef_nodes();
 end
 
+"""
+    elementFirstNodes()
+
+This is the default node ordering. Element first means the elements are given
+some order and the nodes are added elementwise according to that. An element's
+nodes are ordered according to the reference element.
+"""
+function elementFirstNodes() ef_nodes() end
 function ef_nodes()
     t = @elapsed(global grid_data = reorder_grid_element_first!(grid_data, config.basis_order_min, elemental_order));
     log_entry("Reordered nodes to EF. Took "*string(t)*" sec.", 2);
 end
 
+"""
+    randomNodes(seed = 17)
+
+Randomize nodes in memory for testing a worst-case arrangement.
+The seed is for making results reproducible.
+"""
+function randomNodes(seed = 17) random_nodes(seed) end
 function random_nodes(seed = 17)
     t = @elapsed(global grid_data = reorder_grid_random!(grid_data, seed));
     log_entry("Reordered nodes to random. Took "*string(t)*" sec.", 2);
 end
 
+"""
+    randomElements(seed = 17)
+
+Randomize the order of the elemental loop for testing a worst-case arrangement.
+The seed is for making results reproducible.
+"""
+function randomElements(seed = 17) random_elements(seed) end
 function random_elements(seed = 17)
     global elemental_order = random_order(size(grid_data.loc2glb,2), seed);
     log_entry("Reordered elements to random.", 2);
