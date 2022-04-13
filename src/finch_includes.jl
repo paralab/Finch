@@ -110,7 +110,25 @@ if @isdefined(MPI)
     end
 end
 
-using PETSc
+try
+    using PETSc
+catch e
+    println("PETSc package is not yet installed. It is optional and may cause issues depending on your system.\nWould you like to install now? y/n.");
+    response = readline();
+    if response=="Y" || response=="y"
+        using Pkg
+        Pkg.add("PETSc")
+        try
+            using PETSc
+        catch e
+            println("There was an issue with using PETSc. Check the Julia PETSc.jl documentation to install correctly.")
+            exit(0);
+        end
+    else
+        println("Continuing without PETSc.")
+    end
+    
+end
 
 ######################
 

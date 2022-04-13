@@ -543,6 +543,46 @@ function update_temperature(temp, I_next, freq, dw, band_parallel=false)
     end
 end
 
+# # Temporary until I figure out where to do this automatically
+# function communicate_bands()
+#     rank = Finch.config.proc_rank;
+#     np = Finch.config.num_procs;
+#     nel = Finch.mesh_data.nel;
+    
+#     # This is my band range
+#     band_range = (rank*40/np + 1):((rank+1)*40/np);
+#     # Part of Intensity that I did
+#     my_count = Int(nel*16*40/np);
+#     my_intensity = zeros(my_count);
+#     next = 1;
+#     for i=1:nel
+#         for k=1:band_range
+#             for j=1:16
+#                 m_intensity[next] = I.values[(k-1)*16 + j, i];
+#                 next += 1;
+#             end
+#         end
+#     end
+    
+#     # allgather the intensity
+#     p_data = zeros(length(I.values));
+#     p_data_in = Finch.MPI.UBuffer(p_data, my_count, config.num_procs, MPI.Datatype(Float64));
+#     p_data_out = my_intensity;
+#     Finch.MPI.Allgather!(p_data_out, p_data_in, MPI.COMM_WORLD);
+    
+#     # reorganize it
+#     next = 1;
+#     for i=1:nel
+#         for k=1:40
+#             for j=1:16
+#                 I.values[(k-1)*16 + j, i] = p_data_in[next];
+#                 next += 1;
+#             end
+#         end
+#     end
+    
+# end
+
 #############################################################################
 ## alternative models.
 

@@ -80,3 +80,31 @@
         return result;
     end
 )
+
+@callbackFunction(
+    function isothermal_bdry_3d(intensity, vg, sx, sy, sz, band, dir, normal, temp)
+        interior_intensity = intensity[dir + (band-1)*ndirs];
+        iso_intensity = equilibrium_intensity(center_freq[band], delta_freq, temp);
+        sdotn = sx[dir]*normal[1] + sy[dir]*normal[2] + sz[dir]*normal[3];
+        if sdotn > 0
+            result = -vg[band] * interior_intensity * sdotn;
+        else
+            result = -vg[band] * iso_intensity * sdotn;
+        end
+        return result;
+    end
+)
+@callbackFunction(
+    function symmetric_bdry_3d(intensity, vg, sx, sy, sz, band, dir, normal)
+        # This is essentially the same as pure specular reflection?
+        interior_intensity = intensity[dir + (band-1)*ndirs];
+        sym_intensity = intensity[reflect[dir] + (band-1)*ndirs];
+        sdotn = sx[dir]*normal[1] + sy[dir]*normal[2] + sz[dir]*normal[3];
+        if sdotn > 0
+            result = -vg[band] * interior_intensity * sdotn;
+        else
+            result = -vg[band] * sym_intensity * sdotn;
+        end
+        return result;
+    end
+)

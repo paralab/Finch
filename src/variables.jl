@@ -2,6 +2,21 @@
 # Variable struct and related functions
 =#
 
+"""
+    Variable
+
+Represents a value that is not defined by an independent function of coordinates.
+Note that this does not have to be an unknown that is solved for. It can hold
+values that are dependent on other variables such as transformed variables, or
+any other value that the user has control over.
+
+This is also useful for setting up data arrays that match those of unknowns.
+The values for a variable v can be directly accessed as `v.values` and has 
+dimensions [C, N] where C is the number of components (SCALAR=1, etc.) and N is 
+the number of nodes or cells.
+
+This should be built with the `variable` function.
+"""
 mutable struct Variable
     symbol::Symbol          # symbol used in expressions referring to this variable
     symvar::Array{Basic,1}  # Array of symbolic layer variable symbols(Basic symbols)

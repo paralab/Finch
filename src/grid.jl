@@ -760,6 +760,17 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         end
     end
     
+    #### GHOST INFO ######################################################################
+    # if more than one proc uses the same mesh partition, neighbor ID adjustment is needed.
+    # 0, 1, 2, ...  ->   0, 0, 0, 1, 1, 1, 2, 2, 2, ...
+    # |__^               |________^     
+    procs_per_partition = 1;
+    proc_offset = 0;
+    if config.num_procs >= (config.num_partitions * 2)
+        procs_per_partition = Int(floor(config.num_procs / config.num_partitions));
+        proc_offset = config.proc_rank - config.partition_index * procs_per_partition;
+    end
+    
     #### FV ONLY ####
     # Form ghost pairs for send/recv
     # First count how many pairs are needed for each neighbor
@@ -835,6 +846,10 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
                     end
                 end
             end
+        end
+        # Adjust neighbor IDs from partition index to proc rank
+        for ni=1:num_neighbors
+            neighbor_ids[ni] = neighbor_ids[ni] * procs_per_partition + proc_offset;
         end
     end#### FV ONLY ####
     
@@ -1130,7 +1145,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         MPI.Allgatherv!(p_data_out, p_data_in, MPI.COMM_WORLD);
         
         for i=1:2:d
-            if p_data[ni] == config.partition_index
+            if p_data[i] == config.partition_index
                 # This node was given unto me
                 # Find the local index and change owner
                 setit = false;

@@ -1,5 +1,5 @@
 #=
-2D explicit BTE. This assumes MPI is being used
+2D explicit BTE. This assumes MPI is being used. Cell-based partitioning only
 =#
 
 ### If the Finch package has already been added, use this line #########
@@ -21,61 +21,39 @@ include("bte-parameters.jl")
 # A set of callback functions for the boundary condition
 include("bte-boundary.jl")
 
+np = Finch.config.num_procs;
+rank = Finch.config.proc_rank;
+Finch.MPI.Barrier(Finch.MPI.COMM_WORLD);
+if rank==0
+    setup = Base.Libc.time()
+end
+
 # Configuration setup
 domain(2)
 solverType(FV)
 timeStepper(EULER_EXPLICIT)
 dt = 2.5e-12;
-nsteps = 10;
+nsteps = 100;
 setSteps(dt, nsteps);
 
 # direction and band numbers
 ndirs = 16;
 total_bands = 40;
-np = Finch.config.num_procs;
-rank = Finch.config.proc_rank;
-cell_partitions = 1; # This will only be increased if at least 2*total_bands procs
-# Divide bands among processes for primarily band based parallel
-if np >= total_bands # If there are extra processes, use them for cell partitioning
-    cell_partitions = Int(floor(np / total_bands));
-    
-    nbands = 1;
-    low_band = Int(floor(rank/cell_partitions)) + 1;
-    high_band = low_band;
-    
-else
-    nbands = Int(floor(total_bands / np));
-    low_band = rank*nbands + 1;
-    high_band = (rank+1)*nbands;
-    if mod(total_bands, np) > rank
-        nbands += 1;
-        low_band += rank;
-        high_band += rank+1;
-    end
-end
-MPI = Finch.MPI;
-if cell_partitions > 1
-    partition_num = Int(floor((rank+0.5) * cell_partitions / Finch.config.num_procs));
-    cell_comm = MPI.Comm_split(MPI.COMM_WORLD, partition_num, rank); # communicator for this mesh partition
-    # cell_rank = MPI.Comm_rank(cell_comm);
-else
-    cell_comm = MPI.Comm_dup(MPI.COMM_WORLD);
-end
-num_band_partitions = MPI.Comm_size(cell_comm);
-if num_band_partitions > total_bands
-    println("Error: number of band partitions = "*string(num_band_partitions)*", but there are only "*string(total_bands)*" bands.");
-    exit(1);
-end
+low_band = 1;
+high_band = total_bands;
+nbands = total_bands;
+num_band_partitions = 1;
+cell_partitions = np;
 
 # A simple mesh is internally generated for convenience
 # This matches the mesh in model_setup_BTE.in
 mesh(QUADMESH, # quad elements
-    elsperdim=[20,5], # elements in each direction: 20 x 5 uniform grid
+    elsperdim=[60,15], # elements in each direction: 20 x 5 uniform grid
     interval=[0, 4e-6, 0, 1e-6],  # interval in each direction: a very small rectangle
     bids=3, # 3 boundary IDs for this mesh correspond to left, right, top/bottom
     partitions=cell_partitions) # If there are enough procs to also do cell partitioning
 
-println(string(rank)*":"*string(Finch.config.partition_index)*", "*string(Finch.fv_grid.neighboring_partitions));    
+#println(string(rank)*":"*string(Finch.config.partition_index)*", "*string(Finch.fv_grid.neighboring_partitions));    
 
 # Indices, Variables, etc.
 direction = index("direction", range = [1,ndirs])
@@ -134,7 +112,7 @@ get_integrated_intensity!(G_last.values, I.values, ndirs, nbands);
 
 # After each time step the temperature, equilibrium I, and time scales are updated
 function post_step()
-    update_temperature(temperature.values, I.values, center_freq, delta_freq, true);
+    update_temperature(temperature.values, I.values, center_freq, delta_freq, false);
 end
 postStepFunction(post_step);
 
@@ -142,14 +120,17 @@ exportCode("bte2dcode") # uncomment to export generated code to a file
 #importCode("bte2dcodein") # uncomment to import code from a file
 
 if rank==0
+    setup = Base.Libc.time() - setup;
     start = Base.Libc.time()
 end
 
 solve(I)
 
+Finch.MPI.Barrier(Finch.MPI.COMM_WORLD);
 if rank==0
     time = Base.Libc.time() - start;
-    println(time)
+    println("setup = "*string(setup))
+    println("solve = "*string(time))
 end
 
 finalize_finch()
@@ -160,7 +141,7 @@ if rank == 0
 xy = Finch.fv_info.cellCenters;
 
 for i=1:1
-    println(string(xy[1,i]) * ", \t" * string(xy[2,i]) * ", \t" * string(temperature.values[i]))
+    println(string(xy[1,i]) * ", \t" * string(xy[2,i]) * ", \tT = " * string(temperature.values[i]))
 end
 
 # using Plots
