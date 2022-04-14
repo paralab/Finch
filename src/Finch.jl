@@ -11,9 +11,10 @@ export init_finch, set_language, set_custom_gen_target, dendro, set_solver, set_
 export build_cache_level, build_cache, build_cache_auto
 export sp_parse
 export generate_code_layer, generate_code_layer_surface, generate_code_layer_fv
-export Variable, add_variable
+export Variable, add_variable, VariableTransform
 export Coefficient, add_coefficient
 export Parameter, add_parameter
+export Indexer
 export FVInfo
 
 ### Module's global variables ###
