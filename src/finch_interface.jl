@@ -150,6 +150,20 @@ function timeStepper(type; cfl=0)
 end
 
 """
+    timeInterval(T)
+
+Set the ending time for time stepping. This is overridden if time steps
+are manually specified.
+"""
+function timeInterval(T)
+    prob.time_dependent = true;
+    if time_stepper === nothing
+        timeStepper(EULER_IMPLICIT);
+    end
+    prob.end_time = T;
+end
+
+"""
     setSteps(dt, steps)
 
 Manually set the time steps if desired.
@@ -566,20 +580,6 @@ will be used and it can be a boundary or interior node.
 """
 function referencePoint(var, pos, val)
     add_reference_point(var, pos, val);
-end
-
-"""
-    timeInterval(T)
-
-Set the ending time for time stepping. This is overridden if time steps
-are manually specified.
-"""
-function timeInterval(T)
-    prob.time_dependent = true;
-    if time_stepper === nothing
-        timeStepper(EULER_IMPLICIT);
-    end
-    prob.end_time = T;
 end
 
 """

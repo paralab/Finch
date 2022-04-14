@@ -36,15 +36,12 @@ mutable struct Variable
     ready::Bool             # Is this variable's values ready? Can dependent variables use it?
 end
 
-# For printing, write the variable symbol only
-Base.show(io::IO, x::Variable) = print(io, string(x.symbol));
+"""
+    VariableTransform
 
-Base.:+(x::Finch.Variable, y::Finch.Variable) = x.values + y.values;
-Base.:-(x::Finch.Variable, y::Finch.Variable) = x.values - y.values;
-Base.:*(x::Finch.Variable, y::Finch.Variable) = x.values .* y.values;
-Base.:/(x::Finch.Variable, y::Finch.Variable) = x.values ./ y.values;
-Base.:^(x::Finch.Variable, y::Number) = x.values .^ y;
-
+Two sets of variables and a function that transforms one into the other.
+This is built with the `variableTransform` function.
+"""
 struct VariableTransform
     from::Union{Variable, Array{Variable}}  # Transformed from this
     to::Union{Variable, Array{Variable}}    # to this
@@ -53,6 +50,15 @@ struct VariableTransform
     # and returns one number(or and array matching to)
     # NOTE: if "from" is an array, "to" must also be an array (size can be different)
 end
+
+# For printing, write the variable symbol only
+Base.show(io::IO, x::Variable) = print(io, string(x.symbol));
+
+Base.:+(x::Finch.Variable, y::Finch.Variable) = x.values + y.values;
+Base.:-(x::Finch.Variable, y::Finch.Variable) = x.values - y.values;
+Base.:*(x::Finch.Variable, y::Finch.Variable) = x.values .* y.values;
+Base.:/(x::Finch.Variable, y::Finch.Variable) = x.values ./ y.values;
+Base.:^(x::Finch.Variable, y::Number) = x.values .^ y;
 
 # Performs the transform on all of the variable values.
 # Writes the results directly into "to".

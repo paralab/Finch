@@ -4,6 +4,16 @@
 # Values are in an array to allow vector/tensor valued coefficients
 =#
 
+"""
+    Coefficient
+
+Represents an independent value that can be defined in terms of coordinates
+or assigned numerical values. Unlike variables, their values are typically not
+available to the user since they may be in the form of generated functions 
+rather than numbers.
+
+This should be built with the `coefficient` function.
+"""
 struct Coefficient
     symbol::Symbol          # symbol used in expressions referring to this coefficient
     symvar::Array{Basic,1}  # Array of symbolic layer symbols(Basic symbols)
