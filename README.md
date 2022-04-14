@@ -11,6 +11,9 @@ To install finch, launch Julia and run:
 ```
 finch requires Julia version 1.3 or greater.
 
+### Documentation
+See the [Finch documentation](https://paralab.github.io/Finch/dev/)
+
 ## Welcome to FINCH
 
  Finch is a Domain Specific Language and code generation framework that is *extensible, scalable, portable*, and adapts to the computing resources and needs of small to large-scale numerical simulations. The goal is to be as modular and accessible as possible while acheiving a high level of performance and customizability.
@@ -24,4 +27,4 @@ finch requires Julia version 1.3 or greater.
 ## Learn more
 
 * See [the finch wiki](https://github.com/paralab/Finch/wiki) to learn what it does and how to use it.
-* Explore [examples](https://paralab.github.io/Finch/pages/examples.html).
+* Explore [examples](https://paralab.github.io/Finch/dev/examples/).
