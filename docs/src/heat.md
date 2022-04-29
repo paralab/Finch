@@ -1,7 +1,7 @@
 # Heat
 
 ```@raw html
-<img src="images/heat.png" alt="heat" width="400">
+<img src="../assets/images/heat.png" alt="heat" width="400">
 ```
 
 The script file: [example-heat2d.jl](https://github.com/paralab/Finch/blob/master/Finch/examples/example-heat2d.jl)

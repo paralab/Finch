@@ -1,7 +1,7 @@
 # Linear Elasticity
 
 ```@raw html
-<img src="images/elasticity.png" alt="elasticity" width="400">
+<img src="../assets/images/elasticity.png" alt="elasticity" width="400">
 ```
 
 The script file: [example-elasticity.jl](https://github.com/paralab/Finch/blob/master/src/examples/example-elasticity.jl)

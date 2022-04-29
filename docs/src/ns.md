@@ -1,7 +1,7 @@
 # Navier Stokes - 2D Driven lid
 
 ```@raw html
-<img src="images/nsplot.png" alt="NS" width="400">
+<img src="../assets/images/nsplot.png" alt="NS" width="400">
 ```
 
 The script file: [example-NS.jl](https://github.com/paralab/Finch/blob/master/Finch/examples/example-NS.jl)

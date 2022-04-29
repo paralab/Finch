@@ -1,7 +1,7 @@
 # Unstructured Meshes
 
 ```@raw html
-<img src="images/umeshes.png" alt="umeshes" width="400">
+<img src="../assets/images/umeshes.png" alt="umeshes" width="400">
 ```
 
 The script file: [example-unstructured2d.jl](https://github.com/paralab/Finch/blob/master/Finch/examples/example-unstructured2d.jl), 
