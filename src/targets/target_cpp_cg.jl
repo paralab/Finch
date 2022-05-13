@@ -878,6 +878,7 @@ function cpp_output_file(var)
             }
             vtufile << "\\n";
         }
+        vtufile << "        </DataArray>\\n";
         """
         pvtu_includes *= """    vtufile << "        <PDataArray type=\\"Float64\\" Name=\\"$vname\\" NumberOfComponents=\\"$compsstr\\"/>\\n\";"""
         pvtu_includes *= "\n";
