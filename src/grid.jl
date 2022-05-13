@@ -25,11 +25,12 @@ struct Grid
     # When partitioning the grid, this stores the ghost info.
     # Items specifying (for solver type) will be empty/0 for other types.
     is_subgrid::Bool                # Is this a partition of a greater grid?
+    nel_global::Int                 # Number of global elements
     nel_owned::Int                  # Number of elements owned by this partition
     nel_ghost::Int                  # Number of ghost elements (for FV)
     nface_owned::Int                # Number of faces owned by this partition
     nface_ghost::Int                # Number of ghost faces that are not owned (for FV)
-    nnodes_global::Int              # Number of global nodes (for FE)
+    nnodes_global::Int              # Number of global nodes
     nnodes_borrowed::Int            # Number of nodes borrowed from another partition (for CG)
     element_owner::Vector{Int}      # The rank of each element's owner or -1 if locally owned (for FV)
     node_owner::Vector{Int}         # The rank of each node's owner (for FE)
@@ -47,16 +48,16 @@ struct Grid
          face2element, facenormals, faceRefelInd, facebid) = 
      new(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
-         false, size(loc2glb,2), 0,size(face2element,2), 0, 0, 0, zeros(Int,0), zeros(Int,0), 
+         false, size(loc2glb,2), size(loc2glb,2), 0,size(face2element,2), 0, 0, 0, zeros(Int,0), zeros(Int,0), 
          zeros(Int,0), zeros(Int,0), zeros(Int8,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]); # up to facebid only
      
     Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
-         ispartitioned, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
+         ispartitioned, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
          node_owner, grid2mesh, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
      new(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
-         ispartitioned, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
+         ispartitioned, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
          node_owner, grid2mesh, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
 end
 
@@ -339,10 +340,12 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     dim = config.dimension;
     ord = order;
     nfaces = etypetonf[mesh.etypes[1]]; # faces per elements
+    nnodes_global = mesh.nx; # This will be updated for FE, but correct for FV
     
     # Count the owned faces and owned/ghost elements
     owned_faces = 0;
     ghost_faces = 0;
+    nel_global = mesh.nel;
     nel_owned = 0;
     nel_face_ghost = 0;
     nel_node_ghost = 0; # ghosts that share nodes, but not faces
@@ -1173,12 +1176,12 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     if grid_type == FV
         return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
-            true, nel_owned, nel_face_ghost, owned_faces, ghost_faces, 0, 0, element_owners, zeros(Int,0), grid2mesh, zeros(Int,0), 
+            true, nel_global, nel_owned, nel_face_ghost, owned_faces, ghost_faces, nnodes_global, 0, element_owners, zeros(Int,0), grid2mesh, zeros(Int,0), 
             zeros(Int8, 0), num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
     else
         return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
-            true, nel_owned, 0, owned_faces, 0, nnodes_global, nnodes_borrowed, zeros(Int,0), node_owner_index, grid2mesh, partition2global, 
+            true, nel_global, nel_owned, 0, owned_faces, 0, nnodes_global, nnodes_borrowed, zeros(Int,0), node_owner_index, grid2mesh, partition2global, 
             global_bdry_flag, num_neighbors, neighbor_ids, zeros(Int,0), [zeros(Int,0)]));
     end
 end

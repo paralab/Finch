@@ -151,7 +151,7 @@ end
 
 # Write an array to a binary file.
 # Return number of bytes written.
-function write_binary_array(f, a, with_counts=false)
+function write_binary_array(f, a, with_counts=false, zero_index=false)
     Nbytes = 0;
     if with_counts
         write(f, Int64(length(a)));
@@ -163,10 +163,14 @@ function write_binary_array(f, a, with_counts=false)
     end
     for i=1:length(a)
         if isbits(a[i])
-            write(f, a[i]);
+            if zero_index && typeof(a[i]) <: Integer # This is probably an index. Change from 1-based to 0-based.
+                write(f, a[i]-1);
+            else
+                write(f, a[i]);
+            end
             Nbytes += sizeof(a[i]);
         else
-            Nbytes += write_binary_array(f,a[i], with_counts);
+            Nbytes += write_binary_array(f,a[i], with_counts, zero_index);
         end
     end
     return Nbytes;
@@ -175,7 +179,8 @@ end
 # Assumes that the struct only has isbits->true types or arrays.
 # Returns number of bytes written.
 # with_counts=true will add number of pieces and size of pieces before each piece.(Int64, Int64)
-function write_binary_struct(f, s, with_counts=false)
+# zero_index=true will attempt to change indices from 1-based to 0-based
+function write_binary_struct(f, s, with_counts=false, zero_index=false)
     Nbytes = 0;
     for fn in fieldnames(typeof(s))
         comp = getfield(s, fn);
@@ -187,7 +192,7 @@ function write_binary_struct(f, s, with_counts=false)
             write(f, comp);
             Nbytes += sizeof(comp)
         else
-            Nbytes += write_binary_array(f,comp, with_counts);
+            Nbytes += write_binary_array(f,comp, with_counts, zero_index);
         end
     end
     return Nbytes;
@@ -199,7 +204,10 @@ function write_grid_to_file(file, grid)
     # various numbers
     write(file, Int(size(grid.allnodes,1)));    # dimension
     write(file, Int(size(grid.loc2glb,2)));     # This is local nel (owned + ghost)
-    write(file, Int(size(grid.allnodes,2)));    # nnodes
+    write(file, Int(size(grid.allnodes,2)));    # nnodes local
+    
+    write(file, grid.nel_global);               # These are written even for non-partitioned grid
+    write(file, grid.nnodes_global);            #
     
     write(file, Int(size(grid.loc2glb,1)));     # nodes per element
     write(file, Int(size(grid.glbvertex,1)));   # vertices per element
@@ -210,17 +218,17 @@ function write_grid_to_file(file, grid)
     
     # Now the data in grid
     write_binary_array(file, grid.allnodes, true);
-    write_binary_array(file, grid.bdry, true);
-    write_binary_array(file, grid.bdryface, true);
+    write_binary_array(file, grid.bdry, true, true);
+    write_binary_array(file, grid.bdryface, true, true);
     write_binary_array(file, grid.bdrynorm, true);
     write_binary_array(file, grid.bids, true);
-    write_binary_array(file, grid.loc2glb, true);
-    write_binary_array(file, grid.glbvertex, true);
-    write_binary_array(file, grid.face2glb, true);
-    write_binary_array(file, grid.element2face, true);
-    write_binary_array(file, grid.face2element, true);
+    write_binary_array(file, grid.loc2glb, true, true);
+    write_binary_array(file, grid.glbvertex, true, true);
+    write_binary_array(file, grid.face2glb, true, true);
+    write_binary_array(file, grid.element2face, true, true);
+    write_binary_array(file, grid.face2element, true, true);
     write_binary_array(file, grid.facenormals, true);
-    write_binary_array(file, grid.faceRefelInd, true);
+    write_binary_array(file, grid.faceRefelInd, true, true);
     write_binary_array(file, grid.facebid, true);
     
     write(file, Int(grid.is_subgrid));
@@ -228,12 +236,12 @@ function write_grid_to_file(file, grid)
     write(file, grid.nel_ghost);
     write(file, grid.nface_owned);
     write(file, grid.nface_ghost);
-    write(file, grid.nnodes_global);
+    
     write(file, grid.nnodes_borrowed);
     write_binary_array(file, grid.grid2mesh, true);
     
     if grid.nel_ghost == 0 # FE only
-        write_binary_array(file, grid.partition2global, true);
+        write_binary_array(file, grid.partition2global, true, true);
         write_binary_array(file, grid.node_owner, true);
         write_binary_array(file, grid.global_bdry_index, true);
     end
@@ -277,7 +285,7 @@ function write_refel_to_file(file, refel)
     write_binary_array(file, Array(transpose(refel.Ddt)), true);
     
     # surface versions
-    write_binary_array(file, refel.face2local, true);
+    write_binary_array(file, refel.face2local, true, true);
     write_binary_array(file, refel.surf_r, true);
     write_binary_array(file, refel.surf_wr, true);
     write_binary_array(file, refel.surf_g, true);

@@ -83,7 +83,7 @@ function generate_external_files(var, lhs_vol, lhs_surf, rhs_vol, rhs_surf)
         # Write the static files (see the end of this file)
         amat_write_static_files();
         # Build and info files
-        amat_build_files(codegen_params);
+        amat_build_files(params);
         
         # The generated code
         amat_main_file(var);
@@ -439,8 +439,8 @@ int main(int argc, char* argv[]) {
         }
         std::cout << "============ Imported mesh, geo factors and refel ================\\n";
         std::cout << "Read "<<frefel.dimension<<"D refel with "<<frefel.nfaces<<" faces and "<<frefel.nnodes<<" nodes.\\n";
-        std::cout << "Read "<<fmesh.dimension<<"D mesh with "<<fmesh.nel_local<<" local elements and "<<fmesh.nnodes_local<<" nodes.(Only showing partition 0)\\n";
-        std::cout << "Read geo factors with "<<geo_factors.nel<<" elemets and "<<geo_factors.vals_per_element<<" values per element.\\n";
+        std::cout << "Read "<<fmesh.dimension<<"D mesh with "<<fmesh.nel_global<<" elements and "<<fmesh.nnodes_global<<" nodes.\\n";
+        std::cout << "Read geo factors with "<<geo_factors.vals_per_element<<" values per element.\\n";
     }
     
     #ifdef HYBRID_PARALLEL
@@ -474,7 +474,7 @@ int main(int argc, char* argv[]) {
         for(unsigned int eid = 0; eid < fmesh.nel_local; eid++){
             for(unsigned int nid = 0; nid < fmesh.nodes_per_element[eid]; nid++){
                 for(unsigned int did = 0; did < dofs_per_node; did++){
-                    globalMap[eid][dofs_per_node * nid + did] = (fmesh.partition2global_n[fmesh.loc2glb[eid][nid]-1]-1) * dofs_per_node + did;
+                    globalMap[eid][dofs_per_node * nid + did] = (fmesh.partition2global_n[fmesh.loc2glb[eid][nid]]) * dofs_per_node + did;
                 }
             }
         }
@@ -483,7 +483,7 @@ int main(int argc, char* argv[]) {
         for(unsigned int eid = 0; eid < fmesh.nel_local; eid++){
             for(unsigned int nid = 0; nid < fmesh.nodes_per_element[eid]; nid++){
                 for(unsigned int did = 0; did < dofs_per_node; did++){
-                    globalMap[eid][dofs_per_node * nid + did] = (fmesh.loc2glb[eid][nid]-1) * dofs_per_node + did;
+                    globalMap[eid][dofs_per_node * nid + did] = (fmesh.loc2glb[eid][nid]) * dofs_per_node + did;
                 }
             }
         }
@@ -507,15 +507,15 @@ int main(int argc, char* argv[]) {
         for(unsigned long ni=0; ni<fmesh.nodes_per_bid[bi]; ni++){
             for(int di=0; di<dofs_per_node; di++){
                 if(num_partitions > 1){
-                    unsigned long global_did = (fmesh.partition2global_n[fmesh.bdry[bi][ni]-1]-1) * dofs_per_node + di;
-                    double *bdry_coords = &fmesh.allnodes[(fmesh.bdry[bi][ni]-1) * fmesh.dimension];
+                    unsigned long global_did = (fmesh.partition2global_n[fmesh.bdry[bi][ni]]) * dofs_per_node + di;
+                    double *bdry_coords = &fmesh.allnodes[(fmesh.bdry[bi][ni]) * fmesh.dimension];
                     double bdry_val = finch::evaluate_bc(bdry_coords, bi, ni);
                     constrainedDofs_ptr[next_index] = global_did;
                     prescribedValues_ptr[next_index] = bdry_val;
                     next_index += 1;
                 }else{
-                    unsigned long global_did = (fmesh.bdry[bi][ni]-1) * dofs_per_node + di;
-                    double *bdry_coords = &fmesh.allnodes[(fmesh.bdry[bi][ni]-1) * fmesh.dimension];
+                    unsigned long global_did = (fmesh.bdry[bi][ni]) * dofs_per_node + di;
+                    double *bdry_coords = &fmesh.allnodes[(fmesh.bdry[bi][ni]) * fmesh.dimension];
                     double bdry_val = finch::evaluate_bc(bdry_coords, bi, ni);
                     constrainedDofs_ptr[next_index] = global_did;
                     prescribedValues_ptr[next_index] = bdry_val;
@@ -1077,7 +1077,7 @@ vtufile << "        <DataArray type=\\"Int32\\" Name=\\"connectivity\\" format=\
 for(int ci=0; ci<num_cells; ci++){
     vtufile << "          ";
     for(int ni=0; ni<nodes_per_element; ni++){
-        vtufile << fmesh.glbvertex[ci][ni]-1 << " ";
+        vtufile << fmesh.glbvertex[ci][ni] << " ";
     }
     vtufile << "\\n";
 }
@@ -1546,7 +1546,7 @@ function amattarget_prepare_needed_values(entities, var, lorr, vors)
 "
         // Loop to compute coefficients at nodes.
         for(int ni=0; ni<nnodes; ni++){
-            int nid = (fmesh.loc2glb[eid][ni]-1);
+            int nid = (fmesh.loc2glb[eid][ni]);
             double x = fmesh.allnodes[nid*dim];
             double y = fmesh.allnodes[nid*dim+1];
             double z = fmesh.allnodes[nid*dim+2];
@@ -1991,6 +1991,12 @@ void finch::Mesh::import_mesh(std::string filename, int num_partitions, int my_p
     nnodes_local = ((uint64_t*)in8)[0];
     
     read_check(file.read(in8, 8));
+    nel_global = ((uint64_t*)in8)[0];
+    
+    read_check(file.read(in8, 8));
+    nnodes_global = ((uint64_t*)in8)[0];
+    
+    read_check(file.read(in8, 8));
     int max_nodes_per_element = ((int64_t*)in8)[0];
     
     read_check(file.read(in8, 8));
@@ -2177,7 +2183,7 @@ void finch::Mesh::import_mesh(std::string filename, int num_partitions, int my_p
         read_check(file.read(in8, 8));
         nface_ghost = ((int64_t*)in8)[0];
         read_check(file.read(in8, 8));
-        nnodes_global = ((uint64_t*)in8)[0];
+        
         read_check(file.read(in8, 8));
         nnodes_borrowed = ((int64_t*)in8)[0];
         

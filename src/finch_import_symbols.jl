@@ -19,7 +19,7 @@ finch_symbols_to_import = [
     :LINEMESH, :QUADMESH, :TRIMESH, :HEXMESH,
     
     #Structs
-    :Variable, :Coefficient, :GenFunction, :CallbackFunction, :Indexer, :GeometricFactors, :VariableTransform,
+    :Variable, :Coefficient, :GenFunction, :CallbackFunction, :Indexer, :Grid, :Refel, :Finch_prob, :GeometricFactors, :VariableTransform,
     :SymExpression, :SymEntity, :CachesimOut,
     
     #Functions
