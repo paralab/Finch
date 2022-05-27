@@ -20,7 +20,7 @@ finch_symbols_to_import = [
     
     #Structs
     :Variable, :Coefficient, :GenFunction, :CallbackFunction, :Indexer, :Grid, :Refel, :Finch_prob, :GeometricFactors, :VariableTransform,
-    :SymExpression, :SymEntity, :CachesimOut,
+    :SymExpression, :SymEntity, :CacheSim,
     
     #Functions
     :geometric_factors, :geometric_factors_face, :build_deriv_matrix, :evaluate_coefficient, :exchange_ghosts,

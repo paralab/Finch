@@ -170,11 +170,14 @@ include("grid_parent_child.jl");
 include("polyharmonic_interp.jl");
 
 include("output_data.jl");
-include("cachsim_solve.jl");
+
+# cachesim parts
+include("cachesim/CacheSim.jl");
+using .CacheSim
+include("cachesim_utils.jl");
+include("cachesim_solve.jl");
 
 # Finch submodules
-include("cachesim/CachesimOut.jl");
-using .CachesimOut
 include("SymbolicParser.jl")
 using .SymbolicParser
 include("CodeGenerator.jl");
