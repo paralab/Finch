@@ -180,6 +180,8 @@ include("cachesim_solve.jl");
 # Finch submodules
 include("SymbolicParser.jl")
 using .SymbolicParser
+include("IntermediateRepresentation.jl")
+using .IntermediateRepresentation
 include("CodeGenerator.jl");
 using .CodeGenerator
 include("DGSolver.jl");

@@ -38,6 +38,9 @@ include("code_generator_utils.jl");
 include("generate_code_layer.jl");
 
 # code gen functions for each solver type and target
+include("generate_code_layer_julia_fem.jl");
+
+
 include("generate_code_layer_cg_julia.jl");
 include("generate_code_layer_dg_julia.jl");
 include("generate_code_layer_fv_julia.jl");

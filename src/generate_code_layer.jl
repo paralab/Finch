@@ -1,7 +1,35 @@
 #=
-Use the symbolic layer expressions to generate the code
+Use the IR to generate code
 Redirects to solver and target specific functions.
 =#
+
+function generate_code_layer(IR, solver, language, framework)
+    if language == JULIA || language == 0
+        if solver == CG || solver == DG
+            code = generate_code_layer_julia_fem(IR);
+            
+        elseif solver == FV
+            code = generate_code_layer_julia_fvm(IR);
+            
+        else
+            code = "";
+        end
+        
+    ### External targets ##############################################################
+    # The appropriate code gen function should be set
+    else
+        code = external_generate_code_layer_function(IR);
+    end
+    
+    return code;
+end
+
+
+
+
+
+
+
 
 # lorr = LHS or RHS, vors = volume or surface
 function generate_code_layer(symex, var, lorr, vors, solver, language, framework)

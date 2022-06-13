@@ -6,35 +6,16 @@ It should:
 - Be independent of discretization.
 - Be independent of code target.
 
-Idea: Computation is in a permutable tree. The nodes are pieces such as
-loops, function evals, math ops, numbers
-Dependencies are included and permutations are limited by them.
+It is a tree (implements AbstractTrees)
 
-example: 
-for i=1:n
-    c[i] = 0;
-    for j=1:n
-        b[j] = f(...);
-        c[i] += A[i,j] * b[j];
-    end
-end
-
-corresponds to
-
-[loop_i] - [c=0]
-         \
-          -[loop_j] - [b=f()]
-                    \
-                     -[c=Ab]
-
-and a permutation could be
-
-[loop_i] - [c=0]
-         \-[b=f()]
-
-[loop_j] - [loop_i] - [c=Ab]
-
-etc.
+There are different types of nodes:
+- data - some piece of data with a name and optional index
+- allocation - allocate some numbers of a given type
+- evaluation - math operation, function eval, special eval,
+- statement - either lhs=rhs or just rhs (x[i] = 3   or  somefunc(args)) ** lhs and rhs are one of the above parts
+- block - a list of IR_parts grouped together
+- loop - a loop containing a block
+- conditional - a conditional containing a block and optional else block
 =#
 
 module IntermediateRepresentation
@@ -46,7 +27,14 @@ using AbstractTrees
 # using Plots
 # using GraphRecipes
 
-export IR_entry_types, testIR
+export IR_entry_types, IR_string, print_tree, testIR
+export IR_part, IR_data_node, IR_data_access, IR_allocate_node, IR_eval_node, 
+        IR_statement_node, IR_block_node, IR_loop_node, IR_conditional_node
+export build_IR_fem
+
+# See finch_import_symbols.jl for a list of all imported symbols.
+import ..Finch: @import_finch_symbols
+@import_finch_symbols()
 
 AbstractTrees.children(a::Nothing) = ();
 AbstractTrees.children(a::Symbol) = ();
@@ -422,65 +410,9 @@ function print_IR_tree(a::IR_part)
     AbstractTrees.print_tree(a);
 end
 
-# Takes a SymExpression like 2*a+b and makes an IR treating all symbols
-# as named coefficient arrays.
-# This works recursively
-function arithmetic_expr_to_IR(ex)
-    if typeof(ex) === nothing
-        return nothing;
-    elseif typeof(ex) <: Number
-        return ex;
-    elseif typeof(ex) == Symbol
-        return ex;
-    elseif typeof(ex) == SymEntity
-        if ex.index == -1 # This could be a constant number or special symbol
-            val = tryparse(Float64, ex.name);
-            if val === nothing
-                return Symbol(ex.name);
-            else
-                return val;
-            end
-        end
-        # It is a named coefficient
-        tag = "";
-        type_label = "value_";
-        for i=1:length(c.flags)
-            tag = c.flags[i] * tag;
-            if c.flags[i] == "NEIGHBORHOOD"
-                tmp = type_label[1];
-                type_label = "noBroadcast_";
-            end
-        end
-        for i=1:length(c.derivs)
-            tag = "D"*string(c.derivs[i]) * tag;
-        end
-        
-        if typeof(c.index) == Int
-            str = type_label*tag*"_"*string(c.name)*"_"*string(c.index);
-        else
-            str = type_label*tag*"_"*string(c.name)*"_";
-            for i=1:length(c.index)
-                str *= string(c.index[i]);
-            end
-        end
-        
-        return IR_data_node(IRtypes.array_data, Symbol(str));
-        
-    elseif typeof(ex) == Expr && ex.head === :call
-        IRtypes = IR_entry_types();
-        args = [];
-        for i=2:length(ex.args)
-            push!(args, arithmetic_expr_to_IR(ex.args[i]));
-        end
-        return IR_eval_node(IRtypes.math_eval, ex.head, args);
-        
-    elseif typeof(ex) == SymExpression
-        # turn the tree expr into IR
-        return arithmetic_expr_to_IR(ex.tree);
-    else # What else could it be?
-        return ex;
-    end
-end
+#############################################################################################################
+include("IR_utils.jl");
+include("IR_build_FEM.jl");
 
 #############################################################################################################
 # stuff to be removed
@@ -701,6 +633,6 @@ end
 end # module
 
 
-using .IntermediateRepresentation
+# using .IntermediateRepresentation
 
-testIR()
+# testIR()

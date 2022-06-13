@@ -704,39 +704,20 @@ function weakForm(var, wf)
                     " dx = \\int_{K}"*symexpression_to_latex(rhs_symexpr)*" dx");
     end
     
-    # change symbolic layer into code layer
-    (lhs_string, lhs_code) = generate_code_layer(lhs_symexpr, var, LHS, "volume", solver_type, language, gen_framework);
-    (rhs_string, rhs_code) = generate_code_layer(rhs_symexpr, var, RHS, "volume", solver_type, language, gen_framework);
+    # change symbolic layer into IR
+    dimension = config.dimension;
     if length(result_exprs) == 4
-        (lhs_surf_string, lhs_surf_code) = generate_code_layer(lhs_surf_symexpr, var, LHS, "surface", solver_type, language, gen_framework);
-        (rhs_surf_string, rhs_surf_code) = generate_code_layer(rhs_surf_symexpr, var, RHS, "surface", solver_type, language, gen_framework);
-        log_entry("Weak form, code layer: LHS = \n"*string(lhs_string)*"\nsurfaceLHS = \n"*string(lhs_surf_string)*" \nRHS = \n"*string(rhs_string)*"\nsurfaceRHS = \n"*string(rhs_surf_string));
+        full_IR = build_IR_fem(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, var, dimension, solver_type);
     else
-        log_entry("Weak form, code layer: LHS = \n"*string(lhs_string)*" \n  RHS = \n"*string(rhs_string));
+        full_IR = build_IR_fem(lhs_symexpr, nothing, rhs_symexpr, nothing, var, dimension, solver_type);
     end
+    log_entry("Weak form IR: "*string(full_IR),3);
     
-    #log_entry("Julia code Expr: LHS = \n"*string(lhs_code)*" \n  RHS = \n"*string(rhs_code), 3);
+    # Generate code from IR
+    code = generate_code_layer(full_IR, solver_type, language, gen_framework);
+    log_entry("Code layer: \n" * code, 3);
+    set_code(var, code);
     
-    if language == JULIA || language == 0
-        args = "args; kwargs...";
-        makeFunction(args, lhs_code);
-        set_lhs(var, lhs_string);
-        
-        makeFunction(args, rhs_code);
-        set_rhs(var, rhs_string);
-        
-        if length(result_exprs) == 4
-            makeFunction(args, string(lhs_surf_code));
-            set_lhs_surface(var, lhs_surf_string);
-            
-            makeFunction(args, string(rhs_surf_code));
-            set_rhs_surface(var, rhs_surf_string);
-        end
-        
-    else
-        set_lhs(var, lhs_code);
-        set_rhs(var, rhs_code);
-    end
 end
 
 """

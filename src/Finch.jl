@@ -60,12 +60,14 @@ variable_transforms = [];
 genfunc_count = 0;
 genfunctions = [];
 callback_functions = [];
-#rhs
-linears = [];
-face_linears = [];
-#lhs
-bilinears = [];
-face_bilinears = [];
+# #rhs
+# linears = [];
+# face_linears = [];
+# #lhs
+# bilinears = [];
+# face_bilinears = [];
+# solve functions for each variable
+solve_function = [];
 #assembly loop functions
 assembly_loops = [];
 #symbolic layer
@@ -542,7 +544,8 @@ function add_variable(var)
     var.symvar = sym_var(string(var.symbol), var.type, var.total_components);
 
     global variables = [variables; var];
-
+    
+    global solve_function = [solve_function; nothing];
     global linears = [linears; nothing];
     global bilinears = [bilinears; nothing];
     global face_linears = [face_linears; nothing];
@@ -889,105 +892,130 @@ function add_callback_function(f)
     push!(callback_functions, f);
 end
 
-# Sets the RHS(linear) function for the given variable(s).
-function set_rhs(var, code="")
-    global linears;
-    if language == 0 || language == JULIA
+# Generates a function from a code string and sets that as the code for the variable(s).
+function set_code(var, code)
+    if language == JULIA || language == 0
+        args = "args; kwargs...";
+        makeFunction(args, code);
         if typeof(var) <:Array
             for i=1:length(var)
-                linears[var[i].index] = genfunctions[end];
-                code_strings[2][var[i].index] = code;
+                solve_function[var[i].index] = genfunctions[end];
+                code_strings[var[i].index] = code;
             end
         else
-            linears[var.index] = genfunctions[end];
+            solve_function[var.index] = genfunctions[end];
             code_strings[2][var.index] = code;
         end
-        
-    else # external generation
+    else
         if typeof(var) <:Array
             for i=1:length(var)
-                linears[var[i].index] = code;
+                code_strings[var[i].index] = code;
             end
         else
-            linears[var.index] = code;
+            code_strings[2][var.index] = code;
         end
     end
 end
 
-# Sets the LHS(bilinear) function for the given variable(s).
-function set_lhs(var, code="")
-    global bilinears;
-    if language == 0 || language == JULIA
-        if typeof(var) <:Array
-            for i=1:length(var)
-                bilinears[var[i].index] = genfunctions[end];
-                code_strings[1][var[i].index] = code;
-            end
-        else
-            bilinears[var.index] = genfunctions[end];
-            code_strings[1][var.index] = code;
-        end
+# # Sets the RHS(linear) function for the given variable(s).
+# function set_rhs(var, code="")
+#     global linears;
+#     if language == 0 || language == JULIA
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 linears[var[i].index] = genfunctions[end];
+#                 code_strings[2][var[i].index] = code;
+#             end
+#         else
+#             linears[var.index] = genfunctions[end];
+#             code_strings[2][var.index] = code;
+#         end
         
-    else # external generation
-        if typeof(var) <:Array
-            for i=1:length(var)
-                bilinears[var[i].index] = code;
-            end
-        else
-            bilinears[var.index] = code;
-        end
-    end
-end
+#     else # external generation
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 linears[var[i].index] = code;
+#             end
+#         else
+#             linears[var.index] = code;
+#         end
+#     end
+# end
 
-# Sets the surface RHS(linear) function for the given variable(s).
-function set_rhs_surface(var, code="")
-    global face_linears;
-    if language == 0 || language == JULIA
-        if typeof(var) <:Array
-            for i=1:length(var)
-                face_linears[var[i].index] = genfunctions[end];
-                code_strings[4][var[i].index] = code;
-            end
-        else
-            face_linears[var.index] = genfunctions[end];
-            code_strings[4][var.index] = code;
-        end
+# # Sets the LHS(bilinear) function for the given variable(s).
+# function set_lhs(var, code="")
+#     global bilinears;
+#     if language == 0 || language == JULIA
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 bilinears[var[i].index] = genfunctions[end];
+#                 code_strings[1][var[i].index] = code;
+#             end
+#         else
+#             bilinears[var.index] = genfunctions[end];
+#             code_strings[1][var.index] = code;
+#         end
         
-    else # external generation
-        if typeof(var) <:Array
-            for i=1:length(var)
-                face_linears[var[i].index] = code;
-            end
-        else
-            face_linears[var.index] = code;
-        end
-    end
-end
+#     else # external generation
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 bilinears[var[i].index] = code;
+#             end
+#         else
+#             bilinears[var.index] = code;
+#         end
+#     end
+# end
 
-# Sets the surface LHS(bilinear) function for the given variable(s).
-function set_lhs_surface(var, code="")
-    global face_bilinears;
-    if language == 0 || language == JULIA
-        if typeof(var) <:Array
-            for i=1:length(var)
-                face_bilinears[var[i].index] = genfunctions[end];
-                code_strings[3][var[i].index] = code;
-            end
-        else
-            face_bilinears[var.index] = genfunctions[end];
-            code_strings[3][var.index] = code;
-        end
+# # Sets the surface RHS(linear) function for the given variable(s).
+# function set_rhs_surface(var, code="")
+#     global face_linears;
+#     if language == 0 || language == JULIA
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 face_linears[var[i].index] = genfunctions[end];
+#                 code_strings[4][var[i].index] = code;
+#             end
+#         else
+#             face_linears[var.index] = genfunctions[end];
+#             code_strings[4][var.index] = code;
+#         end
         
-    else # external generation
-        if typeof(var) <:Array
-            for i=1:length(var)
-                face_bilinears[var[i].index] = code;
-            end
-        else
-            face_bilinears[var.index] = code;
-        end
-    end
-end
+#     else # external generation
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 face_linears[var[i].index] = code;
+#             end
+#         else
+#             face_linears[var.index] = code;
+#         end
+#     end
+# end
+
+# # Sets the surface LHS(bilinear) function for the given variable(s).
+# function set_lhs_surface(var, code="")
+#     global face_bilinears;
+#     if language == 0 || language == JULIA
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 face_bilinears[var[i].index] = genfunctions[end];
+#                 code_strings[3][var[i].index] = code;
+#             end
+#         else
+#             face_bilinears[var.index] = genfunctions[end];
+#             code_strings[3][var.index] = code;
+#         end
+        
+#     else # external generation
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 face_bilinears[var[i].index] = code;
+#             end
+#         else
+#             face_bilinears[var.index] = code;
+#         end
+#     end
+# end
 
 function set_symexpressions(var, ex, lorr, vors)
     # If the ex is empty, don't set anything
