@@ -45,10 +45,10 @@ function arithmetic_expr_to_IR(ex)
         
     elseif typeof(ex) == Expr && ex.head === :call
         args = [];
-        for i=2:length(ex.args)
+        for i=1:length(ex.args)
             push!(args, arithmetic_expr_to_IR(ex.args[i]));
         end
-        return IR_eval_node(IRtypes.math_eval, ex.head, args);
+        return IR_operation_node(IRtypes.math_op, args);
         
     elseif typeof(ex) == SymExpression
         # turn the tree expr into IR

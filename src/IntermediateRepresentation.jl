@@ -2,17 +2,14 @@
 The intermediate representation.
 It should:
 - Give code generators enough info to generate code without depending
-  on PDE details, discretization, DSL level info.
-- Be independent of discretization.
+  on DSL level info.
 - Be independent of code target.
 
 It is a tree (implements AbstractTrees)
 
 There are different types of nodes:
 - data - some piece of data with a name and optional index
-- allocation - allocate some numbers of a given type
-- evaluation - math operation, function eval, special eval,
-- statement - either lhs=rhs or just rhs (x[i] = 3   or  somefunc(args)) ** lhs and rhs are one of the above parts
+- operation - allocation, evaluation, assignment, etc
 - block - a list of IR_parts grouped together
 - loop - a loop containing a block
 - conditional - a conditional containing a block and optional else block
@@ -23,13 +20,8 @@ module IntermediateRepresentation
 # Implement AbstractTrees for plotting/printing/using other tools if desired
 using AbstractTrees
 
-# Only use these to plot the trees, but honestly they look terrible.
-# using Plots
-# using GraphRecipes
-
 export IR_entry_types, IR_string, print_tree, testIR
-export IR_part, IR_data_node, IR_data_access, IR_allocate_node, IR_eval_node, 
-        IR_statement_node, IR_block_node, IR_loop_node, IR_conditional_node
+export IR_part, IR_data_node, IR_data_access, IR_operation_node, IR_block_node, IR_loop_node, IR_conditional_node
 export build_IR_fem
 
 # See finch_import_symbols.jl for a list of all imported symbols.
@@ -58,10 +50,12 @@ struct IR_entry_types
     dof_loop::Int8    # = 3 # variable components
     index_loop::Int8  # = 4 # other indices such as matrix indices
     
-    # eval types
-    func_eval::Int8   # = 11 # function call
-    math_eval::Int8   # = 12 # math operation
-    special_eval::Int8# = 13 # special expression to be interpreted by code generator
+    # operation types
+    allocate_op::Int8 # = 11 # allocation has at least two args: type, dims...
+    assign_op::Int8     # = 12 # assignment is like lhs = rhs, lhs is a data node, rhs is data or op
+    function_op::Int8   # = 13 # function evaluation has name and tuple of args like name(args)
+    math_op::Int8       # = 14 # a function_op for arithmetic just in case it is useful to specify
+    named_op::Int8      # = 15 # a special op keyword that will be interpreted by codegen as needed
     
     # data types
     scalar_data::Int8    # = 21 # a single value (x)
@@ -77,12 +71,6 @@ struct IR_entry_types
     read_access::Int8  # = 31 
     write_access::Int8 # = 32
     
-    # statement types
-    allocate_statement::Int8 # = 41
-    assign_statement::Int8   # = 42
-    call_statement::Int8     # = 43
-    special_statement::Int8  # = 44
-    
     IR_entry_types() = new(
         Dict{Int8, String}(
             1=>"time loop",
@@ -90,9 +78,11 @@ struct IR_entry_types
             3=>"dof loop",
             4=>"index loop",
             
-            11=>"function eval",
-            12=>"math op",
-            13=>"special",
+            11=>"allocate op",
+            12=>"assign op",
+            13=>"function op",
+            14=>"math op",
+            15=>"named op",
             
             21=>"scalar data",
             22=>"array data",
@@ -104,14 +94,9 @@ struct IR_entry_types
             28=>"Float64",
             
             31=>"read",
-            32=>"write",
-            
-            41=>"allocation",
-            42=>"assignment",
-            43=>"function call",
-            44=>"special"
+            32=>"write"
         ),
-        1,2,3,4, 11,12,13, 21,22,23,24,25,26,27,28, 31,32, 41,42,43,44
+        1,2,3,4, 11,12,13,14,15, 21,22,23,24,25,26,27,28, 31,32
         );
 end
 
@@ -137,46 +122,44 @@ end
 AbstractTrees.children(a::IR_data_access) = ();
 AbstractTrees.printnode(io::IO, a::IR_data_access) = AbstractTrees.printnode(io, a.data);
 
-# It could be a function call or math operation or special operation
-# It has an operator name and array of arguments which are other nodes.
-struct IR_eval_node <: IR_part
-    type::Int8   # The type of computation
-    op::Symbol
-    args::Vector{Union{IR_eval_node,IR_data_node,Symbol,Number}}
-end
-AbstractTrees.children(a::IR_eval_node) = a.args;
-AbstractTrees.printnode(io::IO, a::IR_eval_node) = print(io, string(a.op));
-
-# An allocation has a type and dimensions
-struct IR_allocate_node <: IR_part
-    type::Int8        # The type of data
-    dims::Vector{Union{Int,Symbol}} # The dimensions of the array to allocate
-end
-AbstractTrees.children(a::IR_allocate_node) = ();
-function AbstractTrees.printnode(io::IO, a::IR_allocate_node)
-    IRtypes = IR_entry_types();
-    str = "Allocate{";
-    str *= IRtypes.name[a.type]*"[";
-    for i=1:length(a.dims)
-        str *= string(a.dims[i])*",";
-    end
-    str *= "]}";
-    print(io, str);
-end
-
-# This represents a statment: lhs = rhs   or just   rhs
-# lhs could be a symbol or data node or nothing
-# rhs could be a symbol, number, data node, eval node, or allocate node
-struct IR_statement_node <: IR_part
-    type::Int8   # The type of computation
-    lhs::Union{Symbol, IR_data_node, Nothing}
-    rhs::Union{Symbol, Number, IR_data_node, IR_eval_node, IR_allocate_node}
+# An operation could be an allocation, assignment, function eval, or special named op
+# It has a type and a vector of args. The arg pattern will depend on the type usually.
+struct IR_operation_node <: IR_part
+    type::Int8   # The type of operation
+    args::Vector #{Union{IR_part,Symbol,Number,Nothing}}
     deps::Vector{IR_data_access}
-    IR_statement_node(t::Int8, l::Union{Symbol, IR_data_node, Nothing}, r::Union{Symbol, Number, IR_data_node, IR_eval_node, IR_allocate_node}) = 
-        new(t, l, r, append!(get_accesses(r), get_accesses(l,true)));
+    
+    IR_operation_node(t::Int8, a::Vector) =  #{Union{IR_part,Symbol,Number,Nothing}}) = 
+        new(t, a, get_accesses(a));
 end
-AbstractTrees.children(a::IR_statement_node) = a.lhs===nothing ? (a.rhs,) : (a.lhs, a.rhs);
-AbstractTrees.printnode(io::IO, a::IR_statement_node) = a.lhs===nothing ? print(io,"...") : print(io,"=");
+function AbstractTrees.children(a::IR_operation_node)
+    IRtypes = IR_entry_types();
+    if a.type == IRtypes.allocate_op
+        return a.args[2:end];
+    elseif a.type == IRtypes.assign_op
+        return a.args;
+    elseif a.type == IRtypes.function_op
+        return a.args[2:end];
+    elseif a.type == IRtypes.named_op
+        return a.args[2:end];
+    else
+        return a.args
+    end
+end
+function AbstractTrees.printnode(io::IO, a::IR_operation_node)
+    IRtypes = IR_entry_types();
+    if a.type == IRtypes.allocate_op
+        print(io, "Allocate{"*IRtypes.name[a.args[1]]*"}");
+    elseif a.type == IRtypes.assign_op
+        print(io,"=");
+    elseif a.type == IRtypes.function_op
+        print(io, IR_string(a.args[1]));
+    elseif a.type == IRtypes.named_op
+        print(io, IR_string(a.args[1]));
+    else
+        print(io, "unknown op");
+    end
+end
 
 # This is a block of IR_parts such as a set of statements.
 # Use for the body of a loop or conditional or for a top-level container
@@ -226,7 +209,7 @@ end
 # This is a conditional block
 # It has a condition, true-body, else-body(optional)
 mutable struct IR_conditional_node <: IR_part
-    condition::Union{IR_data_node, IR_eval_node}
+    condition::Union{IR_data_node, IR_operation_node}
     body::IR_block_node #Vector{IR_part}
     elsepart::Union{IR_block_node, Nothing}
     deps::Vector{IR_data_access}
@@ -272,13 +255,10 @@ function get_accesses(part, is_write=false)
             access = [IR_data_access(IRtypes.read_access, part)];
         end
         
-    elseif typeof(part) == IR_eval_node
-        access = get_accesses(part.args);
-        
     elseif typeof(part) == IR_conditional_node || typeof(part) == IR_loop_node
         append!(access, part.deps);
         
-    elseif typeof(part) == IR_statement_node
+    elseif typeof(part) == IR_operation_node
         append!(access, part.deps);
     end
     
@@ -338,48 +318,41 @@ function IR_string(a::IR_conditional_node)
     result *= "end\n";
     return result;
 end
-function IR_string(a::IR_eval_node)
-    if a.op === :equals
+function IR_string(a::IR_operation_node)
+    IRtypes = IR_entry_types();
+    if a.type == IRtypes.allocate_op
+        if a.args[1] == IRtypes.int_32_data
+            typename = "Int32";
+        elseif a.args[1] == IRtypes.int_64_data
+            typename = "Int64";
+        elseif a.args[1] == IRtypes.float_32_data
+            typename = "Float32";
+        elseif a.args[1] == IRtypes.float_64_data
+            typename = "Float64";
+        else
+            typename = "UNKNOWNTYPE";
+        end
+        dimstring = string(a.args[2]);
+        for i=3:length(a.args)
+            dimstring *= ", "*string(a.args[i]);
+        end
+        result = "zeros("*typename*", "*dimstring*")";
+        
+    elseif a.type == IRtypes.assign_op
         result = string(a.args[1])*" = "*string(a.args[2])*";\n";
-    else
-        result = string(a.op)*"(";
-        for i = 1:length(a.args)
+        
+    elseif a.type == IRtypes.function_op || a.type == IRtypes.math_op || a.type == IRtypes.named_op
+        result = string(a.args[1])*"(";
+        for i = 2:length(a.args)
             result *= string(a.args[i])
             if i < length(a.args) result *= ", "; end
         end
         result *= ")";
-    end
-    
-    return result;
-end
-function IR_string(a::IR_statement_node)
-    if !(a.lhs === nothing)
-        result = string(a.lhs)*" = ";
+        
     else
         result = "";
     end
-    result *= string(a.rhs)*";\n";
-    return result;
-end
-function IR_string(a::IR_allocate_node)
-    IRtypes = IR_entry_types();
-    if a.type == IRtypes.int_32_data
-        typename = "Int32";
-    elseif a.type == IRtypes.int_64_data
-        typename = "Int64";
-    elseif a.type == IRtypes.float_32_data
-        typename = "Float32";
-    elseif a.type == IRtypes.float_64_data
-        typename = "Float64";
-    else
-        typename = "UNKNOWNTYPE";
-    end
-    dimstring = string(a.dims[1]);
-    for i=2:length(a.dims)
-        dimstring *= ", "*string(a.dims[i]);
-    end
     
-    result = "zeros("*typename*", "*dimstring*")";
     return result;
 end
 function IR_string(a::IR_data_node)
