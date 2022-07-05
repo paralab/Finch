@@ -1,7 +1,7 @@
 # Geometric factors
 export GeometricFactors, Jacobian
 export build_geometric_factors, geometric_factors, geometric_factors_face, 
-        build_deriv_matrix, build_face_deriv_matrix, get_quadrature_point_coords
+        build_derivative_matrix, build_deriv_matrix, build_face_deriv_matrix, get_quadrature_point_coords
 
 include("tensor_ops.jl");
 
@@ -233,6 +233,79 @@ function geometric_factors_face(refel, face, pts)
     end
     
     return (detJ, 0);
+end
+
+# builds one derivative matrix in place
+function build_derivative_matrix(refel::Refel, geofacs, direction::Int, eid::Int, type::Int, mat::Array{Float64, 2})
+    J = geofacs.J[eid];
+    N = size(mat,2);
+    if type == 0
+        if refel.dim == 1
+            # Multiply rows of Qr and Ddr by J.rx
+            for i=1:N # loop over columns
+                mat[:,i] = J.rx .* refel.Qr[:,i];
+            end
+            
+        elseif refel.dim == 2
+            if direction == 1
+                for i=1:N
+                    mat[:,i] = J.rx .* refel.Qr[:,i] + J.sx .* refel.Qs[:,i];
+                end
+            else
+                for i=1:N
+                    mat[:,i] = J.ry .* refel.Qr[:,i] + J.sy .* refel.Qs[:,i];
+                end
+            end
+            
+        elseif refel.dim == 3
+            if direction == 1
+                for i=1:N
+                    mat[:,i] = J.rx .* refel.Qr[:,i] + J.sx .* refel.Qs[:,i] + J.tx .* refel.Qt[:,i];
+                end
+            elseif direction == 2
+                for i=1:N
+                    mat[:,i] = J.ry .* refel.Qr[:,i] + J.sy .* refel.Qs[:,i] + J.ty .* refel.Qt[:,i];
+                end
+            else
+                for i=1:N
+                    mat[:,i] = J.rz .* refel.Qr[:,i] + J.sz .* refel.Qs[:,i] + J.tz .* refel.Qt[:,i];
+                end
+            end
+        end
+    else
+        if refel.dim == 1
+            # Multiply rows of Qr and Ddr by J.rx
+            for i=1:N # loop over columns
+                mat[:,i] = J.rx .* refel.Ddr[:,i];
+            end
+            
+        elseif refel.dim == 2
+            if direction == 1
+                for i=1:N
+                    mat[:,i] = J.rx .* refel.Ddr[:,i] + J.sx .* refel.Dds[:,i];
+                end
+            else
+                for i=1:N
+                    mat[:,i] = J.ry .* refel.Ddr[:,i] + J.sy .* refel.Dds[:,i];
+                end
+            end
+            
+        elseif refel.dim == 3
+            if direction == 1
+                for i=1:N
+                    mat[:,i] = J.rx .* refel.Ddr[:,i] + J.sx .* refel.Dds[:,i] + J.tx .* refel.Ddt[:,i];
+                end
+            elseif direction == 2
+                for i=1:N
+                    mat[:,i] = J.ry .* refel.Ddr[:,i] + J.sy .* refel.Dds[:,i] + J.ty .* refel.Ddt[:,i];
+                end
+            else
+                for i=1:N
+                    mat[:,i] = J.rz .* refel.Ddr[:,i] + J.sz .* refel.Dds[:,i] + J.tz .* refel.Ddt[:,i];
+                end
+            end
+        end
+    end
 end
 
 function build_deriv_matrix(refel, J)

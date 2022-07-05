@@ -33,7 +33,14 @@ function init_solver()
     global post_step_function = default_post_step;
 end
 
-function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=nothing)
+function linear_solve(var, func, stepper=nothing)
+    args = (var, grid_data, refel, geo_factors, config, coefficients, test_functions, indexers);
+    return TimerOutputs.@timeit timer_output "cg_colve" func.func(args);
+end
+
+
+
+function old_linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=nothing)
     if config.linalg_matrixfree
         return solve_matrix_free_sym(var, bilinear, linear, stepper, assemble_func=assemble_func);
         #return solve_matrix_free_asym(var, bilinear, linear, stepper);
@@ -698,7 +705,7 @@ function insert_bilinear!(AI, AJ, AV, Astart, ael, glb, dof, Ndofs)
     
 end
 
-function place_sol_in_vars(var, sol, stepper)
+function place_sol_in_vars(var, sol, stepper=nothing)
     # place the values in the variable value arrays
     if typeof(var) <: Array
         tmp = 0;
@@ -709,22 +716,14 @@ function place_sol_in_vars(var, sol, stepper)
         for vi=1:length(var)
             components = var[vi].total_components;
             for compi=1:components
-                if stepper.type == EULER_EXPLICIT
-                    var[vi].values[compi,:] = sol[(compi+tmp):totalcomponents:end];
-                else 
-                    var[vi].values[compi,:] = sol[(compi+tmp):totalcomponents:end];
-                end
+                var[vi].values[compi,:] .= sol[(compi+tmp):totalcomponents:end];
                 tmp = tmp + 1;
             end
         end
     else
         components = var.total_components;
         for compi=1:components
-            if stepper.type == EULER_EXPLICIT
-                var.values[compi,:] = sol[compi:components:end];
-            else
-                var.values[compi,:] = sol[compi:components:end];
-            end
+            var.values[compi,:] .= sol[compi:components:end];
         end
     end
 end

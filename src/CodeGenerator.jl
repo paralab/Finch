@@ -14,6 +14,11 @@ export init_code_generator, finalize_code_generator, set_generation_target,
 import ..Finch: @import_finch_symbols
 @import_finch_symbols()
 
+# IR symbols
+import ..Finch: IR_entry_types, IR_string, print_tree,
+            IR_part, IR_data_node, IR_data_access, IR_operation_node, 
+            IR_block_node, IR_loop_node, IR_conditional_node
+
 genDir = "";
 genFileName = "";
 gen_file_extension = "";
@@ -39,7 +44,6 @@ include("generate_code_layer.jl");
 
 # code gen functions for each solver type and target
 include("generate_code_layer_julia_fem.jl");
-
 
 include("generate_code_layer_cg_julia.jl");
 include("generate_code_layer_dg_julia.jl");

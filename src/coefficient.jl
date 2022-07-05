@@ -27,6 +27,28 @@ end
 
 # Returns the value of the coefficient for the specified component, coordinates and time.
 # There are optional node index and face index inputs
+function evaluate_coefficient(c::Coefficient, comp, x, y, z, t, nodeind=1, faceind=1)
+    if typeof(comp) <: Array
+        # This is likely an array type coefficient: comp=[a,b,c] -> value[a,b,c]
+        coef_size = size(c.value);
+        comp_index = comp[1];
+        for i=2:length(comp)
+            comp_index += comp_size[i-1]*(comp[i]-1);
+        end
+        
+    else
+        comp_index = comp;
+    end
+    if typeof(c.value[comp_index]) <: Number
+        return c.value[comp_index];
+    end
+    
+    # If not a number, it should be a genfunction
+    return c.value[comp_index].func(x,y,z,t,nodeind, faceind);
+end
+
+# Returns the value of the coefficient for the specified component, coordinates and time.
+# There are optional node index and face index inputs
 function evaluate_coefficient(c::Coefficient, comp, x, t, nodeind=1, faceind=1)
     if typeof(comp) <: Array
         # This is likely an array type coefficient: comp=[a,b,c] -> value[a,b,c]

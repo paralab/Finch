@@ -85,6 +85,8 @@ use_cachesim = false;
 #handles for custom code gen functions
 custom_gen_funcs = [];
 
+timer_output = nothing;
+
 ###############################################################
 include("finch_includes.jl");
 include("macros.jl");
@@ -140,6 +142,8 @@ function init_finch(name="unnamedProject")
     global specified_Nsteps = 0;
     global use_specified_steps = false;
     global use_cachesim = false;
+    
+    global timer_output = TimerOutput();
     
     # check for MPI and initialize
     if @isdefined(MPI)
@@ -896,23 +900,24 @@ end
 function set_code(var, code)
     if language == JULIA || language == 0
         args = "args; kwargs...";
-        makeFunction(args, code);
+        code_expr = CodeGenerator.code_string_to_expr(code);
+        makeFunction(args, code_expr);
         if typeof(var) <:Array
             for i=1:length(var)
                 solve_function[var[i].index] = genfunctions[end];
-                code_strings[var[i].index] = code;
+                code_strings[1][var[i].index] = code;
             end
         else
             solve_function[var.index] = genfunctions[end];
-            code_strings[2][var.index] = code;
+            code_strings[1][var.index] = code;
         end
     else
         if typeof(var) <:Array
             for i=1:length(var)
-                code_strings[var[i].index] = code;
+                code_strings[1][var[i].index] = code;
             end
         else
-            code_strings[2][var.index] = code;
+            code_strings[1][var.index] = code;
         end
     end
 end

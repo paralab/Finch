@@ -130,6 +130,29 @@ catch e
     
 end
 
+try
+    using TimerOutputs
+catch e
+    if force_package_install
+        println("TimerOutputs package is not yet installed. Installing now.");
+        using Pkg
+        Pkg.add("TimerOutputs")
+        using TimerOutputs
+        
+    else
+        println("TimerOutputs package is not yet installed. It is required.\nWould you like to install now? y/n.");
+        response = readline();
+        if response=="Y" || response=="y"
+            using Pkg
+            Pkg.add("TimerOutputs")
+            using TimerOutputs
+        else
+            println("It is a required package. Exiting Finch.")
+        end
+    end
+    
+end
+
 ######################
 
 # include these first

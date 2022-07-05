@@ -25,8 +25,8 @@ finch_symbols_to_import = [
     #Functions
     :geometric_factors, :geometric_factors_face, :build_deriv_matrix, :evaluate_coefficient, :exchange_ghosts,
     
-    #Log
-    :log_entry, :printerr,
+    #Log and profiling
+    :log_entry, :printerr, :timer_output, :timeit,
     
     #Data
     :config, :prob, :variables, :coefficients, :parameters, :test_functions, :indexers, :variable_transforms,
@@ -38,7 +38,7 @@ finch_symbols_to_import = [
     :ParentMaps, :parent_maps, :fv_grid, :fv_refel, :fv_geo_factors, :build_local_patch,
     
     # Packages? should this be done here?
-    :MPI, :PETSc
+    :MPI, :PETSc, :TimerOutputs
 ];
 
 macro import_finch_symbols()

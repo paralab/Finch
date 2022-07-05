@@ -55,7 +55,8 @@ struct IR_entry_types
     assign_op::Int8     # = 12 # assignment is like lhs = rhs, lhs is a data node, rhs is data or op
     function_op::Int8   # = 13 # function evaluation has name and tuple of args like name(args)
     math_op::Int8       # = 14 # a function_op for arithmetic just in case it is useful to specify
-    named_op::Int8      # = 15 # a special op keyword that will be interpreted by codegen as needed
+    member_op::Int8     # = 15 # access a member of a struct
+    named_op::Int8      # = 16 # a special op keyword that will be interpreted by codegen as needed
     
     # data types
     scalar_data::Int8    # = 21 # a single value (x)
@@ -82,7 +83,8 @@ struct IR_entry_types
             12=>"assign op",
             13=>"function op",
             14=>"math op",
-            15=>"named op",
+            15=>"member op",
+            16=>"named op",
             
             21=>"scalar data",
             22=>"array data",
@@ -96,7 +98,7 @@ struct IR_entry_types
             31=>"read",
             32=>"write"
         ),
-        1,2,3,4, 11,12,13,14,15, 21,22,23,24,25,26,27,28, 31,32
+        1,2,3,4, 11,12,13,14,15,16, 21,22,23,24,25,26,27,28, 31,32
         );
 end
 
@@ -140,6 +142,10 @@ function AbstractTrees.children(a::IR_operation_node)
         return a.args;
     elseif a.type == IRtypes.function_op
         return a.args[2:end];
+    elseif a.type == IRtypes.math_op
+        return a.args[2:end];
+    elseif a.type == IRtypes.member_op
+        return a.args[2:end];
     elseif a.type == IRtypes.named_op
         return a.args[2:end];
     else
@@ -153,6 +159,10 @@ function AbstractTrees.printnode(io::IO, a::IR_operation_node)
     elseif a.type == IRtypes.assign_op
         print(io,"=");
     elseif a.type == IRtypes.function_op
+        print(io, IR_string(a.args[1]));
+    elseif a.type == IRtypes.math_op
+        print(io, IR_string(a.args[1]));
+    elseif a.type == IRtypes.member_op
         print(io, IR_string(a.args[1]));
     elseif a.type == IRtypes.named_op
         print(io, IR_string(a.args[1]));
@@ -177,11 +187,11 @@ mutable struct IR_loop_node <: IR_part
     type::Int8   # The type of loop
     collection::Symbol
     iterator::Symbol
-    first::Int
-    last::Int
+    first::Union{Int,Symbol}
+    last::Union{Int,Symbol}
     body::IR_block_node #Vector{IR_part}
     deps::Vector{IR_data_access}
-    function IR_loop_node(t::Int8, c::Symbol, i::Symbol, f::Int, l::Int, b)
+    function IR_loop_node(t::Int8, c::Symbol, i::Symbol, f, l, b)
         if typeof(b) == IR_block_node
             block = b;
         elseif typeof(b) <: Vector
@@ -348,6 +358,9 @@ function IR_string(a::IR_operation_node)
             if i < length(a.args) result *= ", "; end
         end
         result *= ")";
+        
+    elseif a.type == IRtypes.member_op
+        result = string(a.args[1])*"."*string(a.args[2]);
         
     else
         result = "";

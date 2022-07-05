@@ -278,8 +278,8 @@ function identity_rows(A, urows, N; diagonal_val=1)
                 newJ[newind] = rows[i];
                 newV[newind] = diagonal_val;
             end
-            append!(newI, rows[toadd:rn]);
-            append!(newJ, rows[toadd:rn]);
+            append!(newI, rows[(rn-toadd+1):rn]);
+            append!(newJ, rows[(rn-toadd+1):rn]);
             append!(newV, diagonal_val * ones(toadd));
         end
         

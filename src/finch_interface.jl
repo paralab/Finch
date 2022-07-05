@@ -218,6 +218,9 @@ file. Currently GMSH files(.msh), either old or new versions, and MEDIT files(.m
 are supported.
 """
 function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
+    
+    @timeit timer_output "Mesh" begin
+    
     if msh == LINEMESH
         log_entry("Building simple line mesh with nx elements, nx="*string(elsperdim));
         meshtime = @elapsed(mshdat = simple_line_mesh(elsperdim.+1, bids, interval));
@@ -314,6 +317,8 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
             
         end
     end
+    
+    end # timer block
 end
 
 """
@@ -647,23 +652,23 @@ wf is a string expression or array of them. It can include numbers, coefficients
 variables, parameters, indexers, and symbolic operators.
 """
 function weakForm(var, wf)
-    if typeof(var) <: Array
-        # multiple simultaneous variables
-        wfvars = [];
-        wfex = [];
-        if !(length(var) == length(wf))
-            printerr("Error in weak form: # of unknowns must equal # of equations. (example: @weakform([a,b,c], [f1,f2,f3]))");
-        end
-        for vi=1:length(var)
-            push!(wfvars, var[vi].symbol);
-            push!(wfex, Meta.parse((wf)[vi]));
-        end
-        solver_type = var[1].discretization;
-    else
-        wfex = Meta.parse(wf);
-        wfvars = var.symbol;
-        solver_type = var.discretization;
+    
+    @timeit timer_output "CodeGen-weakform" begin
+    
+    if !(typeof(var) <: Array)
+        var = [var];
+        wf = [wf];
     end
+    wfvars = [];
+    wfex = [];
+    if !(length(var) == length(wf))
+        printerr("Error in weak form: # of unknowns must equal # of equations. (example: @weakform([a,b,c], [f1,f2,f3]))");
+    end
+    for vi=1:length(var)
+        push!(wfvars, var[vi].symbol);
+        push!(wfex, Meta.parse((wf)[vi]));
+    end
+    solver_type = var[1].discretization;
     
     log_entry("Making weak form for variable(s): "*string(wfvars));
     log_entry("Weak form, input: "*string(wf));
@@ -714,10 +719,11 @@ function weakForm(var, wf)
     log_entry("Weak form IR: "*string(full_IR),3);
     
     # Generate code from IR
-    code = generate_code_layer(full_IR, solver_type, language, gen_framework);
+    code = generate_code_layer(var, full_IR, solver_type, language, gen_framework);
     log_entry("Code layer: \n" * code, 3);
     set_code(var, code);
     
+    end # timer block
 end
 
 """
@@ -1208,6 +1214,9 @@ function solve(var, nlvar=nothing; nonlinear=false)
     
     global time_stepper; # This should not be necessary. It will go away eventually
     
+    # Wrap this all in a timer
+    @timeit timer_output "Solve" begin
+    
     # Generate files or solve directly
     if !(!generate_external && (language == JULIA || language == 0)) # if an external code gen target is ready
         if typeof(var) <: Array
@@ -1255,6 +1264,7 @@ function solve(var, nlvar=nothing; nonlinear=false)
         if config.solver_type == CG
             lhs = bilinears[varind];
             rhs = linears[varind];
+            func = solve_function[varind];
             loop_func = assembly_loops[varind];
             
             if prob.time_dependent
@@ -1278,30 +1288,10 @@ function solve(var, nlvar=nothing; nonlinear=false)
 				if (nonlinear)
                 	t = @elapsed(result = CGSolver.nonlinear_solve(var, nlvar, lhs, rhs, assemble_func=loop_func));
                 else
-                    t = @elapsed(result = CGSolver.linear_solve(var, lhs, rhs, assemble_func=loop_func));
+                    t = @elapsed(result = CGSolver.linear_solve(var, func));
 				end
                 
-                # place the values in the variable value arrays
-                if typeof(var) <: Array && length(result) > 1
-                    tmp = 0;
-                    totalcomponents = 0;
-                    for vi=1:length(var)
-                        totalcomponents = totalcomponents + length(var[vi].symvar);
-                    end
-                    for vi=1:length(var)
-                        components = length(var[vi].symvar);
-                        for compi=1:components
-                            #println("putting result "*string(compi+tmp)*":"*string(totalcomponents)*":end in var["*string(vi)*"].values["*string(compi)*"]")
-                            var[vi].values[compi,:] = result[(compi+tmp):totalcomponents:end];
-                        end
-                        tmp = tmp + components;
-                    end
-                elseif length(result) > 1
-                    components = length(var.symvar);
-                    for compi=1:components
-                        var.values[compi,:] = result[compi:components:end];
-                    end
-                end
+                # values should already be placed in variable arrays
             end
             
             log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
@@ -1485,6 +1475,8 @@ function solve(var, nlvar=nothing; nonlinear=false)
     end
     
     # At this point all of the final values for the variables in var should be placed in var.values.
+    end # timer block
+    
 end
 
 """
@@ -1573,6 +1565,8 @@ function finalize_finch()
     if use_cachesim
         CachesimOut.finalize();
     end
+    # timeroutput
+    show(timer_output)
     # log
     close_log();
     # # mpi

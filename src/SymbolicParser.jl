@@ -210,7 +210,7 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
     # Each element has an lhs and rhs
     lhs = copy(sterms); # set up the container right
     rhs = copy(sterms);
-    if varcount > 1
+    if typeof(var) <: Array
         for i=1:length(symex)
             sz = size(symex[i]);
             (lhs[i],rhs[i]) = split_left_right(sterms[i],sz,var);
