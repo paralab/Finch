@@ -32,6 +32,8 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     # Static piece
     # args = (var, grid_data, refel, geometric_factors, config, coefficients, test_functions, indexers);
     code *="
+    @timeit timer_output \"prepare\" begin
+    
     # extract input args
     var = args[1];
     mesh = args[2];
@@ -39,8 +41,9 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     geometric_factors = args[4];
     config = args[5];
     coefficients = args[6];
-    test_functions = args[7];
-    indexers = args[8];
+    variables = args[7];
+    test_functions = args[8];
+    indexers = args[9];
     
     # Prepare some useful numbers
     dofs_per_node = "*string(dofs_per_node)*";
@@ -56,7 +59,7 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     num_elements = mesh.nel_owned;
     
     # Allocate global system
-    allocated_nonzeros = num_elements*dofs_per_element * num_elements*dofs_per_element;
+    allocated_nonzeros = num_elements * (dofs_per_element * dofs_per_element);
     global_matrix_I = ones(Int, allocated_nonzeros);
     global_matrix_J = ones(Int, allocated_nonzeros);
     global_matrix_V = zeros(Float64, allocated_nonzeros);
@@ -66,6 +69,9 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     # Allocate elemental parts
     element_matrix = zeros(Float64, dofs_per_element, dofs_per_element);
     element_vector = zeros(Float64, dofs_per_element);
+    
+    end
+    @timeit timer_output \"loop\" begin
     "
     
     # The assembly is taken from the IR
@@ -73,17 +79,24 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     
     # Post assembly part
     code *="
+    end
+    @timeit timer_output \"post-loop\" begin
+    
     # Post assembly steps
     # build sparse matrix
     global_matrix = sparse(global_matrix_I, global_matrix_J, global_matrix_V);
     
     (global_matrix, global_vector) = CGSolver.apply_boundary_conditions_lhs_rhs(var, global_matrix, global_vector, t);
     
+    end
+    @timeit timer_output \"lin-solve\" begin
+    
     # Solve the global system
     solution = global_matrix \\ global_vector;
     # distribute the solution to variables
     # var[1].values .= solution; # only one dof
     CGSolver.place_sol_in_vars(var, solution);
+    end
     
     return solution;
     "
@@ -93,7 +106,7 @@ end
 
 # Directly stanslate IR into julia code
 # Named operators are treated specially
-function generate_from_IR_julia(IR::IR_part, IRtypes::Union{IR_entry_types, Nothing} = nothing, indent="")
+function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = nothing, indent="")
     if IRtypes === nothing
         IRtypes = IR_entry_types();
     end
@@ -191,7 +204,7 @@ function generate_from_IR_julia(IR::IR_part, IRtypes::Union{IR_entry_types, Noth
             code = string(IR.args[1]) * "." * generate_from_IR_julia(IR.args[2], IRtypes);
             
         elseif IR.type == IRtypes.named_op # handled case by case
-            code = generate_named_op(IR);
+            code = generate_named_op(IR, IRtypes);
         end
         
     elseif node_type == IR_block_node # A collection of statements. Do them one line at a time
@@ -227,50 +240,87 @@ function generate_from_IR_julia(IR::IR_part, IRtypes::Union{IR_entry_types, Noth
             code *= indent * "else\n" * generate_from_IR_julia(IR.body, IRtypes, indent);
         end
         code *= indent * "end\n";
-    else
+    elseif node_type <: IR_part
         code = IR_string(IR);
+        
+    else
+        code = string(IR);
     end
     
     return code;
 end
 
-function generate_named_op(IR::IR_operation_node)
+function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types, Nothing} = nothing)
     code = "";
     code = string(IR.args[1]); # TODO
     
     op = IR.args[1];
     if op === :COEF_EVAL
-        code = "evaluate_coefficient(coefficients[" * string(IR.args[2]) * "], " * string(IR.args[3]) * ", x, y, z, t, nodeID);"
+        code = "evaluate_coefficient(coefficients[" * string(IR.args[2]) * "], " * string(IR.args[3]) * ", x, y, z, t, nodeID)"
+    elseif op === :KNOWN_VAR
+        code = "variables[" * string(IR.args[2]) * "].values[nodeID]"; # only works for scalars
     elseif op === :ROWCOL_TO_INDEX
         code = string(IR.args[2]) * " + (" * string(IR.args[3]) * "-1)*" * string(IR.args[4]);
     elseif op === :LINALG_MATRIX_BLOCK
         matsize = IR.args[4];
-        rhs = "RQ1[i + (row-1)*qnodes_per_element] * refel.wg[i] * detj * (-1) * RQ1[i + (col-1)*qnodes_per_element]";
+        # content = "RQ1[i + (row-1)*qnodes_per_element] * refel.wg[i] * detj * (-1) * RQ1[i + (col-1)*qnodes_per_element]";
+        content = generate_from_IR_julia(IR.args[6], IRtypes);
         code = "
     for row=1:nodes_per_element
         for col=1:nodes_per_element
             element_matrix[row, col] = 0;
             for i=1:qnodes_per_element
-                element_matrix[row, col] += $rhs;
+                element_matrix[row, col] += $content;
             end
         end
     end";
     
     elseif op === :LINALG_VECTOR_BLOCK
-        rhs = "refel.Q[col + (row-1)*qnodes_per_element] * refel.wg[col] * detj * value__f_1[col]";
+        # content = "refel.Q[col + (row-1)*qnodes_per_element] * refel.wg[col] * detj * value__f_1[col]";
+        content = generate_from_IR_julia(IR.args[5], IRtypes);
         code = "
     for row=1:nodes_per_element
         element_vector[row] = 0;
         for col=1:qnodes_per_element
-            element_vector[row] += $rhs;
+            element_vector[row] += $content;
         end
     end";
     
     elseif op === :LINALG_TDM
+        # RQ1, (refel.wq*detj*-1), refel.Q  -> 
+        # generate_from_IR_julia(IR.condition, IRtypes) 
+        Tcode = generate_from_IR_julia(IR.args[2], IRtypes) * "[i + (row-1)*qnodes_per_element]";
+        Mcode = generate_from_IR_julia(IR.args[4], IRtypes) * "[i + (col-1)*qnodes_per_element]";
+        Dcode = generate_from_IR_julia(apply_indexed_access(IR.args[3], [:i], IRtypes), IRtypes);
         
+        code = "*(" * Tcode *", "* Dcode *", "* Mcode * ")";
+            
     elseif op === :LINALG_Tv
+        Tcode = generate_from_IR_julia(IR.args[2], IRtypes) * "[col + (row-1)*qnodes_per_element]";
+        vcode = generate_from_IR_julia(apply_indexed_access(IR.args[3], [:col], IRtypes), IRtypes);
         
+        code = "*(" * Tcode *", "* vcode * ")";
     end
     
     return code;
+end
+
+# For an array type IR_data_node this adds an index
+# (A, i) -> A[i]
+function apply_indexed_access(IR, index, IRtypes::Union{IR_entry_types, Nothing} = nothing)
+    if typeof(IR) == IR_data_node && IR.type == IRtypes.array_data
+        return IR_data_node(IR.type, IR.var, index);
+        
+    elseif typeof(IR) == IR_operation_node
+        # make a copy
+        newargs = copy(IR.args)
+        # apply to all args
+        for i=1:length(newargs)
+            newargs[i] = apply_indexed_access(newargs[i], index, IRtypes)
+        end
+        return IR_operation_node(IR.type, newargs);
+        
+    else
+        return IR;
+    end
 end

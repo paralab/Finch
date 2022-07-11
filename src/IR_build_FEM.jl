@@ -265,21 +265,28 @@ function prepare_coefficient_values(entities, var, dimension, counts)
         IR_operation_node(IRtypes.assign_op,[
             :nodeID, 
             IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.array_data, :loc2glb, [:ni, :eid])])]),
+        # node_offset = (nodeID-1)*dimension+1
+        IR_operation_node(IRtypes.assign_op,[
+            :node_offset, 
+            IR_operation_node(IRtypes.math_op, [:+, 
+                IR_operation_node(IRtypes.math_op, [:*,
+                    IR_operation_node(IRtypes.math_op, [:-, :nodeID, 1]),
+                    dimension]),
+                1
+            ])]),
         # t = the current step time
         # IR_statement_node(IRtypes.assign_statement, :t, 0.0),
         # x = mesh.allnodes[nodeID*dimension]
         IR_operation_node(IRtypes.assign_op, [
             :x, 
-            IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.array_data, :allnodes, [
-                IR_operation_node(IRtypes.math_op, [:(*), :nodeID, dimension])
-            ])])])
+            IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.array_data, :allnodes, [:node_offset])])])
     ];
     if dimension > 1
         # y = mesh.allnodes[nodeID*dimension+1]
         push!(coef_loop_body, IR_operation_node(IRtypes.assign_op, [
             :y, 
             IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.array_data, :allnodes, [
-                IR_operation_node(IRtypes.math_op, [:(+), IR_operation_node(IRtypes.math_op, [:(*), :nodeID, dimension]), 1])
+                IR_operation_node(IRtypes.math_op, [:(+), :node_offset, 1])
             ])])]))
     else
         # y = 0
@@ -290,7 +297,7 @@ function prepare_coefficient_values(entities, var, dimension, counts)
         push!(coef_loop_body, IR_operation_node(IRtypes.assign_op, [
             :z, 
             IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.array_data, :allnodes, [
-                IR_operation_node(IRtypes.math_op, [:(+), IR_operation_node(IRtypes.math_op, [:(*), :nodeID, :dimension]), 2])
+                IR_operation_node(IRtypes.math_op, [:(+), :node_offset, 2])
             ])])]))
     else
         # z = 0
@@ -365,8 +372,15 @@ function prepare_coefficient_values(entities, var, dimension, counts)
                         IR_operation_node(IRtypes.named_op, [:COEF_EVAL, coef_index, entities[i].index, :x, :y, :z, :t, :nodeID])]));
                     # Apply any needed derivative operators. Interpolate at quadrature points.
                     if length(entities[i].derivs) > 0
+                        quad_coef_node = IR_data_node(IRtypes.array_data, Symbol(cname), [:col]);
+                        nodal_coef_node = IR_data_node(IRtypes.array_data, Symbol(nodal_coef_name), [:row]);
+                        push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
                         for di=1:length(entities[i].derivs)
-                            # TODO
+                            deriv_quad_mat = IR_data_node(IRtypes.array_data, Symbol("RQ"*string(entities[i].derivs[di])), [row_col_matrix_index]);
+                            push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
+                                quad_coef_node,
+                                IR_operation_node(IRtypes.math_op, [:(+), quad_coef_node, IR_operation_node(IRtypes.math_op, [:(*), deriv_quad_mat, nodal_coef_node])])
+                                ]));
                         end
                     else
                         quad_coef_node = IR_data_node(IRtypes.array_data, Symbol(cname), [:col]);
@@ -395,6 +409,51 @@ function prepare_coefficient_values(entities, var, dimension, counts)
                 
             elseif ctype == 3 # a known variable value
                 # TODO
+                # 
+                if vors == "volume"
+                    need_vol_interp_loop = true;
+                    need_vol_coef_loop = true;
+                    # Need to allocate NP 
+                    np_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :nodes_per_element]);
+                    nqp_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :qnodes_per_element]);
+                    nodal_coef_name = "NODAL"*cname;
+                    # For the nodal values
+                    push!(allocate_part, IR_operation_node(IRtypes.assign_op,[
+                        IR_data_node(IRtypes.array_data, Symbol(nodal_coef_name)),
+                        np_allocate]));
+                    # For the interpolated/differentiated quadrature values
+                    push!(allocate_part, IR_operation_node(IRtypes.assign_op,[
+                        IR_data_node(IRtypes.array_data, Symbol(cname)),
+                        nqp_allocate]));
+                    
+                    push!(coef_loop_body, IR_operation_node(IRtypes.assign_op,[
+                        IR_data_node(IRtypes.array_data, Symbol(nodal_coef_name), [:ni]),
+                        IR_operation_node(IRtypes.named_op, [:KNOWN_VAR, cval, entities[i].index, :nodeID])]));
+                    # Apply any needed derivative operators. Interpolate at quadrature points.
+                    if length(entities[i].derivs) > 0
+                        quad_coef_node = IR_data_node(IRtypes.array_data, Symbol(cname), [:col]);
+                        nodal_coef_node = IR_data_node(IRtypes.array_data, Symbol(nodal_coef_name), [:row]);
+                        push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
+                        for di=1:length(entities[i].derivs)
+                            deriv_quad_mat = IR_data_node(IRtypes.array_data, Symbol("RQ"*string(entities[i].derivs[di])), [row_col_matrix_index]);
+                            push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
+                                quad_coef_node,
+                                IR_operation_node(IRtypes.math_op, [:(+), quad_coef_node, IR_operation_node(IRtypes.math_op, [:(*), deriv_quad_mat, nodal_coef_node])])
+                                ]));
+                        end
+                    else
+                        quad_coef_node = IR_data_node(IRtypes.array_data, Symbol(cname), [:col]);
+                        nodal_coef_node = IR_data_node(IRtypes.array_data, Symbol(nodal_coef_name), [:row]);
+                        refelQ = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index])]);
+                        push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
+                        push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
+                            quad_coef_node,
+                            IR_operation_node(IRtypes.math_op, [:(+), quad_coef_node, IR_operation_node(IRtypes.math_op, [:(*), refelQ, nodal_coef_node])])
+                            ]));
+                    end
+                else
+                    # TODO
+                end
             elseif ctype == 4 # an indexed coefficient
                 # TODO
             end
@@ -553,7 +612,10 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
             
         end
         if length(term_vec) > 1
-            combined_rhs = IR_operation_node(IRtypes.math_op, append!([:+], term_vec));
+            new_term_vec = [];
+            push!(new_term_vec, :+);
+            append!(new_term_vec, term_vec);
+            combined_rhs = IR_operation_node(IRtypes.math_op, new_term_vec);
             if lorr == LHS
                 push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [
                     :LINALG_MATRIX_BLOCK, 1, 1, :nodes_per_element, :element_matrix, combined_rhs]));
@@ -626,19 +688,20 @@ function generate_term_calculation_fem(term, var, lorr, vors)
     end
     
     # Turn the coefficient part into IR
+    wg_part = IR_data_node(IRtypes.array_data, :wg);
     if !(coef_ex === nothing)
         coef_part = arithmetic_expr_to_IR(coef_ex);
         if trial_negative || test_negative
-            coef_part = IR_operation_node(IRtypes.member_op, [:refel, IR_operation_node(IRtypes.math_op, [:*, :wg, :detj, coef_part, -1])]);
+            coef_part = IR_operation_node(IRtypes.math_op, [:*, IR_operation_node(IRtypes.member_op, [:refel, wg_part]), :detj, coef_part, -1]);
         else
-            coef_part = IR_operation_node(IRtypes.member_op, [:refel, IR_operation_node(IRtypes.math_op, [:*, :wg, :detj, coef_part])]);
+            coef_part = IR_operation_node(IRtypes.math_op, [:*, IR_operation_node(IRtypes.member_op, [:refel, wg_part]), :detj, coef_part]);
         end
         
     else
         if trial_negative || test_negative
-            coef_part = IR_operation_node(IRtypes.member_op, [:refel, IR_operation_node(IRtypes.math_op, [:*, :wg, :detj, -1])]);
+            coef_part = IR_operation_node(IRtypes.math_op, [:*, IR_operation_node(IRtypes.member_op, [:refel, wg_part]), :detj, -1]);
         else
-            coef_part = IR_operation_node(IRtypes.member_op, [:refel, IR_operation_node(IRtypes.math_op, [:*, :wg, :detj])]);
+            coef_part = IR_operation_node(IRtypes.math_op, [:*, IR_operation_node(IRtypes.member_op, [:refel, wg_part]), :detj]);
         end
         
     end
