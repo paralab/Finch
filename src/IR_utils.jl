@@ -58,6 +58,26 @@ function arithmetic_expr_to_IR(ex)
     end
 end
 
+# For an array type IR_data_node this adds an index
+# (A, i) -> A[i]
+function apply_indexed_access(IR, index, IRtypes::Union{IR_entry_types, Nothing} = nothing)
+    if typeof(IR) == IR_data_node && IR.type == IRtypes.array_data
+        return IR_data_node(IR.type, IR.var, index);
+        
+    elseif typeof(IR) == IR_operation_node
+        # make a copy
+        newargs = copy(IR.args)
+        # apply to all args
+        for i=1:length(newargs)
+            newargs[i] = apply_indexed_access(newargs[i], index, IRtypes)
+        end
+        return IR_operation_node(IR.type, newargs);
+        
+    else
+        return IR;
+    end
+end
+
 function extract_entities(symex::Array, multivar::Bool)
     # symex is an array of arrays of SymExpressions which are Expr trees with SymEntities as leaves. (array for variable components, terms)
     # In the case of muliple variables, it's an array of arrays of arrays. (variables, components, terms)

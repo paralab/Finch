@@ -385,7 +385,8 @@ function prepare_coefficient_values(entities, var, dimension, counts)
                     else
                         quad_coef_node = IR_data_node(IRtypes.array_data, Symbol(cname), [:col]);
                         nodal_coef_node = IR_data_node(IRtypes.array_data, Symbol(nodal_coef_name), [:row]);
-                        refelQ = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index])]);
+                        # refelQ = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index])]);
+                        refelQ = IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index]);
                         push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
                         push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
                             quad_coef_node,
@@ -444,7 +445,8 @@ function prepare_coefficient_values(entities, var, dimension, counts)
                     else
                         quad_coef_node = IR_data_node(IRtypes.array_data, Symbol(cname), [:col]);
                         nodal_coef_node = IR_data_node(IRtypes.array_data, Symbol(nodal_coef_name), [:row]);
-                        refelQ = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index])]);
+                        # refelQ = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index])]);
+                        refelQ = IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index]);
                         push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
                         push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
                             quad_coef_node,
@@ -518,9 +520,9 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
                         # Turn these three parts into an expression like A'DB or A'Dv = A'd
                         # Where D is a diagonal matrix specified by a vector in the IR
                         if lorr == LHS
-                            term_IR = IR_operation_node(IRtypes.named_op, [:LINALG_MDM, test_part, coef_part, trial_part]);
+                            term_IR = IR_operation_node(IRtypes.named_op, [:LINALG_TDM, test_part, coef_part, trial_part]);
                         else
-                            term_IR = IR_operation_node(IRtypes.named_op, [:LINALG_MV, test_part, coef_part]);
+                            term_IR = IR_operation_node(IRtypes.named_op, [:LINALG_Tv, test_part, coef_part]);
                         end
                         
                         # Find the appropriate submatrix for this term
@@ -547,9 +549,9 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
                     # Turn these three parts into an expression like A'DB or A'Dv = A'd
                     # Where D is a diagonal matrix specified by a vector in the IR
                     if lorr == LHS
-                        term_IR = IR_operation_node(IRtypes.named_op, [:LINALG_MDM, test_part, coef_part, trial_part]);
+                        term_IR = IR_operation_node(IRtypes.named_op, [:LINALG_TDM, test_part, coef_part, trial_part]);
                     else
-                        term_IR = IR_operation_node(IRtypes.named_op, [:LINALG_MV, test_part, coef_part]);
+                        term_IR = IR_operation_node(IRtypes.named_op, [:LINALG_Tv, test_part, coef_part]);
                     end
                     
                     # Find the appropriate submatrix for this term
@@ -671,7 +673,8 @@ function generate_term_calculation_fem(term, var, lorr, vors)
             deriv_index = test_ex.derivs[1];
             test_part = IR_data_node(IRtypes.matrix_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element]);
         else
-            test_part = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element])]);
+            # test_part = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element])]);
+            test_part = IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element]);
         end
     else
         test_part = nothing;
@@ -681,7 +684,8 @@ function generate_term_calculation_fem(term, var, lorr, vors)
             deriv_index = trial_ex.derivs[1];
             trial_part = IR_data_node(IRtypes.matrix_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element]);
         else
-            trial_part = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element])]);
+            # trial_part = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element])]);
+            trial_part = IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element]);
         end
     else
         trial_part = nothing;
@@ -689,19 +693,28 @@ function generate_term_calculation_fem(term, var, lorr, vors)
     
     # Turn the coefficient part into IR
     wg_part = IR_data_node(IRtypes.array_data, :wg);
+    if false # non-constant J
+        detj_part = IR_data_node(IRtypes.array_data, :detj);
+    else
+        detj_part = :detj;
+    end
     if !(coef_ex === nothing)
         coef_part = arithmetic_expr_to_IR(coef_ex);
         if trial_negative || test_negative
-            coef_part = IR_operation_node(IRtypes.math_op, [:*, IR_operation_node(IRtypes.member_op, [:refel, wg_part]), :detj, coef_part, -1]);
+            # coef_part = IR_operation_node(IRtypes.math_op, [:*, IR_operation_node(IRtypes.member_op, [:refel, wg_part]), :detj, coef_part, -1]);
+            coef_part = IR_operation_node(IRtypes.math_op, [:*, wg_part, detj_part, coef_part, -1]);
         else
-            coef_part = IR_operation_node(IRtypes.math_op, [:*, IR_operation_node(IRtypes.member_op, [:refel, wg_part]), :detj, coef_part]);
+            # coef_part = IR_operation_node(IRtypes.math_op, [:*, IR_operation_node(IRtypes.member_op, [:refel, wg_part]), :detj, coef_part]);
+            coef_part = IR_operation_node(IRtypes.math_op, [:*, wg_part, detj_part, coef_part]);
         end
         
     else
         if trial_negative || test_negative
-            coef_part = IR_operation_node(IRtypes.math_op, [:*, IR_operation_node(IRtypes.member_op, [:refel, wg_part]), :detj, -1]);
+            # coef_part = IR_operation_node(IRtypes.math_op, [:*, IR_operation_node(IRtypes.member_op, [:refel, wg_part]), :detj, -1]);
+            coef_part = IR_operation_node(IRtypes.math_op, [:*, wg_part, detj_part, -1]);
         else
-            coef_part = IR_operation_node(IRtypes.math_op, [:*, IR_operation_node(IRtypes.member_op, [:refel, wg_part]), :detj]);
+            # coef_part = IR_operation_node(IRtypes.math_op, [:*, IR_operation_node(IRtypes.member_op, [:refel, wg_part]), :detj]);
+            coef_part = IR_operation_node(IRtypes.math_op, [:*, wg_part, detj_part]);
         end
         
     end
@@ -825,4 +838,61 @@ function generate_assembly_loop_fem(var, indices=[])
     end
     
     return assembly_loop
+end
+
+# TDM(A,b,C) = transpose(A) * diagm(b) * C
+# P_ij =  A'_ik * b_k * C_kj = A_ki * b_k * C_kj
+# return the IR for A[k,i] * b[k] * C[k,j]
+# A,b,C are symbols or IR_data_node
+# i,j,k are symbols, numbers, IR_part
+function generate_linalg_TDM_product(A, b, C, i, j, k)
+    IRtypes = IR_entry_types();
+    if typeof(A) == IR_data_node
+        A_part = IR_data_node(IRtypes.array_data, A.var, [k,i]);
+    elseif typeof(A) <: IR_part
+        A_part = apply_indexed_access(A, [k,i], IRtypes);
+    else
+        A_part = IR_data_node(IRtypes.array_data, A, [k,i]);
+    end
+    if typeof(b) == IR_data_node
+        b_part = IR_data_node(IRtypes.array_data, b.var, [k]);
+    elseif typeof(b) <: IR_part
+        b_part = apply_indexed_access(b, [k], IRtypes);
+    else
+        b_part = IR_data_node(IRtypes.array_data, b, [k]);
+    end
+    if typeof(C) == IR_data_node
+        C_part = IR_data_node(IRtypes.array_data, C.var, [k,j]);
+    elseif typeof(C) <: IR_part
+        C_part = apply_indexed_access(C, [k,j], IRtypes);
+    else
+        C_part = IR_data_node(IRtypes.array_data, C, [k,j]);
+    end
+    
+    return IR_operation_node(IRtypes.math_op, [:*, A_part, b_part, C_part]);
+end
+
+# Tv(A,b) = transpose(A) * b
+# P_i =  A'_ij * b_j = A_ji * b_j
+# return the IR for A[j,i] * b[k]
+# A,b are symbols or IR_data_node
+# i,j are symbols, numbers, IR_parts
+function generate_linalg_Tv_product(A, b, i, j)
+    IRtypes = IR_entry_types();
+    if typeof(A) == IR_data_node
+        A_part = IR_data_node(IRtypes.array_data, A.var, [j,i]);
+    elseif typeof(A) <: IR_part
+        A_part = apply_indexed_access(A, [j,i], IRtypes);
+    else
+        A_part = IR_data_node(IRtypes.array_data, A, [j,i]);
+    end
+    if typeof(b) == IR_data_node
+        b_part = IR_data_node(IRtypes.array_data, b.var, [j]);
+    elseif typeof(b) <: IR_part
+        b_part = apply_indexed_access(b, [j], IRtypes);
+    else
+        b_part = IR_data_node(IRtypes.array_data, b, [j]);
+    end
+    
+    return IR_operation_node(IRtypes.math_op, [:*, A_part, b_part]);
 end

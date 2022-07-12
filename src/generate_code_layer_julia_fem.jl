@@ -45,6 +45,9 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     test_functions = args[8];
     indexers = args[9];
     
+    Q = refel.Q;
+    wg = refel.wg;
+    
     # Prepare some useful numbers
     dofs_per_node = "*string(dofs_per_node)*";
     dofs_per_loop = "*string(dofs_per_loop)*";
@@ -287,40 +290,27 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
     end";
     
     elseif op === :LINALG_TDM
-        # RQ1, (refel.wq*detj*-1), refel.Q  -> 
-        # generate_from_IR_julia(IR.condition, IRtypes) 
-        Tcode = generate_from_IR_julia(IR.args[2], IRtypes) * "[i + (row-1)*qnodes_per_element]";
-        Mcode = generate_from_IR_julia(IR.args[4], IRtypes) * "[i + (col-1)*qnodes_per_element]";
-        Dcode = generate_from_IR_julia(apply_indexed_access(IR.args[3], [:i], IRtypes), IRtypes);
+        # Tcode = generate_from_IR_julia(IR.args[2], IRtypes) * "[i + (row-1)*qnodes_per_element]";
+        # Mcode = generate_from_IR_julia(IR.args[4], IRtypes) * "[i + (col-1)*qnodes_per_element]";
+        # Dcode = generate_from_IR_julia(IntermediateRepresentation.apply_indexed_access(IR.args[3], [:i], IRtypes), IRtypes);
+        # code = "*(" * Tcode *", "* Dcode *", "* Mcode * ")";
         
-        code = "*(" * Tcode *", "* Dcode *", "* Mcode * ")";
+        i_index = :row;
+        j_index = :col;
+        k_index = :i;
+        
+        code = generate_from_IR_julia(IntermediateRepresentation.generate_linalg_TDM_product(IR.args[2], IR.args[3], IR.args[4], i_index, j_index, k_index), IRtypes);
             
     elseif op === :LINALG_Tv
-        Tcode = generate_from_IR_julia(IR.args[2], IRtypes) * "[col + (row-1)*qnodes_per_element]";
-        vcode = generate_from_IR_julia(apply_indexed_access(IR.args[3], [:col], IRtypes), IRtypes);
+        # Tcode = generate_from_IR_julia(IR.args[2], IRtypes) * "[col + (row-1)*qnodes_per_element]";
+        # vcode = generate_from_IR_julia(IntermediateRepresentation.apply_indexed_access(IR.args[3], [:col], IRtypes), IRtypes);
+        # code = "*(" * Tcode *", "* vcode * ")";
         
-        code = "*(" * Tcode *", "* vcode * ")";
+        i_index = :row;
+        j_index = :col;
+        
+        code = generate_from_IR_julia(IntermediateRepresentation.generate_linalg_Tv_product(IR.args[2], IR.args[3], i_index, j_index), IRtypes);
     end
     
     return code;
-end
-
-# For an array type IR_data_node this adds an index
-# (A, i) -> A[i]
-function apply_indexed_access(IR, index, IRtypes::Union{IR_entry_types, Nothing} = nothing)
-    if typeof(IR) == IR_data_node && IR.type == IRtypes.array_data
-        return IR_data_node(IR.type, IR.var, index);
-        
-    elseif typeof(IR) == IR_operation_node
-        # make a copy
-        newargs = copy(IR.args)
-        # apply to all args
-        for i=1:length(newargs)
-            newargs[i] = apply_indexed_access(newargs[i], index, IRtypes)
-        end
-        return IR_operation_node(IR.type, newargs);
-        
-    else
-        return IR;
-    end
 end
