@@ -488,6 +488,11 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
     # Each term will look something like 
     # LHS: test_part * diagm(weight_part .* coef_part) * trial_part
     # RHS: test_part * (weight_part .* coef_part)
+    
+    # LINALG_MATRIX_BLOCK and LINALG_VECTOR_BLOCK are special named ops that include these args
+    # matrix: n_blocks, blockwidth, matrixname, i,j,term_IR, k,l,term_IR, ... up to n_blocks
+    # vector: similar but one index per block
+    
     IRtypes = IR_entry_types();
     
     # This will be returned
@@ -620,18 +625,18 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
             combined_rhs = IR_operation_node(IRtypes.math_op, new_term_vec);
             if lorr == LHS
                 push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [
-                    :LINALG_MATRIX_BLOCK, 1, 1, :nodes_per_element, :element_matrix, combined_rhs]));
+                    :LINALG_MATRIX_BLOCK, 1, :nodes_per_element, :element_matrix, 1, 1, combined_rhs]));
             else
                 push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [ 
-                    :LINALG_VECTOR_BLOCK, 1, :nodes_per_element, :element_vector, combined_rhs]));
+                    :LINALG_VECTOR_BLOCK, 1, :nodes_per_element, :element_vector, 1, combined_rhs]));
             end
         else
             if lorr == LHS
                 push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [
-                    :LINALG_MATRIX_BLOCK, 1, 1, :nodes_per_element, :element_matrix, term_vec[1]]));
+                    :LINALG_MATRIX_BLOCK, 1, :nodes_per_element, :element_matrix, 1, 1, term_vec[1]]));
             else
                 push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [ 
-                    :LINALG_VECTOR_BLOCK, 1, :nodes_per_element, :element_vector, term_vec[1]]));
+                    :LINALG_VECTOR_BLOCK, 1, :nodes_per_element, :element_vector, 1, term_vec[1]]));
             end
         end
         
@@ -722,19 +727,25 @@ function generate_term_calculation_fem(term, var, lorr, vors)
     return (test_part, trial_part, coef_part, test_ind, trial_ind);
 end
 
+# This part inserts the elemental matrix and vector into the global one
 function generate_local_to_global_fem(dofs_per_node, offset_ind)
     IRtypes = IR_entry_types();
     result_block = IR_block_node([]);
     vector_loop_body = IR_block_node([]);
     matrix_loop_body = IR_block_node([]);
     if dofs_per_node == 1
-        # for ni=1:nnodes
-        #   glb_i = mesh.loc2glb[ni,eid]
-        #   global_vector[glb_i] = element_vector[ni]
-        #   for nj=1:nnodes
-        #     glb_j = mesh.loc2glb[nj,eid]
-        #     global_matrix[glb_i, glb_j] = element_matrix[ni, nj]
-        #
+        # next_ind = +(1, *(*(-(eid, 1), nodes_per_element), nodes_per_element));
+        # for ni = 1:nodes_per_element
+        #     glb_i = mesh.loc2glb[ni, eid];
+        #     global_vector[glb_i] = +(global_vector[glb_i], element_vector[ni]);
+        #     for nj = 1:nodes_per_element
+        #         glb_j = mesh.loc2glb[nj, eid];
+        #         global_matrix_I[next_ind] = glb_i;
+        #         global_matrix_J[next_ind] = glb_j;
+        #         global_matrix_V[next_ind] = element_matrix[ni, nj];
+        #         next_ind = +(next_ind, 1);
+        #     end
+        # end
         push!(result_block.parts, IR_operation_node(IRtypes.assign_op, [
             :next_ind,
             IR_operation_node(IRtypes.math_op, [:+, 1,
@@ -781,6 +792,84 @@ function generate_local_to_global_fem(dofs_per_node, offset_ind)
         push!(result_block.parts, toglobal_loop)
         
     else
+        # next_ind = +(1, *(*(-(eid, 1), dofs_per_element), dofs_per_element));
+        # for ni = 1:nodes_per_element
+        #     glb_i = mesh.loc2glb[ni, eid];
+        #     for di = 1:dofs_per_node
+        #         glb_dofi = (glb_i - 1)*dofs_per_node + di;
+        #         global_vector[glb_dofi] = +(global_vector[glb_dofi], element_vector[(di-1)*nodes_per_element + ni]);
+        #         for nj = 1:nodes_per_element
+        #             glb_j = mesh.loc2glb[nj, eid];
+        #             for dj = 1:dofs_per_node
+        #                 glb_dofj = (glb_j - 1)*dofs_per_node + dj;
+        #                 global_matrix_I[next_ind] = glb_dofi;
+        #                 global_matrix_J[next_ind] = glb_dofj;
+        #                 global_matrix_V[next_ind] = element_matrix[(di-1)*nodes_per_element + ni, (dj-1)*nodes_per_element + nj];
+        #                 next_ind = +(next_ind, 1);
+        #             end
+        #         end
+        #     end
+        # end
+        vector_dof_loop_body = IR_block_node([]);
+        matrix_dof_loop_body = IR_block_node([]);
+        
+        push!(result_block.parts, IR_operation_node(IRtypes.assign_op, [
+            :next_ind,
+            IR_operation_node(IRtypes.math_op, [:+, 1,
+                IR_operation_node(IRtypes.math_op, [:*,
+                    IR_operation_node(IRtypes.math_op, [:*, 
+                        IR_operation_node(IRtypes.math_op, [:-, :eid, 1]), :dofs_per_element]),
+                        :dofs_per_element])])
+        ]));
+        
+        push!(vector_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
+            :glb_i,
+            IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.array_data, :loc2glb, [:ni, :eid])])
+        ]));
+        push!(vector_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
+            :glb_dofi,
+            generate_the_one_pattern(:glb_i, 1, :dofs_per_node, :di)
+        ]));
+        push!(vector_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
+            IR_data_node(IRtypes.array_data, :global_vector, [:glb_dofi]),
+            IR_operation_node(IRtypes.math_op, [:+, 
+                IR_data_node(IRtypes.array_data, :global_vector, [:glb_dofi]),
+                IR_data_node(IRtypes.array_data, :element_vector, [generate_the_one_pattern(:di, 1, :nodes_per_element, :ni)])])
+        ]));
+        
+        push!(matrix_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
+            :glb_j,
+            IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.array_data, :loc2glb, [:nj, :eid])])
+        ]));
+        push!(matrix_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
+            :glb_dofj,
+            generate_the_one_pattern(:glb_j, 1, :dofs_per_node, :dj)
+        ]));
+        push!(matrix_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
+            IR_data_node(IRtypes.array_data, :global_matrix_I, [:next_ind]),
+            :glb_dofi
+        ]));
+        push!(matrix_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
+            IR_data_node(IRtypes.array_data, :global_matrix_J, [:next_ind]),
+            :glb_dofj
+        ]));
+        push!(matrix_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
+            IR_data_node(IRtypes.array_data, :global_matrix_V, [:next_ind]),
+            IR_data_node(IRtypes.array_data, :element_matrix, [
+                generate_the_one_pattern(:di, 1, :nodes_per_element, :ni),
+                generate_the_one_pattern(:dj, 1, :nodes_per_element, :nj)])
+        ]));
+        push!(matrix_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
+            :next_ind,
+            IR_operation_node(IRtypes.math_op, [:+, :next_ind, 1])
+        ]));
+        
+        push!(matrix_loop_body.parts, IR_loop_node(IRtypes.space_loop, :nodes, :dj, 1, :dofs_per_node, matrix_dof_loop_body));
+        push!(vector_dof_loop_body.parts, IR_loop_node(IRtypes.space_loop, :nodes, :nj, 1, :nodes_per_element, matrix_loop_body));
+        push!(vector_loop_body.parts, IR_loop_node(IRtypes.space_loop, :nodes, :di, 1, :dofs_per_node, vector_dof_loop_body));
+        toglobal_loop = IR_loop_node(IRtypes.space_loop, :nodes, :ni, 1, :nodes_per_element, vector_loop_body);
+        push!(result_block.parts, toglobal_loop)
+        
         toglobal_loop = IR_loop_node(IRtypes.space_loop, :nodes, :ni, 1, :nodes_per_element, vector_loop_body);
     end
     
@@ -895,4 +984,18 @@ function generate_linalg_Tv_product(A, b, i, j)
     end
     
     return IR_operation_node(IRtypes.math_op, [:*, A_part, b_part]);
+end
+
+# creates something like (a-b)*c + d
+function generate_the_one_pattern(a, b, c, d)
+    IRtypes = IR_entry_types();
+    result = IR_operation_node(IRtypes.math_op, [:+, 
+                d,
+                IR_operation_node(IRtypes.math_op, [:*,
+                    c, 
+                    IR_operation_node(IRtypes.math_op, [:-, a, b])
+                    ])
+                ]);
+    
+    return result;
 end

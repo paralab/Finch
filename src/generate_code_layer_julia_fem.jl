@@ -265,29 +265,62 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
     elseif op === :ROWCOL_TO_INDEX
         code = string(IR.args[2]) * " + (" * string(IR.args[3]) * "-1)*" * string(IR.args[4]);
     elseif op === :LINALG_MATRIX_BLOCK
-        matsize = IR.args[4];
-        # content = "RQ1[i + (row-1)*qnodes_per_element] * refel.wg[i] * detj * (-1) * RQ1[i + (col-1)*qnodes_per_element]";
-        content = generate_from_IR_julia(IR.args[6], IRtypes);
-        code = "
-    for row=1:nodes_per_element
-        for col=1:nodes_per_element
-            element_matrix[row, col] = 0;
-            for i=1:qnodes_per_element
-                element_matrix[row, col] += $content;
-            end
+        n_blocks = IR.args[2];
+        blocksize = IR.args[3];
+        matname = string(IR.args[4]);
+        
+        init_lines = "";
+        compute_lines = "";
+        
+        for blk = 1:n_blocks
+            r_ind = IR.args[4 + (blk-1)*3 + 1];
+            c_ind = IR.args[4 + (blk-1)*3 + 2];
+            comp  = IR.args[4 + (blk-1)*3 + 3];
+            row_index = r_ind > 1 ? ("("*string(r_ind)*" - 1)*nodes_per_element + row") : "row";
+            col_index = c_ind > 1 ? ("("*string(c_ind)*" - 1)*nodes_per_element + col") : "col";
+            content = generate_from_IR_julia(comp, IRtypes);
+            
+            init_lines *=    "                $matname[$row_index, $col_index] = 0;";
+            compute_lines *= "                    $matname[$row_index, $col_index] += $content;";
         end
-    end";
+        
+        # content = generate_from_IR_julia(IR.args[6], IRtypes);
+        code = "
+        for row=1:nodes_per_element
+            for col=1:nodes_per_element
+$init_lines
+                for i=1:qnodes_per_element
+$compute_lines
+                end
+            end
+        end";
     
     elseif op === :LINALG_VECTOR_BLOCK
-        # content = "refel.Q[col + (row-1)*qnodes_per_element] * refel.wg[col] * detj * value__f_1[col]";
-        content = generate_from_IR_julia(IR.args[5], IRtypes);
-        code = "
-    for row=1:nodes_per_element
-        element_vector[row] = 0;
-        for col=1:qnodes_per_element
-            element_vector[row] += $content;
+        n_blocks = IR.args[2];
+        blocksize = IR.args[3];
+        vecname = string(IR.args[4]);
+        
+        init_lines = "";
+        compute_lines = "";
+        
+        for blk = 1:n_blocks
+            r_ind = IR.args[4 + (blk-1)*3 + 1];
+            comp  = IR.args[4 + (blk-1)*2 + 2];
+            row_index = r_ind > 1 ? ("("*string(r_ind)*" - 1)*nodes_per_element + row") : "row";
+            content = generate_from_IR_julia(comp, IRtypes);
+            
+            init_lines *=    "            $vecname[$row_index] = 0;";
+            compute_lines *= "                $vecname[$row_index] += $content;";
         end
-    end";
+        
+        # content = generate_from_IR_julia(IR.args[5], IRtypes);
+        code = "
+        for row=1:nodes_per_element
+$init_lines
+            for col=1:qnodes_per_element
+$compute_lines
+            end
+        end";
     
     elseif op === :LINALG_TDM
         # Tcode = generate_from_IR_julia(IR.args[2], IRtypes) * "[i + (row-1)*qnodes_per_element]";
