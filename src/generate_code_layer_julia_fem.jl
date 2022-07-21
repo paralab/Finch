@@ -101,6 +101,10 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     CGSolver.place_sol_in_vars(var, solution);
     end
     
+    # display(Array(global_matrix))
+    # display(global_vector)
+    # display(solution)
+    
     return solution;
     "
     
@@ -263,7 +267,8 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
     elseif op === :KNOWN_VAR
         code = "variables[" * string(IR.args[2]) * "].values[nodeID]"; # only works for scalars
     elseif op === :ROWCOL_TO_INDEX
-        code = string(IR.args[2]) * " + (" * string(IR.args[3]) * "-1)*" * string(IR.args[4]);
+        # code = string(IR.args[2]) * " + (" * string(IR.args[3]) * "-1)*" * string(IR.args[4]);
+        code = string(IR.args[2]) * ", " * string(IR.args[3]);
     elseif op === :LINALG_MATRIX_BLOCK
         n_blocks = IR.args[2];
         blocksize = IR.args[3];
@@ -276,12 +281,12 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
             r_ind = IR.args[4 + (blk-1)*3 + 1];
             c_ind = IR.args[4 + (blk-1)*3 + 2];
             comp  = IR.args[4 + (blk-1)*3 + 3];
-            row_index = r_ind > 1 ? ("("*string(r_ind)*" - 1)*nodes_per_element + row") : "row";
-            col_index = c_ind > 1 ? ("("*string(c_ind)*" - 1)*nodes_per_element + col") : "col";
+            row_index = r_ind > 1 ? (string(r_ind-1)*"*nodes_per_element + row") : "row";
+            col_index = c_ind > 1 ? (string(c_ind-1)*"*nodes_per_element + col") : "col";
             content = generate_from_IR_julia(comp, IRtypes);
             
-            init_lines *=    "                $matname[$row_index, $col_index] = 0;";
-            compute_lines *= "                    $matname[$row_index, $col_index] += $content;";
+            init_lines *=    "                $matname[$row_index, $col_index] = 0;\n";
+            compute_lines *= "                    $matname[$row_index, $col_index] += $content;\n";
         end
         
         # content = generate_from_IR_julia(IR.args[6], IRtypes);
@@ -304,13 +309,13 @@ $compute_lines
         compute_lines = "";
         
         for blk = 1:n_blocks
-            r_ind = IR.args[4 + (blk-1)*3 + 1];
+            r_ind = IR.args[4 + (blk-1)*2 + 1];
             comp  = IR.args[4 + (blk-1)*2 + 2];
-            row_index = r_ind > 1 ? ("("*string(r_ind)*" - 1)*nodes_per_element + row") : "row";
+            row_index = r_ind > 1 ? (string(r_ind-1)*"*nodes_per_element + row") : "row";
             content = generate_from_IR_julia(comp, IRtypes);
             
-            init_lines *=    "            $vecname[$row_index] = 0;";
-            compute_lines *= "                $vecname[$row_index] += $content;";
+            init_lines *=    "            $vecname[$row_index] = 0;\n";
+            compute_lines *= "                $vecname[$row_index] += $content;\n";
         end
         
         # content = generate_from_IR_julia(IR.args[5], IRtypes);

@@ -237,6 +237,7 @@ end
 function prepare_coefficient_values(entities, var, dimension, counts)
     IRtypes = IR_entry_types();
     row_col_matrix_index = IR_operation_node(IRtypes.named_op, [:ROWCOL_TO_INDEX, :row, :col, :nodes_per_element]);
+    col_row_matrix_index = IR_operation_node(IRtypes.named_op, [:ROWCOL_TO_INDEX, :col, :row, :nodes_per_element]);
     
     # These parts will be returned
     allocate_part = Vector{IR_part}(undef,0); # Allocations that are done outside of the loops
@@ -279,15 +280,13 @@ function prepare_coefficient_values(entities, var, dimension, counts)
         # x = mesh.allnodes[nodeID*dimension]
         IR_operation_node(IRtypes.assign_op, [
             :x, 
-            IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.array_data, :allnodes, [:node_offset])])])
+            IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.array_data, :allnodes, [1,:nodeID])])])
     ];
     if dimension > 1
         # y = mesh.allnodes[nodeID*dimension+1]
         push!(coef_loop_body, IR_operation_node(IRtypes.assign_op, [
             :y, 
-            IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.array_data, :allnodes, [
-                IR_operation_node(IRtypes.math_op, [:(+), :node_offset, 1])
-            ])])]))
+            IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.array_data, :allnodes, [2,:nodeID])])]))
     else
         # y = 0
         push!(coef_loop_body, IR_operation_node(IRtypes.assign_op, [:y, 0]));
@@ -296,9 +295,7 @@ function prepare_coefficient_values(entities, var, dimension, counts)
         # z = mesh.allnodes[nodeID*dimension+2]
         push!(coef_loop_body, IR_operation_node(IRtypes.assign_op, [
             :z, 
-            IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.array_data, :allnodes, [
-                IR_operation_node(IRtypes.math_op, [:(+), :node_offset, 2])
-            ])])]))
+            IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.array_data, :allnodes, [3,:nodeID])])]))
     else
         # z = 0
         push!(coef_loop_body, IR_operation_node(IRtypes.assign_op, [:z, 0]));
@@ -376,7 +373,7 @@ function prepare_coefficient_values(entities, var, dimension, counts)
                         nodal_coef_node = IR_data_node(IRtypes.array_data, Symbol(nodal_coef_name), [:row]);
                         push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
                         for di=1:length(entities[i].derivs)
-                            deriv_quad_mat = IR_data_node(IRtypes.array_data, Symbol("RQ"*string(entities[i].derivs[di])), [row_col_matrix_index]);
+                            deriv_quad_mat = IR_data_node(IRtypes.array_data, Symbol("RQ"*string(entities[i].derivs[di])), [col_row_matrix_index]);
                             push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
                                 quad_coef_node,
                                 IR_operation_node(IRtypes.math_op, [:(+), quad_coef_node, IR_operation_node(IRtypes.math_op, [:(*), deriv_quad_mat, nodal_coef_node])])
@@ -386,7 +383,7 @@ function prepare_coefficient_values(entities, var, dimension, counts)
                         quad_coef_node = IR_data_node(IRtypes.array_data, Symbol(cname), [:col]);
                         nodal_coef_node = IR_data_node(IRtypes.array_data, Symbol(nodal_coef_name), [:row]);
                         # refelQ = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index])]);
-                        refelQ = IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index]);
+                        refelQ = IR_data_node(IRtypes.array_data, :Q, [col_row_matrix_index]);
                         push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
                         push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
                             quad_coef_node,
@@ -573,28 +570,67 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
         end
         
         # Put the submatrices together into element_matrix or element_vector
-        # Let's let the code generator decide how to do this
+        num_nonzero_blocks = 0;
+        
         if lorr == LHS
+            linalg_matrix_block_args = [];
+            push!(linalg_matrix_block_args, :LINALG_MATRIX_BLOCK);
+            push!(linalg_matrix_block_args, 0);
+            push!(linalg_matrix_block_args, :nodes_per_element);
+            push!(linalg_matrix_block_args, :element_matrix);
             for smi=1:dofsper
                 for smj=1:dofsper
                     submat_ind = smj + (smi-1)*dofsper;
-                    if length(submatrices[i,j]) > 0
-                        submat_rhs = IR_operation_node(IRtypes.math_op, append!([:+], submatrices[i,j]));
-                        push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [
-                                                    :LINALG_MATRIX_BLOCK, 
-                                                    smi, smj, :nodes_per_element, :element_matrix, submat_rhs]));
+                    if length(submatrices[smi,smj]) > 0
+                        if length(submatrices[smi,smj]) > 1
+                            new_term_vec = [];
+                            push!(new_term_vec, :+);
+                            append!(new_term_vec, submatrices[smi,smj]);
+                            submat_rhs = IR_operation_node(IRtypes.math_op, new_term_vec);
+                        else
+                            submat_rhs = submatrices[smi,smj][1];
+                        end
+                        # push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [
+                        #                             :LINALG_MATRIX_BLOCK, 
+                        #                             smi, smj, :nodes_per_element, :element_matrix, submat_rhs]));
+                        push!(linalg_matrix_block_args, smi);
+                        push!(linalg_matrix_block_args, smj);
+                        push!(linalg_matrix_block_args, submat_rhs);
+                        
+                        num_nonzero_blocks += 1;
                     end
                 end
             end
+            linalg_matrix_block_args[2] = num_nonzero_blocks;
+            push!(compute_block.parts, IR_operation_node(IRtypes.named_op, linalg_matrix_block_args));
         else
+            linalg_vector_block_args = [];
+            push!(linalg_vector_block_args, :LINALG_VECTOR_BLOCK);
+            push!(linalg_vector_block_args, 0);
+            push!(linalg_vector_block_args, :nodes_per_element);
+            push!(linalg_vector_block_args, :element_vector);
             for smj=1:dofsper
                 if length(submatrices[smj]) > 0
-                    submat_rhs = IR_operation_node(IRtypes.math_op, append!([:+], submatrices[smj]));
-                    push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [
-                                                :LINALG_VECTOR_BLOCK, 
-                                                smj, :nodes_per_element, :element_vector, submat_rhs]));
+                    if length(submatrices[smj]) > 1
+                        new_term_vec = [];
+                        push!(new_term_vec, :+);
+                        append!(new_term_vec, submatrices[smj]);
+                        submat_rhs = IR_operation_node(IRtypes.math_op, new_term_vec);
+                    else
+                        submat_rhs = submatrices[smj][1];
+                    end
+                    
+                    # push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [
+                    #                             :LINALG_VECTOR_BLOCK, 
+                    #                             smj, :nodes_per_element, :element_vector, submat_rhs]));
+                    push!(linalg_vector_block_args, smj);
+                    push!(linalg_vector_block_args, submat_rhs);
+                    
+                    num_nonzero_blocks += 1;
                 end
             end
+            linalg_vector_block_args[2] = num_nonzero_blocks;
+            push!(compute_block.parts, IR_operation_node(IRtypes.named_op, linalg_vector_block_args));
         end
         
         

@@ -717,8 +717,8 @@ function place_sol_in_vars(var, sol, stepper=nothing)
             components = var[vi].total_components;
             for compi=1:components
                 var[vi].values[compi,:] .= sol[(compi+tmp):totalcomponents:end];
-                tmp = tmp + 1;
             end
+            tmp = tmp + components;
         end
     else
         components = var.total_components;
