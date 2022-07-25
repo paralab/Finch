@@ -1,5 +1,105 @@
-# Apply boundary conditions to the system
 
+# Apply boundary conditions to one element
+function apply_boundary_conditions_elemental(var::Union{Variable, Vector{Variable}}, eid::Int, grid::Grid, refel::Refel,
+                                            geo_facs::GeometricFactors, prob::Finch_prob, t::Union{Int,Float64},
+                                            elmat::Matrix{Float64}, elvec::Vector{Float64}, bdry_done::Vector{Bool})
+    # Check each node to see if the bid is > 0 (on boundary)
+    nnodes = refel.Np;
+    for ni=1:nnodes
+        node_id = grid.loc2glb[ni,eid];
+        node_bid = grid.nodebid[node_id];
+        face_id = -1; # This may need to be figured out, but it is not clear which face for vertices
+        if node_bid > 0
+            # This is a boundary node in node_bid
+            # Handle the BC for each variable
+            if typeof(var) <: Array;
+                row_index = ni;
+                for vi=1:length(var)
+                    for compo=1:var[vi].total_components
+                        bc_type = prob.bc_type[var[vi].index, node_bid];
+                        if bc_type == NO_BC
+                            # do nothing
+                        elseif bc_type == DIRICHLET
+                            # zero the row
+                            for nj=1:size(elmat,2)
+                                elmat[row_index, nj] = 0;
+                            end
+                            elvec[row_index] = 0;
+                            if !bdry_done[node_id]
+                                # elmat row is identity
+                                elmat[row_index, row_index] = 1;
+                                # elvec row is value
+                                elvec[row_index] = evaluate_at_node(prob.bc_func[var[vi].index, node_bid][compo], node_id, face_id, t, grid);
+                            end
+                            
+                        elseif bc_type == NEUMANN
+                            # zero the row
+                            for nj=1:size(elmat,2)
+                                elmat[row_index, nj] = 0;
+                            end
+                            elvec[row_index] = 0;
+                            if !bdry_done[node_id]
+                                # elmat row is grad dot norm
+                                # TODO
+                                # elvec row is value
+                                elvec[row_index] = evaluate_at_node(prob.bc_func[var[vi].index, node_bid][compo], node_id, face_id, t, grid);
+                            end
+                        elseif bc_type == ROBIN
+                            printerr("Robin BCs not ready.");
+                        else
+                            printerr("Unsupported boundary condition type: "*bc_type);
+                        end
+                        
+                        row_index += nnodes;
+                    end
+                end
+            else
+                row_index = ni;
+                for compo=1:var.total_components
+                    bc_type = prob.bc_type[var.index, node_bid];
+                    if bc_type == NO_BC
+                        # do nothing
+                    elseif bc_type == DIRICHLET
+                        # zero the row
+                        for nj=1:size(elmat,2)
+                            elmat[row_index, nj] = 0;
+                        end
+                        elvec[row_index] = 0;
+                        if !bdry_done[node_id]
+                            # elmat row is identity
+                            elmat[row_index, row_index] = 1;
+                            # elvec row is value
+                            elvec[row_index] = evaluate_at_node(prob.bc_func[var.index, node_bid][compo], node_id, face_id, t, grid);
+                        end
+                    elseif bc_type == NEUMANN
+                        # zero the row
+                        for nj=1:size(elmat,2)
+                            elmat[row_index, nj] = 0;
+                        end
+                        elvec[row_index] = 0;
+                        if !bdry_done[node_id]
+                            # elmat row is grad dot norm
+                            # TODO
+                            # elvec row is value
+                            elvec[row_index] = evaluate_at_node(prob.bc_func[var.index, node_bid][compo], node_id, face_id, t, grid);
+                        end
+                    elseif bc_type == ROBIN
+                        printerr("Robin BCs not ready.");
+                    else
+                        printerr("Unsupported boundary condition type: "*bc_type);
+                    end
+                    
+                    row_index += nnodes;
+                end
+            end
+            
+            # Set the flag to done
+            bdry_done[node_id] = true;
+        end
+    end
+end
+
+# Apply boundary conditions to the system
 function apply_boundary_conditions_rhs_only(var, b, t)
     return apply_boundary_conditions_lhs_rhs(var, nothing, b, t)
 end
@@ -602,6 +702,95 @@ function evaluate_at_nodes(val, nodes, face, t)
             # call the function
             result[i] = val.func(args);
         end
+        
+    end
+    return result;
+end
+
+# This evaluates the BC at one specific node.
+# That could mean:
+# - the value of constant BCs
+# - evaluate a genfunction.func for BCs defined by strings->genfunctions
+# - evaluate a function for BCs defined by callback functions
+function evaluate_at_node(val, node::Int, face::Int, t::Union{Int, Float64}, grid::Grid)
+    if typeof(val) <: Number
+        return val;
+    end
+    
+    dim = size(grid.allnodes,1);
+    result = 0;
+    x = grid.allnodes[1,node];
+    y = dim > 1 ? grid.allnodes[2,node] : 0;
+    z = dim > 2 ? grid.allnodes[3,node] : 0;
+        
+    if typeof(val) == Coefficient && typeof(val.value[1]) == GenFunction
+        result = val.value[1].func(x,y,z,t,node,face);
+        
+    elseif typeof(val) == GenFunction
+        result = val.func(x,y,z,t,node,face);
+        
+    elseif typeof(val) == CallbackFunction
+        #form a dict for the arguments. x,y,z,t are always included
+        arg_list = [];
+        append!(arg_list, [("x", x), ("y", y), ("z", z), ("t", t)]);
+        # Add in the requires list
+        for r in val.args
+            foundit = false;
+            # is it an entity?
+            if typeof(r) == Variable
+                foundit = true;
+                if size(r.values,1) == 1
+                    push!(arg_list, (string(r.symbol), r.values[1,node]));
+                else
+                    push!(arg_list, (string(r.symbol), r.values[:,node]));
+                end
+            elseif typeof(r) == Coefficient
+                # TODO: evaluate coefficient at node
+                foundit = true;
+                push!(arg_list, (string(r.symbol), evaluate_at_node(r, node, face, t, grid)));
+            elseif typeof(r) == String
+                # This could also be a variable, coefficient, or special thing like normal, 
+                if r in ["x","y","z","t"]
+                    foundit = true;
+                    # These are already included
+                elseif r == "normal"
+                    foundit = true;
+                    push!(arg_list, ("normal", grid.facenormals[:,face]));
+                else
+                    for v in variables
+                        if string(v.symbol) == r
+                            foundit = true;
+                            if size(v.values,1) == 1
+                                push!(arg_list, (r, v.values[1,node]));
+                            else
+                                push!(arg_list, (r, v.values[:,node]));
+                            end
+                            break;
+                        end
+                    end
+                    for c in coefficients
+                        if string(c.symbol) == r
+                            foundit = true;
+                            push!(arg_list, (r, evaluate_at_nodes(c, node, face, t)));
+                            break;
+                        end
+                    end
+                end
+            else
+                # What else could it be?
+            end
+
+            if !foundit
+                # Didn't figure this thing out.
+                printerr("Unknown requirement for callback function "*string(fun)*" : "*string(r));
+            end
+        end
+        
+        # Build the dict
+        args = Dict(arg_list);
+        
+        # call the function
+        result = val.func(args);
         
     end
     return result;

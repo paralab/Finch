@@ -122,7 +122,11 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, dimension, solv
         push!(vector_block.parts, make_elemental_computation_fem(rhssurf_terms, var, dofsper, offset_ind, RHS, "surface"));
     end
     
-    # bdry block ? now this is done after assembly loop
+    # bdry block 
+    # apply_boundary_conditions_elemental(var, eid, grid, refel, geo_facs, prob, t, elmat, elvec)
+    push!(bdry_block.parts, IR_operation_node(IRtypes.function_op, [
+        IR_operation_node(IRtypes.member_op, [:CGSolver, :apply_boundary_conditions_elemental]), 
+        :var, :eid, :mesh, :refel, :geometric_factors, :prob, :t, :element_matrix, :element_vector, :bdry_done]));
     
     # add to global sysem
     push!(toglobal_block.parts, generate_local_to_global_fem(dofsper, offset_ind));

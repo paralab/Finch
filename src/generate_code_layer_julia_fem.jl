@@ -44,6 +44,7 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     variables = args[7];
     test_functions = args[8];
     indexers = args[9];
+    prob = args[10];
     
     Q = refel.Q;
     wg = refel.wg;
@@ -73,6 +74,9 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     element_matrix = zeros(Float64, dofs_per_element, dofs_per_element);
     element_vector = zeros(Float64, dofs_per_element);
     
+    # bdry done flag for each node
+    bdry_done = fill(false, nnodes_global);
+    
     end
     @timeit timer_output \"loop\" begin
     "
@@ -89,7 +93,7 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     # build sparse matrix
     global_matrix = sparse(global_matrix_I, global_matrix_J, global_matrix_V);
     
-    (global_matrix, global_vector) = CGSolver.apply_boundary_conditions_lhs_rhs(var, global_matrix, global_vector, t);
+    # (global_matrix, global_vector) = CGSolver.apply_boundary_conditions_lhs_rhs(var, global_matrix, global_vector, t);
     
     end
     @timeit timer_output \"lin-solve\" begin

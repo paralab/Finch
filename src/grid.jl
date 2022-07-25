@@ -4,22 +4,26 @@
 =#
 
 struct Grid
+    # nodes
     allnodes::Array{Float64}        # All node coordinates size = (dim, nnodes)
+    
     # boundaries
     bdry::Array{Array{Int,1},1}     # Indices of boundary nodes for each BID (bdry[bid][nodes])*note:array of arrays
     bdryface::Array{Array{Int,1},1} # Indices of faces touching each BID (bdryface[bid][faces])*note:array of arrays
     bdrynorm::Array{Array{Float64,2},1} # Normal vector for boundary nodes for each BID (bdrynorm[bid][dim, nodes])*note:array of arrays
     bids::Array{Int,1}              # BID corresponding to rows of bdrynodes
+    nodebid::Array{Int,1}           # BID for every node in allnodes order(interior=0)
+    
     # elements
     loc2glb::Array{Int,2}           # local to global map for each element's nodes (size is (Np, nel))
     glbvertex::Array{Int,2}         # global indices of each elements' vertices (size is (Nvertex, nel))
+    
     # faces (For CG, G=1. For DG, G=2)
     face2glb::Array{Int,3}          # local to global map for faces (size is (Nfp, G, Nfaces))
     element2face::Array{Int,2}      # face indices for each element (size is (Nfaces, nel))
     face2element::Array{Int,2}      # elements on both sides of a face, 0=boundary (size is (2, Nfaces))
     facenormals::Array{Float64,2}   # normal vector for each face
     faceRefelInd::Array{Int,2}      # Index for face within the refel for each side
-    
     facebid::Array{Int,1}           # BID of each face (0=interior face)
     
     # When partitioning the grid, this stores the ghost info.
@@ -44,18 +48,18 @@ struct Grid
     ghost_index::Vector{Array{Int}}   # Lists of ghost elements to send/recv for each neighbor (for FV)
     
     # constructors
-    Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
+    Grid(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid) = 
-     new(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
+     new(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
          false, size(loc2glb,2), size(loc2glb,2), 0,size(face2element,2), 0, 0, 0, zeros(Int,0), zeros(Int,0), 
          zeros(Int,0), zeros(Int,0), zeros(Int8,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]); # up to facebid only
      
-    Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
+    Grid(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
          ispartitioned, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
          node_owner, grid2mesh, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
-     new(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
+     new(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
          ispartitioned, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
          node_owner, grid2mesh, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
@@ -163,6 +167,9 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
     else
         allnodes = tmpallnodes; # DG grid is already made
     end
+    
+    # bid for every node start with 0 for interior
+    node_bids = zeros(Int, size(allnodes,2));
     
     # vertices, faces and boundary
     t_faces1 = Base.Libc.time();
@@ -286,6 +293,8 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
                 newbdry[bidi][nextbdryind] = bdry[bidi][bi];
                 newbdrynorm[bidi][:,nextbdryind] = bdrynorm[bidi][:,bi];
                 nextbdryind += 1;
+                
+                node_bids[bdry[bidi][bi]] = bids[bidi];
             end
         end
         newbdry[bidi] = newbdry[bidi][1:nextbdryind-1];
@@ -308,7 +317,7 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
     t_grid_from_mesh = Base.Libc.time() - t_grid_from_mesh;
     log_entry("Total grid building time: "*string(t_grid_from_mesh), 2);
     
-    return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, face2element, facenormals, faceRefelInd, facebid));
+    return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, face2element, facenormals, faceRefelInd, facebid));
 end
 
 #######################################################################################################
@@ -608,6 +617,9 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         allnodes = tmpallnodes; # DG grid is already made
     end
     
+    # bid for every node start with 0 for interior
+    node_bids = zeros(Int, size(allnodes,2));
+    
     # vertices, faces and boundary
     # first make a map from mesh faces to grid faces
     next_e_index = 1;
@@ -744,6 +756,8 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
                 newbdry[bidi][nextbdryind] = bdry[bidi][bi];
                 newbdrynorm[bidi][:,nextbdryind] = bdrynorm[bidi][:,bi];
                 nextbdryind += 1;
+                
+                node_bids[bdry[bidi][bi]] = bids[bidi];
             end
         end
         newbdry[bidi] = newbdry[bidi][1:nextbdryind-1];
@@ -1174,12 +1188,12 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     log_entry("Partitioned grid building time: "*string(t_grid_from_mesh), 2);
     
     if grid_type == FV
-        return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
+        return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
             true, nel_global, nel_owned, nel_face_ghost, owned_faces, ghost_faces, nnodes_global, 0, element_owners, zeros(Int,0), grid2mesh, zeros(Int,0), 
             zeros(Int8, 0), num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
     else
-        return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, loc2glb, glbvertex, f2glb, element2face, 
+        return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
             true, nel_global, nel_owned, 0, owned_faces, 0, nnodes_global, nnodes_borrowed, zeros(Int,0), node_owner_index, grid2mesh, partition2global, 
             global_bdry_flag, num_neighbors, neighbor_ids, zeros(Int,0), [zeros(Int,0)]));
@@ -1981,6 +1995,11 @@ function add_boundary_ID_to_grid(bid, on_bdry, grid)
         end
     end
     
+    # update nodebid
+    for i=1:length(grid.bdry[ind])
+        grid.nodebid[grid.bdry[ind][i]] = bid;
+    end
+    
     log_entry("Added boundary ID: "*string(bid)*" including "*string(node_count)*" nodes, "*string(face_count)*" faces.");
     
 end
@@ -1998,6 +2017,7 @@ function reorder_grid_nodes!(grid, new_map)
     # - face2glb
     # These are temporary copies
     copy_nodes = copy(grid.allnodes);
+    copy_nodebid = copy(grid.nodebid);
     copy_bdry = copy(grid.bdry);
     copy_loc2glb = copy(grid.loc2glb);
     copy_glbvertex = copy(grid.glbvertex);
@@ -2010,6 +2030,7 @@ function reorder_grid_nodes!(grid, new_map)
     # allnodes
     for ni=1:N
         grid.allnodes[:,new_map[ni]] = copy_nodes[:,ni];
+        grid.nodebid[new_map[ni]] = copy_nodebid[ni];
     end
     
     # bdry
