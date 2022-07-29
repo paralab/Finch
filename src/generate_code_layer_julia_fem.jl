@@ -93,15 +93,12 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     # build sparse matrix
     global_matrix = sparse(global_matrix_I, global_matrix_J, global_matrix_V);
     
-    # (global_matrix, global_vector) = CGSolver.apply_boundary_conditions_lhs_rhs(var, global_matrix, global_vector, t);
-    
     end
     @timeit timer_output \"lin-solve\" begin
     
     # Solve the global system
     solution = global_matrix \\ global_vector;
     # distribute the solution to variables
-    # var[1].values .= solution; # only one dof
     CGSolver.place_sol_in_vars(var, solution);
     end
     
@@ -273,6 +270,11 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
     elseif op === :ROWCOL_TO_INDEX
         # code = string(IR.args[2]) * " + (" * string(IR.args[3]) * "-1)*" * string(IR.args[4]);
         code = string(IR.args[2]) * ", " * string(IR.args[3]);
+    elseif op === :TIMER
+        # A timer has two more args, the label and the content
+        code = "@timeit timer_output \""*string(IR.args[2])*"\" begin\n";
+        code *= generate_from_IR_julia(IR.args[3], IRtypes);
+        code *= "\nend\n";
     elseif op === :LINALG_MATRIX_BLOCK
         n_blocks = IR.args[2];
         blocksize = IR.args[3];

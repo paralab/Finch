@@ -78,6 +78,13 @@ function apply_indexed_access(IR, index, IRtypes::Union{IR_entry_types, Nothing}
     end
 end
 
+# Wraps some IR in a timeroutputs timer with a given label
+# It is up to the caller to keep labels unique
+function wrap_in_timer(label::Symbol, content::IR_part)
+    IRtypes = IR_entry_types();
+    return IR_operation_node(IRtypes.named_op, [:TIMER, label, content]);
+end
+
 function extract_entities(symex::Array, multivar::Bool)
     # symex is an array of arrays of SymExpressions which are Expr trees with SymEntities as leaves. (array for variable components, terms)
     # In the case of muliple variables, it's an array of arrays of arrays. (variables, components, terms)

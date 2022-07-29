@@ -140,9 +140,9 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, dimension, solv
     assembly_loop.body = IR_block_node([
         prepare_block,
         derivmat_block,
-        matrix_block,
-        vector_block,
-        bdry_block,
+        wrap_in_timer(:el_matrix, matrix_block),
+        wrap_in_timer(:el_vector, vector_block),
+        wrap_in_timer(:bdry_cond, bdry_block),
         toglobal_block
     ])
     
