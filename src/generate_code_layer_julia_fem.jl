@@ -30,7 +30,7 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     end
     
     # Static piece
-    # args = (var, grid_data, refel, geometric_factors, config, coefficients, test_functions, indexers);
+    # args = (var, grid_data, refel, geometric_factors, config, coefficients, variables, test_functions, indexers, prob);
     code *="
     @timeit timer_output \"prepare\" begin
     
@@ -248,6 +248,8 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
             code *= indent * "else\n" * generate_from_IR_julia(IR.body, IRtypes, indent);
         end
         code *= indent * "end\n";
+    elseif node_type == IR_comment_node
+        code = indent * "#= " * IR.string * " =#\n";
     elseif node_type <: IR_part
         code = IR_string(IR);
         
@@ -297,6 +299,7 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         
         # content = generate_from_IR_julia(IR.args[6], IRtypes);
         code = "
+        @inbounds begin
         for row=1:nodes_per_element
             for col=1:nodes_per_element
 $init_lines
@@ -304,6 +307,7 @@ $init_lines
 $compute_lines
                 end
             end
+        end
         end";
     
     elseif op === :LINALG_VECTOR_BLOCK
@@ -326,11 +330,13 @@ $compute_lines
         
         # content = generate_from_IR_julia(IR.args[5], IRtypes);
         code = "
+        @inbounds begin
         for row=1:nodes_per_element
 $init_lines
             for col=1:qnodes_per_element
 $compute_lines
             end
+        end
         end";
     
     elseif op === :LINALG_TDM

@@ -13,6 +13,7 @@ There are different types of nodes:
 - block - a list of IR_parts grouped together
 - loop - a loop containing a block
 - conditional - a conditional containing a block and optional else block
+- comment - a string that is simply a comment
 =#
 
 module IntermediateRepresentation
@@ -21,7 +22,7 @@ module IntermediateRepresentation
 using AbstractTrees
 
 export IR_entry_types, IR_string, print_tree, testIR
-export IR_part, IR_data_node, IR_data_access, IR_operation_node, IR_block_node, IR_loop_node, IR_conditional_node
+export IR_part, IR_data_node, IR_data_access, IR_operation_node, IR_block_node, IR_loop_node, IR_conditional_node, IR_comment_node
 export build_IR_fem
 
 # See finch_import_symbols.jl for a list of all imported symbols.
@@ -244,6 +245,13 @@ end
 AbstractTrees.children(a::IR_conditional_node) = (a.condition, a.body, a.elsepart);
 AbstractTrees.printnode(io::IO, a::IR_conditional_node) = a.elsepart===nothing ? print(io, "if") : print(io, "if/else");
 
+# This is just a comment string
+struct IR_comment_node <: IR_part
+    string::String # the comment
+end
+AbstractTrees.children(a::IR_comment_node) = ();
+AbstractTrees.printnode(io::IO, a::IR_comment_node) = print(io, "(comment)"*a.string);
+
 function get_accesses(part, is_write=false)
     access::Vector{IR_data_access} = [];
     IRtypes = IR_entry_types();
@@ -390,6 +398,9 @@ function IR_string(a::IR_data_access)
     result *= string(a.data)*")";
     return result;
 end
+function IR_string(a::IR_comment_node)
+    return a.string;
+end
 
 # Prints the IR_part as a tree
 function print_IR_tree(a::IR_part)
@@ -401,224 +412,5 @@ include("IR_utils.jl");
 include("IR_build_FEM.jl");
 
 #############################################################################################################
-# stuff to be removed
-
-struct tmpsym
-    name::String
-    index::Int
-end
-
-function testIR()
-    IRtypes = IR_entry_types();
-    
-    xalloc = IR_statement_node(IRtypes.allocate_statement, :x, IR_allocate_node(IRtypes.float_64_data, [100]));
-    
-    xdata = IR_data_node(IRtypes.array_data, :x, [:eid]);
-    adata = IR_data_node(IRtypes.array_data, :a, [:eid]);
-    bdata = IR_data_node(IRtypes.scalar_data, :b);
-    
-    pluseval = IR_eval_node(IRtypes.math_eval, :add, [adata,bdata]);
-    assign = IR_statement_node(IRtypes.assign_statement, xdata, pluseval);
-    assign2 = IR_statement_node(IRtypes.assign_statement, xdata, 1);
-    equal = IR_eval_node(IRtypes.func_eval, :(==), [xdata, 0]);
-    
-    cond = IR_conditional_node(equal, [assign2], nothing);
-    
-    eloop = IR_loop_node(IRtypes.space_loop, :elements, :eid, 1, 100, [assign, cond]);
-    #########################################################
-    xidata = IR_data_node(IRtypes.array_data, :x, [:i]);
-    
-    pluseval2 = IR_eval_node(IRtypes.math_eval, :add, [xidata, 2]);
-    assign2 = IR_statement_node(IRtypes.assign_statement, xidata, pluseval2);
-    
-    iloop = IR_loop_node(IRtypes.index_loop, :i, :i, 1, 100, [assign2]);
-    #########################################################
-    tloop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, 75, [eloop, iloop]);
-    
-    display(xalloc);
-    display(tloop);
-    
-    # display(eloop.deps);
-    println("Dependencies:");
-    display(tloop.deps);
-    
-    ###############################
-    # For testing
-    
-    dimension = 2;
-    needed_derivative_matrices = [true, true, false, false];
-    geo_factors_index = :row;
-    derivative_matrix_loop_body = Vector{IR_part}(undef,0);
-    
-    row_col_matrix_index = IR_eval_node(IRtypes.special_eval, :ROWCOL_TO_INDEX, [:row, :col, :nnodes]);
-    push!(derivative_matrix_loop_body, IR_statement_node(IRtypes.assign_statement, :idx, row_col_matrix_index));
-    gf_rx = IR_data_node(IRtypes.array_data, :geo_factors_rx, [:eid, geo_factors_index]);
-    gf_ry = IR_data_node(IRtypes.array_data, :geo_factors_ry, [:eid, geo_factors_index]);
-    gf_rz = IR_data_node(IRtypes.array_data, :geo_factors_rz, [:eid, geo_factors_index]);
-    gf_sx = IR_data_node(IRtypes.array_data, :geo_factors_sx, [:eid, geo_factors_index]);
-    gf_sy = IR_data_node(IRtypes.array_data, :geo_factors_sy, [:eid, geo_factors_index]);
-    gf_sz = IR_data_node(IRtypes.array_data, :geo_factors_sz, [:eid, geo_factors_index]);
-    gf_tx = IR_data_node(IRtypes.array_data, :geo_factors_tx, [:eid, geo_factors_index]);
-    gf_ty = IR_data_node(IRtypes.array_data, :geo_factors_ty, [:eid, geo_factors_index]);
-    gf_tz = IR_data_node(IRtypes.array_data, :geo_factors_tz, [:eid, geo_factors_index]);
-    Qr = IR_data_node(IRtypes.array_data, :refel_Qr, [:idx]);
-    Qs = IR_data_node(IRtypes.array_data, :refel_Qs, [:idx]);
-    Qt = IR_data_node(IRtypes.array_data, :refel_Qt, [:idx]);
-    for i=1:3
-        if needed_derivative_matrices[i]
-            if i==1
-                gf_r = gf_rx;
-                gf_s = gf_sx;
-                gf_t = gf_tx;
-            elseif i==2
-                gf_r = gf_ry;
-                gf_s = gf_sy;
-                gf_t = gf_ty;
-            else
-                gf_r = gf_rz;
-                gf_s = gf_sz;
-                gf_t = gf_tz;
-            end
-            RQn = IR_data_node(IRtypes.array_data, Symbol("RQ"*string(i)), [:idx]);
-            
-            tmpexprargs = [IR_eval_node(IRtypes.math_eval, :(*), [gf_r, Qr])];
-            if dimension > 1 push!(tmpexprargs, IR_eval_node(IRtypes.math_eval, :(*), [gf_s, Qs])) end
-            if dimension > 2 push!(tmpexprargs, IR_eval_node(IRtypes.math_eval, :(*), [gf_t, Qt])) end
-            
-            tmpexpr = IR_eval_node(IRtypes.math_eval, :(+), tmpexprargs);
-            
-            tmpst = IR_statement_node(IRtypes.assign_statement, RQn, tmpexpr);
-            push!(derivative_matrix_loop_body, tmpst);
-        end
-    end
-    loop_col_nodes = IR_loop_node(IRtypes.space_loop, :local_nodes, :col, 0, 0, derivative_matrix_loop_body);
-    loop_row_qnodes = IR_loop_node(IRtypes.space_loop, :quad_nodes, :row, 0, 0, [loop_col_nodes])
-    
-    display(loop_row_qnodes)
-    
-    ##################################
-    
-    derivative_matrix_building = Vector{IR_part}(undef,0);
-    for dim=1:3
-        if needed_derivative_matrices[dim]
-            push!(derivative_matrix_building, 
-                  IR_statement_node(IRtypes.call_statement, nothing, IR_eval_node(IRtypes.func_eval, :build_derivative_matrix, [dim, 1, Symbol("RQ"*string(dim))])));
-        end
-    end
-    
-    display(derivative_matrix_building)
-    
-    #######################################
-    
-    row_col_matrix_index = IR_eval_node(IRtypes.special_eval, :ROWCOL_TO_INDEX, [:row, :col, :nnodes]);
-    array_zero_loop = IR_loop_node(IRtypes.space_loop, :nodes, :row, 0, 0, [
-            IR_loop_node(IRtypes.space_loop, :nodes, :row, 0, 0, [
-                IR_statement_node(IRtypes.assign_statement, 
-                    IR_data_node(IRtypes.array_data, :elemental_matrix, [row_col_matrix_index]),
-                    0.0)
-            ]),
-            IR_statement_node(IRtypes.assign_statement, 
-                IR_data_node(IRtypes.array_data, :elemental_vector, [:row]),
-                0.0)
-        ]);
-    
-    display(array_zero_loop)
-    
-    ############################################
-    
-    # allocate coefficient vectors
-    allocate_part = Vector{IR_part}(undef,0);
-    needed_coefficient_vectors = [tmpsym("f", 1)];
-    for c in needed_coefficient_vectors
-        nodal_coef_name = "NODALvalue_" * c.name * "_" * string(c.index);
-        quad_coef_name = "value_" * c.name * "_" * string(c.index);
-        
-        push!(allocate_part, IR_statement_node(IRtypes.allocate_statement,
-            IR_data_node(IRtypes.array_data, Symbol(nodal_coef_name)),
-            IR_allocate_node(IRtypes.float_64_data, [:nodes_per_element])));
-        push!(allocate_part, IR_statement_node(IRtypes.allocate_statement,
-            IR_data_node(IRtypes.array_data, Symbol(quad_coef_name)),
-            IR_allocate_node(IRtypes.float_64_data, [:quadnodes_per_element])));
-    end
-    
-    # Compute all coefficients
-    # First get x,y,z,t,nodeID
-    coef_loop_body = [
-        # nodeID = mesh_loc2glb[eid, ni]
-        IR_statement_node(IRtypes.assign_statement, :nodeID, 
-            IR_data_node(IRtypes.array_data, :mesh_loc2glb, [:eid, :ni])),
-        # t = 0.0
-        IR_statement_node(IRtypes.assign_statement, :t, 0.0),
-        # x = mesh_allnodes[nodeID*dimension]
-        IR_statement_node(IRtypes.assign_statement, :x, 
-            IR_data_node(IRtypes.array_data, :mesh_allnodes, [
-                IR_eval_node(IRtypes.math_eval, :(*), [:nodeID, :dimension])
-            ]))
-    ];
-    if dimension > 1
-        # y = mesh_allnodes[nodeID*dimension+1]
-        push!(coef_loop_body, IR_statement_node(IRtypes.assign_statement, :y, 
-            IR_data_node(IRtypes.array_data, :mesh_allnodes, [
-                IR_eval_node(IRtypes.math_eval, :(+), [IR_eval_node(IRtypes.math_eval, :(*), [:nodeID, :dimension]), 1])
-            ])))
-    end
-    if dimension > 2
-        # z = mesh_allnodes[nodeID*dimension+2]
-        push!(coef_loop_body, IR_statement_node(IRtypes.assign_statement, :z, 
-            IR_data_node(IRtypes.array_data, :mesh_allnodes, [
-                IR_eval_node(IRtypes.math_eval, :(+), [IR_eval_node(IRtypes.math_eval, :(*), [:nodeID, :dimension]), 2])
-            ])))
-    end
-    
-    # Evaluate coefficient functions
-    for c in needed_coefficient_vectors
-        nodal_coef_name = "NODALvalue_" * c.name * "_" * string(c.index);
-        genfunction_index = 2; # Need to determine this...
-        push!(coef_loop_body, IR_statement_node(IRtypes.assign_statement,
-            IR_data_node(IRtypes.array_data, Symbol(nodal_coef_name), [:ni]),
-            IR_eval_node(IRtypes.special_eval, :GENFUNCTION, [genfunction_index, :x, :y, :z, :t, :nodeID])));
-    end
-    
-    # Build the coef eval loop
-    coef_eval_loop = IR_loop_node(IRtypes.space_loop, :nodes, :ni, 0, 0, coef_loop_body);
-    
-    # Interpolate, change to modal, apply derivatives if needed
-    coef_init_loop_body = [];
-    coef_interp_loop_body = [];
-    row_col_matrix_index = IR_eval_node(IRtypes.special_eval, :ROWCOL_TO_INDEX, [:row, :col, :nnodes]);
-    for c in needed_coefficient_vectors
-        quad_coef_name = "value_" * c.name * "_" * string(c.index);
-        quad_coef_node = IR_data_node(IRtypes.array_data, Symbol(quad_coef_name), [:row]);
-        nodal_coef_name = "NODALvalue_" * c.name * "_" * string(c.index);
-        nodal_coef_node = IR_data_node(IRtypes.array_data, Symbol(nodal_coef_name), [:col]);
-        refelQ = IR_data_node(IRtypes.array_data, :refel_Q, [row_col_matrix_index]);
-        push!(coef_init_loop_body, IR_statement_node(IRtypes.assign_statement, quad_coef_node, 0.0));
-        push!(coef_interp_loop_body, IR_statement_node(IRtypes.assign_statement,
-            quad_coef_node,
-            IR_eval_node(IRtypes.math_eval, :(+), [quad_coef_node, IR_eval_node(IRtypes.math_eval, :(*), [refelQ, nodal_coef_node])])));
-    end
-    
-    push!(coef_init_loop_body, IR_loop_node(IRtypes.space_loop, :nodes, :row, 0, 0, coef_interp_loop_body))
-    
-    coef_interp_loop = IR_loop_node(IRtypes.space_loop, :qnodes, :row, 0, 0, coef_init_loop_body);
-    
-    display(coef_eval_loop)
-    display(coef_interp_loop);
-    
-    everythingvec::Vector{IR_part} = [tloop, loop_row_qnodes, array_zero_loop, coef_eval_loop, coef_interp_loop];
-    println(typeof(everythingvec))
-    everything = IR_block_node(everythingvec);
-    print_tree(everything, maxdepth=20)
-    
-    # pyplot()
-    # plot(TreePlot(coef_eval_loop), method=:tree, fontsize=10, nodeshape=:rect)
-    
-    
-end
 
 end # module
-
-
-# using .IntermediateRepresentation
-
-# testIR()

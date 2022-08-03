@@ -238,76 +238,54 @@ end
 # builds one derivative matrix in place
 function build_derivative_matrix(refel::Refel, geofacs, direction::Int, eid::Int, type::Int, mat::Array{Float64, 2})
     @timeit timer_output "deriv-mat" begin
-    J = geofacs.J[eid];
     N = size(mat,2);
+    M = size(mat,1);
+    J = geofacs.J[eid];
     if type == 0
-        if refel.dim == 1
-            # Multiply rows of Qr and Ddr by J.rx
-            for i=1:N # loop over columns
-                mat[:,i] = J.rx .* refel.Qr[:,i];
-            end
-            
-        elseif refel.dim == 2
-            if direction == 1
-                for i=1:N
-                    mat[:,i] = J.rx .* refel.Qr[:,i] + J.sx .* refel.Qs[:,i];
-                end
-            else
-                for i=1:N
-                    mat[:,i] = J.ry .* refel.Qr[:,i] + J.sy .* refel.Qs[:,i];
-                end
-            end
-            
-        elseif refel.dim == 3
-            if direction == 1
-                for i=1:N
-                    mat[:,i] = J.rx .* refel.Qr[:,i] + J.sx .* refel.Qs[:,i] + J.tx .* refel.Qt[:,i];
-                end
-            elseif direction == 2
-                for i=1:N
-                    mat[:,i] = J.ry .* refel.Qr[:,i] + J.sy .* refel.Qs[:,i] + J.ty .* refel.Qt[:,i];
-                end
-            else
-                for i=1:N
-                    mat[:,i] = J.rz .* refel.Qr[:,i] + J.sz .* refel.Qs[:,i] + J.tz .* refel.Qt[:,i];
-                end
-            end
-        end
+        refel_dr = refel.Qr;
+        refel_ds = refel.Qs;
+        refel_dt = refel.Qt;
     else
-        if refel.dim == 1
-            # Multiply rows of Qr and Ddr by J.rx
+        refel_dr = refel.Ddr;
+        refel_ds = refel.Dds;
+        refel_dt = refel.Ddt;
+    end
+    @inbounds begin
+    if refel.dim == 1
+        # Multiply rows of dr by J.rx
+        for i=1:N # loop over columns
+            mat[1:M,i] .= J.rx .* refel_dr[1:M,i];
+        end
+        
+    elseif refel.dim == 2
+        if direction == 1
             for i=1:N # loop over columns
-                mat[:,i] = J.rx .* refel.Ddr[:,i];
+                mat[1:M,i] .= J.rx .* refel_dr[1:M,i] .+ J.sx .* refel_ds[1:M,i];
             end
-            
-        elseif refel.dim == 2
-            if direction == 1
-                for i=1:N
-                    mat[:,i] = J.rx .* refel.Ddr[:,i] + J.sx .* refel.Dds[:,i];
-                end
-            else
-                for i=1:N
-                    mat[:,i] = J.ry .* refel.Ddr[:,i] + J.sy .* refel.Dds[:,i];
-                end
+        else
+            for i=1:N # loop over columns
+                mat[1:M,i] .= J.ry .* refel_dr[1:M,i] .+ J.sy .* refel_ds[1:M,i];
             end
-            
-        elseif refel.dim == 3
-            if direction == 1
-                for i=1:N
-                    mat[:,i] = J.rx .* refel.Ddr[:,i] + J.sx .* refel.Dds[:,i] + J.tx .* refel.Ddt[:,i];
-                end
-            elseif direction == 2
-                for i=1:N
-                    mat[:,i] = J.ry .* refel.Ddr[:,i] + J.sy .* refel.Dds[:,i] + J.ty .* refel.Ddt[:,i];
-                end
-            else
-                for i=1:N
-                    mat[:,i] = J.rz .* refel.Ddr[:,i] + J.sz .* refel.Dds[:,i] + J.tz .* refel.Ddt[:,i];
-                end
+        end
+        
+    elseif refel.dim == 3
+        if direction == 1
+            for i=1:N # loop over columns
+                mat[1:M,i] .= J.rx .* refel_dr[1:M,i] .+ J.sx .* refel_ds[1:M,i] .+ J.tx .* refel_dt[1:M,i];
+            end
+        elseif direction == 2
+            for i=1:N # loop over columns
+                mat[1:M,i] .= J.ry .* refel_dr[1:M,i] .+ J.sy .* refel_ds[1:M,i] .+ J.ty .* refel_dt[1:M,i];
+            end
+        else
+            for i=1:N # loop over columns
+                mat[1:M,i] .= J.rz .* refel_dr[1:M,i] .+ J.sz .* refel_ds[1:M,i] .+ J.tz .* refel_dt[1:M,i];
             end
         end
     end
-    end
+    
+    end # inbounds
+    end # timer
 end
 
 function build_deriv_matrix(refel, J)

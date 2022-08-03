@@ -230,7 +230,7 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
     if timederiv
         dtlhs = copy(lhs);
         dtrhs = copy(rhs);
-        if varcount > 1
+        if typeof(var) <: Array
             for i=1:length(symex)
                 sz = size(symex[i]);
                 (dtlhs[i],lhs[i]) = split_dt(lhs[i],sz);
@@ -247,7 +247,7 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
     if has_surface
         surflhs = copy(lhs);
         surfrhs = copy(rhs);
-        if varcount > 1
+        if typeof(var) <: Array
             for i=1:length(symex)
                 sz = size(symex[i]);
                 (surflhs[i],lhs[i]) = split_surf(lhs[i],sz);
