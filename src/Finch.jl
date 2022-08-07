@@ -490,7 +490,7 @@ function add_test_function(v, type)
     end
     symvar = sym_var(string(v), type, components);
 
-    push!(test_functions, Finch.Coefficient(v, symvar, varind, type, NODAL, [], false););
+    push!(test_functions, Finch.Coefficient(v, symvar, varind, type, NODAL, [], false, false););
     log_entry("Set test function symbol: "*string(v)*" of type: "*type, 2);
 end
 
@@ -569,7 +569,7 @@ function add_variable(var)
 end
 
 # Adds a coefficient with either constant value or some generated function of (x,y,z,t)
-function add_coefficient(c, type, location, val, nfuns, element_array=false)
+function add_coefficient(c, type, location, val, nfuns, element_array=false, time_dependent=false)
     global coefficients;
     # The values of c will have the same array structure as val
     if typeof(val) <: Array
@@ -616,7 +616,7 @@ function add_coefficient(c, type, location, val, nfuns, element_array=false)
     symvar = sym_var(string(c), type, components);
 
     index = length(coefficients) + 1;
-    push!(coefficients, Coefficient(c, symvar, index, type, location, vals, element_array));
+    push!(coefficients, Coefficient(c, symvar, index, type, location, vals, element_array, time_dependent));
     
     if element_array
         log_entry("Added coefficient "*string(c)*" : (array of elemental values)", 2);
@@ -736,9 +736,9 @@ function eval_initial_conditions()
                         if typeof(prob.initial[vind][ci]) <: Number
                             nodal_values[ci,ni] = prob.initial[vind][ci];
                         elseif dim == 1
-                            nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[ni],0,0,0);
+                            nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[ni],0.0,0.0,0);
                         elseif dim == 2
-                            nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],0,0);
+                            nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],0.0,0);
                         elseif dim == 3
                             nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],this_grid_data.allnodes[3,ni],0);
                         end

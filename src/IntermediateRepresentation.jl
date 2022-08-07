@@ -68,6 +68,7 @@ struct IR_entry_types
     int_64_data::Int8    # = 26
     float_32_data::Int8  # = 27
     float_64_data::Int8  # = 28
+    boolean_data::Int8   # = 29
     
     # access types
     read_access::Int8  # = 31 
@@ -95,11 +96,12 @@ struct IR_entry_types
             26=>"Int64",
             27=>"Float32",
             28=>"Float64",
+            29=>"Bool",
             
             31=>"read",
             32=>"write"
         ),
-        1,2,3,4, 11,12,13,14,15,16, 21,22,23,24,25,26,27,28, 31,32
+        1,2,3,4, 11,12,13,14,15,16, 21,22,23,24,25,26,27,28,29, 31,32
         );
 end
 

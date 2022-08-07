@@ -99,6 +99,82 @@ function apply_boundary_conditions_elemental(var::Union{Variable, Vector{Variabl
     end
 end
 
+# Apply boundary conditions to one element
+function apply_boundary_conditions_elemental_rhs(var::Union{Variable, Vector{Variable}}, eid::Int, grid::Grid, refel::Refel,
+                                            geo_facs::GeometricFactors, prob::Finch_prob, t::Union{Int,Float64},
+                                            elvec::Vector{Float64}, bdry_done::Vector{Bool})
+    # Check each node to see if the bid is > 0 (on boundary)
+    nnodes = refel.Np;
+    for ni=1:nnodes
+        node_id = grid.loc2glb[ni,eid];
+        node_bid = grid.nodebid[node_id];
+        face_id = -1; # This may need to be figured out, but it is not clear which face for vertices
+        if node_bid > 0
+            # This is a boundary node in node_bid
+            # Handle the BC for each variable
+            if typeof(var) <: Array;
+                row_index = ni;
+                for vi=1:length(var)
+                    for compo=1:var[vi].total_components
+                        bc_type = prob.bc_type[var[vi].index, node_bid];
+                        if bc_type == NO_BC
+                            # do nothing
+                        elseif bc_type == DIRICHLET
+                            elvec[row_index] = 0;
+                            if !bdry_done[node_id]
+                                # elvec row is value
+                                elvec[row_index] = evaluate_at_node(prob.bc_func[var[vi].index, node_bid][compo], node_id, face_id, t, grid);
+                            end
+                            
+                        elseif bc_type == NEUMANN
+                            elvec[row_index] = 0;
+                            if !bdry_done[node_id]
+                                # elvec row is value
+                                elvec[row_index] = evaluate_at_node(prob.bc_func[var[vi].index, node_bid][compo], node_id, face_id, t, grid);
+                            end
+                        elseif bc_type == ROBIN
+                            printerr("Robin BCs not ready.");
+                        else
+                            printerr("Unsupported boundary condition type: "*bc_type);
+                        end
+                        
+                        row_index += nnodes;
+                    end
+                end
+            else
+                row_index = ni;
+                for compo=1:var.total_components
+                    bc_type = prob.bc_type[var.index, node_bid];
+                    if bc_type == NO_BC
+                        # do nothing
+                    elseif bc_type == DIRICHLET
+                        elvec[row_index] = 0;
+                        if !bdry_done[node_id]
+                            # elvec row is value
+                            elvec[row_index] = evaluate_at_node(prob.bc_func[var.index, node_bid][compo], node_id, face_id, t, grid);
+                        end
+                    elseif bc_type == NEUMANN
+                        elvec[row_index] = 0;
+                        if !bdry_done[node_id]
+                            # elvec row is value
+                            elvec[row_index] = evaluate_at_node(prob.bc_func[var.index, node_bid][compo], node_id, face_id, t, grid);
+                        end
+                    elseif bc_type == ROBIN
+                        printerr("Robin BCs not ready.");
+                    else
+                        printerr("Unsupported boundary condition type: "*bc_type);
+                    end
+                    
+                    row_index += nnodes;
+                end
+            end
+            
+            # Set the flag to done
+            bdry_done[node_id] = true;
+        end
+    end
+end
+
 # Apply boundary conditions to the system
 function apply_boundary_conditions_rhs_only(var, b, t)
     return apply_boundary_conditions_lhs_rhs(var, nothing, b, t)

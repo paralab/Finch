@@ -31,6 +31,83 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     
     # Static piece
     # args = (var, grid_data, refel, geometric_factors, config, coefficients, variables, test_functions, indexers, prob);
+    # code *="
+    # @timeit timer_output \"prepare\" begin
+    
+    # # extract input args
+    # var = args[1];
+    # mesh = args[2];
+    # refel = args[3];
+    # geometric_factors = args[4];
+    # config = args[5];
+    # coefficients = args[6];
+    # variables = args[7];
+    # test_functions = args[8];
+    # indexers = args[9];
+    # prob = args[10];
+    
+    # Q = refel.Q;
+    # wg = refel.wg;
+    
+    # # Prepare some useful numbers
+    # dofs_per_node = "*string(dofs_per_node)*";
+    # dofs_per_loop = "*string(dofs_per_loop)*";
+    # dof_offsets = "*string(offset_ind)*";
+    # nnodes_partition = size(mesh.allnodes,2);
+    # nnodes_global = nnodes_partition;
+    # dofs_global = dofs_per_node * nnodes_global;
+    # dofs_partition = dofs_per_node * nnodes_partition;
+    # nodes_per_element = refel.Np;
+    # qnodes_per_element = refel.Nqp;
+    # dofs_per_element = dofs_per_node * nodes_per_element;
+    # num_elements = mesh.nel_owned;
+    
+    # # Allocate global system
+    # allocated_nonzeros = num_elements * (dofs_per_element * dofs_per_element);
+    # global_matrix_I = ones(Int, allocated_nonzeros);
+    # global_matrix_J = ones(Int, allocated_nonzeros);
+    # global_matrix_V = zeros(Float64, allocated_nonzeros);
+    
+    # global_vector = zeros(Float64, dofs_global);
+    
+    # # Allocate elemental parts
+    # element_matrix = zeros(Float64, dofs_per_element, dofs_per_element);
+    # element_vector = zeros(Float64, dofs_per_element);
+    
+    # # bdry done flag for each node
+    # bdry_done = fill(false, nnodes_global);
+    
+    # end
+    # @timeit timer_output \"loop\" begin
+    # "
+    
+    # # The assembly is taken from the IR
+    # code *= generate_from_IR_julia(IR);
+    
+    # # Post assembly part
+    # code *="
+    # end
+    # @timeit timer_output \"post-loop\" begin
+    
+    # # Post assembly steps
+    # # build sparse matrix
+    # global_matrix = sparse(global_matrix_I, global_matrix_J, global_matrix_V);
+    
+    # end
+    # @timeit timer_output \"lin-solve\" begin
+    
+    # # Solve the global system
+    # solution = global_matrix \\ global_vector;
+    # # distribute the solution to variables
+    # CGSolver.place_sol_in_vars(var, solution);
+    # end
+    
+    # # display(Array(global_matrix))
+    # # display(global_vector)
+    # # display(solution)
+    
+    # return solution;
+    # "
     code *="
     @timeit timer_output \"prepare\" begin
     
@@ -62,23 +139,7 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     dofs_per_element = dofs_per_node * nodes_per_element;
     num_elements = mesh.nel_owned;
     
-    # Allocate global system
-    allocated_nonzeros = num_elements * (dofs_per_element * dofs_per_element);
-    global_matrix_I = ones(Int, allocated_nonzeros);
-    global_matrix_J = ones(Int, allocated_nonzeros);
-    global_matrix_V = zeros(Float64, allocated_nonzeros);
-    
-    global_vector = zeros(Float64, dofs_global);
-    
-    # Allocate elemental parts
-    element_matrix = zeros(Float64, dofs_per_element, dofs_per_element);
-    element_vector = zeros(Float64, dofs_per_element);
-    
-    # bdry done flag for each node
-    bdry_done = fill(false, nnodes_global);
-    
     end
-    @timeit timer_output \"loop\" begin
     "
     
     # The assembly is taken from the IR
@@ -86,25 +147,6 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     
     # Post assembly part
     code *="
-    end
-    @timeit timer_output \"post-loop\" begin
-    
-    # Post assembly steps
-    # build sparse matrix
-    global_matrix = sparse(global_matrix_I, global_matrix_J, global_matrix_V);
-    
-    end
-    @timeit timer_output \"lin-solve\" begin
-    
-    # Solve the global system
-    solution = global_matrix \\ global_vector;
-    # distribute the solution to variables
-    CGSolver.place_sol_in_vars(var, solution);
-    end
-    
-    # display(Array(global_matrix))
-    # display(global_vector)
-    # display(solution)
     
     return solution;
     "
@@ -266,17 +308,41 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
     
     op = IR.args[1];
     if op === :COEF_EVAL
-        code = "evaluate_coefficient(coefficients[" * string(IR.args[2]) * "], " * string(IR.args[3]) * ", x, y, z, t, nodeID)"
+        code = "evaluate_coefficient(coefficients[" * string(IR.args[2]) * "], " * string(IR.args[3]) * ", x, y, z, t, nodeID)";
+        
     elseif op === :KNOWN_VAR
         code = "variables[" * string(IR.args[2]) * "].values[nodeID]"; # only works for scalars
+        
     elseif op === :ROWCOL_TO_INDEX
         # code = string(IR.args[2]) * " + (" * string(IR.args[3]) * "-1)*" * string(IR.args[4]);
         code = string(IR.args[2]) * ", " * string(IR.args[3]);
+        
     elseif op === :TIMER
         # A timer has two more args, the label and the content
         code = "@timeit timer_output \""*string(IR.args[2])*"\" begin\n";
         code *= generate_from_IR_julia(IR.args[3], IRtypes);
         code *= "\nend\n";
+        
+    elseif op === :FILL_ARRAY
+        # args[2] is the array, args[3] is the value
+        code = generate_from_IR_julia(IR.args[2], IRtypes) * " .= " * string(IR.args[3]);
+        
+    elseif op === :GLOBAL_FINALIZE
+        # This will eventually be more complicated, but let's do the default for now
+        code = "global_matrix = sparse(global_matrix_I, global_matrix_J, global_matrix_V);"
+        
+    elseif op === :GLOBAL_SOLVE
+        # This will eventually be more complicated, but let's do the default for now
+        code = generate_from_IR_julia(IR.args[2], IRtypes) * " = "* generate_from_IR_julia(IR.args[3], IRtypes) *" \\ "* generate_from_IR_julia(IR.args[4], IRtypes) *";"
+        
+    elseif op === :GATHER_SOLUTION
+        # place variable arrays in solution vector
+        code = generate_from_IR_julia(IR.args[2], IRtypes) * " = CGSolver.get_var_vals(var);";
+        
+    elseif op === :SCATTER_SOLUTION
+        # place solution in variable arrays
+        code = "CGSolver.place_sol_in_vars(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *");";
+        
     elseif op === :LINALG_MATRIX_BLOCK
         n_blocks = IR.args[2];
         blocksize = IR.args[3];

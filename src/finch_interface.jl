@@ -169,6 +169,10 @@ end
 Manually set the time steps if desired.
 """
 function setSteps(dt, steps)
+    prob.time_dependent = true;
+    if time_stepper === nothing
+        timeStepper(EULER_IMPLICIT);
+    end
     set_specified_steps(dt, steps);
 end
 
@@ -389,10 +393,11 @@ Type can be SCALAR, VECTOR, TENSOR, SYM_TENSOR, or VAR_ARRAY.
 Location can be NODAL or CELL. Generally nodal will be used for FEM and 
 cell for FVM. 
 """
-function coefficient(name, val; type=SCALAR, location=NODAL, element_array=false)
+function coefficient(name, val; type=SCALAR, location=NODAL, element_array=false, time_dependent=false)
     csym = Symbol(name);
     nfuns = makeFunctions(val); # if val is constant, nfuns will be 0
-    return add_coefficient(csym, type, location, val, nfuns, element_array);
+    time_dependent = time_dependent || check_time_dependence(val);
+    return add_coefficient(csym, type, location, val, nfuns, element_array, time_dependent);
 end
 
 """
@@ -709,12 +714,20 @@ function weakForm(var, wf)
                     " dx = \\int_{K}"*symexpression_to_latex(rhs_symexpr)*" dx");
     end
     
+    # Init stepper here so it can be used in generation
+    if prob.time_dependent
+        init_stepper(grid_data.allnodes, time_stepper);
+        if use_specified_steps
+            time_stepper.dt = specified_dt;
+            time_stepper.Nsteps = specified_Nsteps;
+        end
+    end
+    
     # change symbolic layer into IR
-    dimension = config.dimension;
     if length(result_exprs) == 4
-        full_IR = build_IR_fem(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, var, dimension, solver_type);
+        full_IR = build_IR_fem(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, var, config, prob, time_stepper);
     else
-        full_IR = build_IR_fem(lhs_symexpr, nothing, rhs_symexpr, nothing, var, dimension, solver_type);
+        full_IR = build_IR_fem(lhs_symexpr, nothing, rhs_symexpr, nothing, var, config, prob, time_stepper);
     end
     log_entry("Weak form IR: "*string(full_IR),3);
     
@@ -1268,11 +1281,11 @@ function solve(var, nlvar=nothing; nonlinear=false)
             loop_func = assembly_loops[varind];
             
             if prob.time_dependent
-                time_stepper = init_stepper(grid_data.allnodes, time_stepper);
-                if use_specified_steps
-                    time_stepper.dt = specified_dt;
-				    time_stepper.Nsteps = specified_Nsteps;
-                end
+                # time_stepper = init_stepper(grid_data.allnodes, time_stepper);
+                # if use_specified_steps
+                #     time_stepper.dt = specified_dt;
+				#     time_stepper.Nsteps = specified_Nsteps;
+                # end
                 if (nonlinear)
                     if time_stepper.type == EULER_EXPLICIT || time_stepper.type == LSRK4
                         printerr("Warning: Use implicit stepper for nonlinear problem. cancelling solve.");
@@ -1280,7 +1293,8 @@ function solve(var, nlvar=nothing; nonlinear=false)
                     end
                 	t = @elapsed(result = CGSolver.nonlinear_solve(var, nlvar, lhs, rhs, time_stepper, assemble_func=loop_func));
 				else
-                	t = @elapsed(result = CGSolver.linear_solve(var, lhs, rhs, time_stepper, assemble_func=loop_func));
+                	# t = @elapsed(result = CGSolver.linear_solve(var, lhs, rhs, time_stepper, assemble_func=loop_func));
+                    t = @elapsed(result = CGSolver.linear_solve(var, func));
 				end
                 # result is already stored in variables
             else

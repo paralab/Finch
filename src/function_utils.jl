@@ -69,6 +69,25 @@ function makeFunctions(ex; args="x=0,y=0,z=0,t=0,node_index=1,face_index=1")
     return nfuns;
 end
 
+# Checks a string representing a function for time dependence.
+# Assumes that a "t" that is not part of a word is time.
+# ex could be a string or array containing strings or the result will be false.
+# If any piece is true, all is true.
+function check_time_dependence(ex)
+    result = false;
+    if typeof(ex) <: Array
+        for i=1:length(ex)
+            result = result || check_time_dependence(ex[i]);
+        end
+    elseif typeof(ex) == String
+        # For coefficients, only x,y,z,t,node_index,face_index are allowed variables, so any t is time
+        if !(findfirst(isequal('t'), ex) === nothing)
+            result = true;
+        end
+    end
+    return result;
+end
+
 # Interpret symbols in the arguments to a function for boundary or initial conditions.
 # Replace them with something meaningful.
 # Everything must be in terms of x, y, z, t, node_index, face_index
