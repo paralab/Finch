@@ -558,7 +558,7 @@ function prepare_coefficient_values(entities, var, dimension, counts; rhs_only=f
                         nodal_coef_node = IR_data_node(IRtypes.array_data, Symbol(nodal_coef_name), [:row]);
                         push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
                         for di=1:length(entities[i].derivs)
-                            deriv_quad_mat = IR_data_node(IRtypes.array_data, Symbol("RQ"*string(entities[i].derivs[di])), [row_col_matrix_index]);
+                            deriv_quad_mat = IR_data_node(IRtypes.array_data, Symbol("RQ"*string(entities[i].derivs[di])), [col_row_matrix_index]);
                             push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
                                 quad_coef_node,
                                 IR_operation_node(IRtypes.math_op, [:(+), quad_coef_node, IR_operation_node(IRtypes.math_op, [:(*), deriv_quad_mat, nodal_coef_node])])
@@ -568,7 +568,7 @@ function prepare_coefficient_values(entities, var, dimension, counts; rhs_only=f
                         quad_coef_node = IR_data_node(IRtypes.array_data, Symbol(cname), [:col]);
                         nodal_coef_node = IR_data_node(IRtypes.array_data, Symbol(nodal_coef_name), [:row]);
                         # refelQ = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index])]);
-                        refelQ = IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index]);
+                        refelQ = IR_data_node(IRtypes.array_data, :Q, [col_row_matrix_index]);
                         push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
                         push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
                             quad_coef_node,
@@ -1109,6 +1109,16 @@ end
 function generate_time_stepping_loop_fem(stepper, assembly)
     IRtypes = IR_entry_types();
     tloop_body = IR_block_node([]);
+    zero_el_vec = IR_operation_node(IRtypes.named_op, [
+        :FILL_ARRAY,
+        IR_data_node(IRtypes.array_data, :global_vector),
+        0
+        ]);
+    zero_bdry_done = IR_operation_node(IRtypes.named_op, [
+        :FILL_ARRAY,
+        IR_data_node(IRtypes.array_data, :bdry_done),
+        :false
+        ]);
     if stepper.stages < 2
         # sol_i = IR_data_node(IRtypes.array_data, :solution, [:update_i]);
         # dsol_i = IR_data_node(IRtypes.array_data, :d_solution, [:update_i]);
@@ -1129,6 +1139,8 @@ function generate_time_stepping_loop_fem(stepper, assembly)
         #     ])
         # ];
         tloop_body.parts = [
+            zero_el_vec,
+            zero_bdry_done,
             wrap_in_timer(:step_assembly, assembly),
             wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
             wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :solution])),
