@@ -322,7 +322,7 @@ function IR_string(a::IR_conditional_node)
     #     end
     # end
     result *= string(a.body);
-    if !(a.elsepart === nothing) && length(a.parts) > 0
+    if !(a.elsepart === nothing) && length(a.elsepart.parts) > 0
         result *= "else";
         if typeof(a.elsepart.parts[1]) != IR_conditional_node
             result *= "\n";

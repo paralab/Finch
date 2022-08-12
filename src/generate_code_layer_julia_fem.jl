@@ -46,6 +46,7 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     test_functions = args[8];
     indexers = args[9];
     prob = args[10];
+    time_stepper = args[11];
     
     Q = refel.Q;
     wg = refel.wg;
@@ -211,7 +212,7 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
         code = indent * "if " * generate_from_IR_julia(IR.condition, IRtypes) * "\n";
         code *= generate_from_IR_julia(IR.body, IRtypes, indent);
         if !(IR.elsepart===nothing)
-            code *= indent * "else\n" * generate_from_IR_julia(IR.body, IRtypes, indent);
+            code *= indent * "else\n" * generate_from_IR_julia(IR.elsepart, IRtypes, indent);
         end
         code *= indent * "end\n";
     elseif node_type == IR_comment_node

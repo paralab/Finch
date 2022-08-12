@@ -35,27 +35,27 @@ function reformat_for_stepper(lhs, rhs, stepper)
             append!(newrhs, lhs[1]);# dt*rhs + lhs1
             
         elseif stepper == EULER_EXPLICIT || stepper == PECE # lhs1 = dt*rhs - dt*lhs2 + lhs1
-            # # This version includes the lhs1 + dt*(  ) part
-            # for i=1:length(lhs[2])
-            #     lhs[2][i] = -lhs[2][i]*dt; # -dt*lhs2
-            # end
-            # for i=1:length(rhs)
-            #     rhs[i] = rhs[i]*dt; # dt*rhs
-            # end
-            
-            # newlhs = copy(lhs[1]);# lhs1
-            # newrhs = copy(rhs);
-            # append!(newrhs, lhs[2]);# dt*rhs - dt*lhs2
-            # append!(newrhs, lhs[1]);# dt*rhs - dt*lhs2 + lhs1
-            
-            # This version doesn't include the lhs1 + dt*(  ) part
+            # This version includes the lhs1 + dt*(  ) part
             for i=1:length(lhs[2])
-                lhs[2][i] = -lhs[2][i]; # -lhs2
+                lhs[2][i] = -lhs[2][i]*dt; # -dt*lhs2
+            end
+            for i=1:length(rhs)
+                rhs[i] = rhs[i]*dt; # dt*rhs
             end
             
             newlhs = copy(lhs[1]);# lhs1
             newrhs = copy(rhs);
-            append!(newrhs, lhs[2]);# rhs - lhs2
+            append!(newrhs, lhs[2]);# dt*rhs - dt*lhs2
+            append!(newrhs, lhs[1]);# dt*rhs - dt*lhs2 + lhs1
+            
+            # # This version doesn't include the lhs1 + dt*(  ) part
+            # for i=1:length(lhs[2])
+            #     lhs[2][i] = -lhs[2][i]; # -lhs2
+            # end
+            
+            # newlhs = copy(lhs[1]);# lhs1
+            # newrhs = copy(rhs);
+            # append!(newrhs, lhs[2]);# rhs - lhs2
             
         elseif stepper == CRANK_NICHOLSON # lhs1 + 0.5*dt*lhs2 = dt*rhs - 0.5*dt*lhs2 + lhs1
             lhs2l = copy(lhs[2]);
@@ -151,42 +151,42 @@ function reformat_for_stepper(lhs, rhs, face_lhs, face_rhs,stepper)
             newfacelhs = copy(face_lhs);# dt*facelhs
             
         elseif stepper == EULER_EXPLICIT || stepper == PECE # lhs1 = lhs1 + dt*rhs - dt*lhs2
-            # # This version includes the lhs1 + dt*(  ) part
-            # for i=1:length(lhs[2])
-            #     lhs[2][i] = -lhs[2][i]*dt; # -dt*lhs2
-            # end
-            # for i=1:length(rhs)
-            #     rhs[i] = rhs[i]*dt; # dt*rhs
-            # end
-            # for i=1:length(face_rhs)
-            #     face_rhs[i] = face_rhs[i]*dt; # dt*facerhs
-            # end
-            # for i=1:length(face_lhs)
-            #     face_lhs[i] = -face_lhs[i]*dt; # -dt*facelhs
-            # end
-            
-            # newlhs = copy(lhs[1]);# lhs1
-            # newrhs = copy(rhs);
-            # append!(newrhs, lhs[2]);# dt*rhs - dt*lhs2 + lhs1
-            # #append!(newrhs, lhs[1]);
-            # newfacerhs = copy(face_rhs);
-            # append!(newfacerhs, face_lhs);# dt*facerhs - dt*facelhs
-            # newfacelhs = [];
-            
-            # This version does not include the lhs1 + dt*(  ) part
+            # This version includes the lhs1 + dt*(  ) part
             for i=1:length(lhs[2])
-                lhs[2][i] = -lhs[2][i]; # -lhs2
+                lhs[2][i] = -lhs[2][i]*dt; # -dt*lhs2
+            end
+            for i=1:length(rhs)
+                rhs[i] = rhs[i]*dt; # dt*rhs
+            end
+            for i=1:length(face_rhs)
+                face_rhs[i] = face_rhs[i]*dt; # dt*facerhs
             end
             for i=1:length(face_lhs)
-                face_lhs[i] = -face_lhs[i]; # -facelhs
+                face_lhs[i] = -face_lhs[i]*dt; # -dt*facelhs
             end
             
             newlhs = copy(lhs[1]);# lhs1
             newrhs = copy(rhs);
-            append!(newrhs, lhs[2]);# rhs - lhs2
+            append!(newrhs, lhs[2]);# dt*rhs - dt*lhs2 + lhs1
+            #append!(newrhs, lhs[1]);
             newfacerhs = copy(face_rhs);
-            append!(newfacerhs, face_lhs);# facerhs - facelhs
+            append!(newfacerhs, face_lhs);# dt*facerhs - dt*facelhs
             newfacelhs = [];
+            
+            # # This version does not include the lhs1 + dt*(  ) part
+            # for i=1:length(lhs[2])
+            #     lhs[2][i] = -lhs[2][i]; # -lhs2
+            # end
+            # for i=1:length(face_lhs)
+            #     face_lhs[i] = -face_lhs[i]; # -facelhs
+            # end
+            
+            # newlhs = copy(lhs[1]);# lhs1
+            # newrhs = copy(rhs);
+            # append!(newrhs, lhs[2]);# rhs - lhs2
+            # newfacerhs = copy(face_rhs);
+            # append!(newfacerhs, face_lhs);# facerhs - facelhs
+            # newfacelhs = [];
             
         elseif stepper == CRANK_NICHOLSON # lhs1 + 0.5*dt*lhs2 = dt*rhs - 0.5*dt*lhs2 + lhs1
             lhs2l = copy(lhs[2]);

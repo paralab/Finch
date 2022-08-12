@@ -34,7 +34,7 @@ function init_solver()
 end
 
 function linear_solve(var, func, stepper=nothing)
-    args = (var, grid_data, refel, geo_factors, config, coefficients, variables, test_functions, indexers, prob);
+    args = (var, grid_data, refel, geo_factors, config, coefficients, variables, test_functions, indexers, prob, stepper);
     return TimerOutputs.@timeit timer_output "cg_colve" func.func(args);
 end
 

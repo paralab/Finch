@@ -1294,7 +1294,7 @@ function solve(var, nlvar=nothing; nonlinear=false)
                 	t = @elapsed(result = CGSolver.nonlinear_solve(var, nlvar, lhs, rhs, time_stepper, assemble_func=loop_func));
 				else
                 	# t = @elapsed(result = CGSolver.linear_solve(var, lhs, rhs, time_stepper, assemble_func=loop_func));
-                    t = @elapsed(result = CGSolver.linear_solve(var, func));
+                    t = @elapsed(result = CGSolver.linear_solve(var, func, time_stepper));
 				end
                 # result is already stored in variables
             else
