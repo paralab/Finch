@@ -1270,6 +1270,9 @@ function generate_time_stepping_loop_fem(stepper, assembly)
             # ki = rhs(t+ci*dt, x+dt*sum(aij*kj)))   j < i
             
             #=
+                    last_result = zeros(size(b));
+                    tmpresult = zeros(size(b));
+                    tmpki = zeros(length(b), stepper.stages);
                     # will hold the final result
                     last_result = get_var_vals(var, last_result);
                     # will be placed in var.values for each stage
@@ -1278,48 +1281,162 @@ function generate_time_stepping_loop_fem(stepper, assembly)
                     for stage=1:stepper.stages
                         stime = t + stepper.c[stage]*stepper.dt;
                         
-                        # Update the values in vars to be used in this stage
-                        if stage > 1
-                            initialized_tmpresult = false;
-                            for j=1:stage
-                                if stepper.a[stage, j] > 0
-                                    if !initialized_tmpresult
-                                        initialized_tmpresult = true;
-                                        for k=1:length(last_result)
-                                            tmpresult[k] = last_result[k] + stepper.dt * stepper.a[stage, j] * tmpki[k,j];
-                                        end
-                                    else
-                                        for k=1:length(last_result)
-                                            tmpresult[k] += stepper.dt * stepper.a[stage, j] * tmpki[k,j];
-                                        end
-                                    end
+                        b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, stime, stepper.dt; rhs_only = true, assemble_loops=assemble_func)
+                        
+                        solution .= linear_system_solve(A,b);
+                        
+                        # At this point solution holds the boundary values
+                        # directly write them to the variable values and zero sol.
+                        copy_bdry_vals_to_variables(var, solution, grid_data, dofs_per_node, zero_vals=true);
+                        
+                        if stage < time_stepper.stages
+                            # Update the values in vars to be used in the next stage
+                            for k=1:dofs_global
+                                tmpki[k,stage] = solution[k];
+                                tmpresult[k] = last_result[k];
+                                for j=1:stage
+                                    tmpresult[k] += stepper.dt * stepper.a[stage+1, j] * tmpki[k,j];
                                 end
                             end
                             
-                            if initialized_tmpresult
-                                copy_bdry_vals_to_vector(var, tmpresult, grid_data, dofs_per_node);
-                                place_sol_in_vars(var, tmpresult, stepper);
+                            copy_bdry_vals_to_vector(var, tmpresult, grid_data, dofs_per_node);
+                            place_sol_in_vars(var, tmpresult, stepper);
+                            
+                        else
+                            for k=1:dofs_global
+                                tmpki[k,stage] = solution[k];
                             end
                         end
                         
-                        b = assemble(var, nothing, linear, allocated_vecs, dofs_per_node, dofs_per_loop, stime, stepper.dt; rhs_only = true, assemble_loops=assemble_func)
-                        
-                        tmpki[:,stage] = linear_system_solve(A,b);
-                        
-                        # At this point tmpki[:,stage] holds the boundary values
-                        # directly write them to the variable values and zero sol.
-                        copy_bdry_vals_to_variables(var, tmpki[:,stage], grid_data, dofs_per_node, zero_vals=true);
-                        
                     end
-                    for stage=1:stepper.stages
-                        last_result += stepper.dt * stepper.b[stage] .* tmpki[:, stage];
+                    for k=1:dofs_global
+                        for stage=1:stepper.stages
+                            last_result[k] += stepper.dt * stepper.b[stage] .* tmpki[k, stage];
+                        end
                     end
                     copy_bdry_vals_to_vector(var, last_result, grid_data, dofs_per_node);
                     place_sol_in_vars(var, last_result, stepper);
             =#
             
+            tmp_last = IR_data_node(IRtypes.array_data, :last_result);
+            tmp_result = IR_data_node(IRtypes.array_data, :tmpresult);
+            tmp_ki = IR_data_node(IRtypes.array_data, :tmpki);
+            
+            update_ki_loop_one = IR_loop_node(IRtypes.space_loop, :dofs, :k, 1, :dofs_global, IR_block_node([
+                # # Update the values in vars to be used in the next stage
+                # for k=1:dofs_global
+                #     tmpki[k,stage] = solution[k];
+                #     tmpresult[k] = last_result[k];
+                #     for j=1:stage
+                #         tmpresult[k] += stepper.dt * stepper.a[stage+1, j] * tmpki[k,j];
+                #     end
+                # end
+                IR_operation_node(IRtypes.assign_op, [
+                    IR_data_node(IRtypes.array_data, :tmpki, [:k, :rki]),
+                    IR_data_node(IRtypes.array_data, :solution, [:k])
+                ]),
+                IR_operation_node(IRtypes.assign_op, [
+                    IR_data_node(IRtypes.array_data, :tmpresult, [:k]),
+                    IR_data_node(IRtypes.array_data, :last_result, [:k])
+                ]),
+                IR_loop_node(IRtypes.time_loop, :stage, :j, 1, :rki, IR_block_node([
+                    IR_operation_node(IRtypes.assign_op, [
+                        IR_data_node(IRtypes.array_data, :tmpresult, [:k]),
+                        IR_operation_node(IRtypes.math_op, [:*, :dt, 
+                            IR_operation_node(IRtypes.member_op, [:time_stepper, 
+                                IR_data_node(IRtypes.array_data, :a, [IR_operation_node(IRtypes.math_op, [:+, :rki, 1]), :j])]),
+                            IR_data_node(IRtypes.array_data, :tmpki, [:k, :j])
+                        ])
+                    ])
+                ]))
+            ]))
+            update_ki_loop_two = IR_loop_node(IRtypes.space_loop, :dofs, :k, 1, :dofs_global, IR_block_node([
+                # for k=1:dofs_global
+                #     tmpki[k,stage] = solution[k];
+                # end
+                IR_operation_node(IRtypes.assign_op, [
+                    IR_data_node(IRtypes.array_data, :tmpki, [:k, :rki]),
+                    IR_data_node(IRtypes.array_data, :solution, [:k])
+                ])
+            ]))
+            update_ki_condition = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:<, :rki, stepper.stages]),
+                IR_block_node([
+                    update_ki_loop_one,
+                    # copy_bdry_vals_to_vector(var, tmpresult, grid_data, dofs_per_node);
+                    IR_operation_node(IRtypes.function_op, [
+                        IR_operation_node(IRtypes.member_op, [:CGSolver, :copy_bdry_vals_to_vector]), 
+                        :var, :tmpresult, :mesh, :dofs_per_node]),
+                    # place_sol_in_vars(var, tmpresult, stepper);
+                    wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :tmpresult]))
+                ]),
+                IR_block_node([update_ki_loop_two]));
+            
+            stage_loop_body = IR_block_node([
+                # last_t = t;
+                # t = last_t + stepper.c[rki]*stepper.dt;
+                IR_operation_node(IRtypes.assign_op, [
+                    :t,
+                    IR_operation_node(IRtypes.math_op, [:+, :t, 
+                        IR_operation_node(IRtypes.math_op, [:*, :dt, 
+                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.array_data, :c, [:rki])])])])
+                ]),
+                # assemble
+                zero_el_vec,
+                zero_bdry_done,
+                wrap_in_timer(:step_assembly, assembly),
+                # solve
+                wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
+                # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, zero_vals=true);
+                IR_operation_node(IRtypes.function_op, [
+                    IR_operation_node(IRtypes.member_op, [:CGSolver, :copy_bdry_vals_to_variables]), 
+                    :var, :solution, :mesh, :dofs_per_node, IR_operation_node(IRtypes.assign_op, [:zero_vals, :true])]),
+                # update tmpki
+                update_ki_condition
+            ]);
+            stage_loop = IR_loop_node(IRtypes.time_loop, :stages, :rki, 1, stepper.stages, stage_loop_body);
+            
+            # last_result[k] += stepper.dt * stepper.b[rki] * tmpki[k, rki];
+            combine_loop_body = IR_block_node([
+                IR_loop_node(IRtypes.time_loop, :stages, :rki, 1, stepper.stages, IR_block_node([
+                    IR_operation_node(IRtypes.assign_op, [
+                        IR_data_node(IRtypes.array_data, :last_result, [:k]),
+                        IR_operation_node(IRtypes.math_op, [:+,
+                            IR_data_node(IRtypes.array_data, :last_result, [:k]), 
+                            IR_operation_node(IRtypes.math_op, [:*, :dt, 
+                                IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.array_data, :b, [:rki])]),
+                                IR_data_node(IRtypes.array_data, :tmpki, [:k, :rki])
+                            ])
+                        ])
+                    ])
+                ]))
+            ])
+            combine_loop = IR_loop_node(IRtypes.space_loop, :dofs, :k, 1, :dofs_global, combine_loop_body);
+            
+            push!(tloop_body.parts, IR_operation_node(IRtypes.named_op, [:GATHER_SOLUTION, :last_result]));
+            push!(tloop_body.parts, IR_operation_node(IRtypes.assign_op, [:last_t, :t]));
+            push!(tloop_body.parts, stage_loop);
+            push!(tloop_body.parts, combine_loop);
+            # copy_bdry_vals_to_vector(var, last_result, grid_data, dofs_per_node);
+            push!(tloop_body.parts, IR_operation_node(IRtypes.function_op, [
+                    IR_operation_node(IRtypes.member_op, [:CGSolver, :copy_bdry_vals_to_vector]), 
+                    :var, :last_result, :mesh, :dofs_per_node]));
+            # place_sol_in_vars(var, last_result, stepper);
+            push!(tloop_body.parts, wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :last_result])));
+            # update time
+            push!(tloop_body.parts, IR_operation_node(IRtypes.assign_op, [:t, IR_operation_node(IRtypes.math_op, [:+, :last_t, :dt])]));
+            
             time_loop = IR_block_node([
-                IR_loop_node(IRtypes.time_loop, :time, :t, 1, stepper.Nsteps, tloop_body);
+                IR_operation_node(IRtypes.assign_op, [
+                    tmp_last,
+                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])]),
+                IR_operation_node(IRtypes.assign_op, [
+                    tmp_result,
+                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])]),
+                IR_operation_node(IRtypes.assign_op, [
+                    tmp_ki,
+                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global, stepper.stages])]),
+                    
+                IR_loop_node(IRtypes.time_loop, :time, :t, 1, stepper.Nsteps, tloop_body)
             ]);
         end
     end
