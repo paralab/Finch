@@ -80,6 +80,13 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
         globalvec,
         IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])
         ]));
+    
+    solvec = IR_data_node(IRtypes.array_data, :solution);
+    push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
+        solvec,
+        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])
+        ]));
+        
     # I and J should be initialized to 1
     push!(allocate_block.parts, IR_operation_node(IRtypes.named_op, [
         :FILL_ARRAY,

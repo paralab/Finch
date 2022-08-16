@@ -11,6 +11,7 @@ using LinearAlgebra, SparseArrays, CUDA
 import ..Finch: @import_finch_symbols
 @import_finch_symbols()
 
+import ..Finch: build_derivative_matrix
 
 include("fe_boundary.jl");
 include("nonlinear.jl")
