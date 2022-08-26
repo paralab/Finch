@@ -526,8 +526,6 @@ function prepare_coefficient_values(entities, var, dimension, counts; rhs_only=f
                 end
                 
             elseif ctype == 3 # a known variable value
-                # TODO
-                # 
                 if vors == "volume"
                     need_vol_interp_loop = true;
                     need_vol_coef_loop = true;
@@ -570,7 +568,7 @@ function prepare_coefficient_values(entities, var, dimension, counts; rhs_only=f
                             IR_operation_node(IRtypes.math_op, [:(+), quad_coef_node, IR_operation_node(IRtypes.math_op, [:(*), refelQ, nodal_coef_node])])
                             ]));
                     end
-                else
+                else # surface
                     # TODO
                 end
             elseif ctype == 4 # an indexed coefficient

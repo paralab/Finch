@@ -899,9 +899,10 @@ end
 # Generates a function from a code string and sets that as the code for the variable(s).
 function set_code(var, code)
     if language == JULIA || language == 0
-        args = "args; kwargs...";
         code_expr = CodeGenerator.code_string_to_expr(code);
-        makeFunction(args, code_expr);
+        # args = "args; kwargs...";
+        # makeFunction(args, code_expr);
+        makeCompleteFunction(code_expr);
         if typeof(var) <:Array
             for i=1:length(var)
                 solve_function[var[i].index] = genfunctions[end];

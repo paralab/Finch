@@ -1,16 +1,19 @@
 #=
-Generate code for Julia for FEM
+Take an IR and generate julia code.
+Two main tasks are:
+- directly translate the IR into code
+- create any target specfic support code to surround it
 
-This will make the body for a function that
-- defines all the useful numbers
-- allocates
-- time loop (optional)
-- assembly including element and dof loops as needed, elemental comp, distribution
-- solve
+The support code should define sevaral numbers and data structures
+with specific names that are used in the IR, such as mesh, refel, num_elements, etc.
+(TODO create a concrete list of these required parts)
 =#
 
-function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
-    
+# This creates the full code string including support code.
+# If desired this can make the code as a complete, stand-alone function
+# or as just the body of a function that will be generated(default).
+function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, wrap_in_function=true)
+    # This will hold the code string to be returned
     code ="";
     
     # Set up useful numbers
@@ -29,25 +32,17 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
         end
     end
     
-    # Static piece
-    # args = (var, grid_data, refel, geometric_factors, config, coefficients, variables, test_functions, indexers, prob);
+    # Support piece
+    args = "(var, mesh, refel, geometric_factors, config, coefficients, variables, test_functions, indexers, prob, time_stepper)";
+    
+    if wrap_in_function
+        code = "function generated_solve_function_for_"*string(var[1].symbol) * args * "\n";
+    end
     
     code *="
     @timeit timer_output \"prepare\" begin
     
-    # extract input args
-    var = args[1];
-    mesh = args[2];
-    refel = args[3];
-    geometric_factors = args[4];
-    config = args[5];
-    coefficients = args[6];
-    variables = args[7];
-    test_functions = args[8];
-    indexers = args[9];
-    prob = args[10];
-    time_stepper = args[11];
-    
+    # Useful symbols for FEM
     Q = refel.Q;
     wg = refel.wg;
     
@@ -75,11 +70,14 @@ function generate_code_layer_julia_fem(var::Vector{Variable}, IR::IR_part)
     
     return nothing;
     "
+    if wrap_in_function
+        code *= "end # function\n";
+    end
     
     return code;
 end
 
-# Directly stanslate IR into julia code
+# Directly translate IR into julia code
 # Named operators are treated specially
 function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = nothing, indent="")
     if IRtypes === nothing

@@ -921,50 +921,16 @@ function exportCode(filename)
     if language == JULIA || language == 0
         file = open(filename*".jl", "w");
         println(file, "#=\nGenerated functions for "*project_name*"\n=#\n");
-        for LorR in [LHS, RHS]
-            if LorR == LHS
-                codevol = code_strings[1];
-                codesurf = code_strings[3];
+        
+        for i=1:length(variables)
+            code = code_strings[1][i];
+            var = string(variables[i].symbol);
+            if length(code) > 1
+                println(file, "# begin solve function for "*var*"\n");
+                println(file, code);
+                println(file, "# end solve function for "*var*"\n");
             else
-                codevol = code_strings[2];
-                codesurf = code_strings[4];
-            end
-            codeassemble = code_strings[5];
-            for i=1:length(variables)
-                var = string(variables[i].symbol);
-                if !(codevol[i] === "")
-                    func_name = LorR*"_volume_function_for_"*var;
-                    println(file, "function "*func_name*"(args; kwargs...)");
-                    println(file, codevol[i]);
-                    println(file, "end #"*func_name*"\n");
-                else
-                    println(file, "# No "*LorR*" volume set for "*var*"\n");
-                end
-                
-                if !(codesurf[i] === "")
-                    func_name = LorR*"_surface_function_for_"*var;
-                    println(file, "function "*func_name*"(args; kwargs...)");
-                    println(file, codesurf[i]);
-                    println(file, "end #"*func_name*"\n");
-                else
-                    println(file, "# No "*LorR*" surface set for "*var*"\n");
-                end
-                
-                if LorR == RHS
-                    if !(codeassemble[i] == "" || assembly_loops[i] === nothing)
-                        func_name = "assembly_function_for_"*var;
-                        if config.solver_type == FV
-                            args = "var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0";
-                        elseif config.solver_type == CG
-                            args = "var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; rhs_only=false";
-                        end
-                        println(file, "function "*func_name*"("*args*")");
-                        println(file, codeassemble[i]);
-                        println(file, "end #"*func_name*"\n");
-                    else
-                        println(file, "# No assembly function set for "*var*"\n");
-                    end
-                end
+                println(file, "# No code set for "*var*"\n");
             end
         end
         
@@ -988,102 +954,46 @@ function importCode(filename)
     if language == JULIA || language == 0
         file = open(filename*".jl", "r");
         lines = readlines(file, keep=true);
-        for LorR in [LHS, RHS]
-            if LorR == LHS
-                codevol = bilinears;
-                codesurf = face_bilinears;
+        
+        # Loop over variables and check to see if a matching function is present.
+        for i=1:length(variables)
+            # Scan the file for a pattern like
+            #   # begin solve function for u
+            #       ...
+            #   # end solve function for u
+            # OR
+            #   # No code set for u
+            var = string(variables[i].symbol);
+            func_begin_flag = "# begin solve function for "*var;
+            func_end_flag = "# end solve function for "*var;
+            func_none_flag = "# No code set for "*var;
+            func_string = "";
+            for st=1:length(lines)
+                if occursin(func_begin_flag, lines[st])
+                    # st+1 is the start of the function
+                    for en=(st+1):length(lines)
+                        if occursin(func_end_flag, lines[en])
+                            # en-1 is the end of the function
+                            st = en; # update st
+                            break;
+                        else
+                            func_string *= lines[en];
+                        end
+                    end
+                elseif occursin(func_none_flag, lines[st])
+                    # There is no function for this variable
+                    log_entry("While importing, no solve function was found for "*var);
+                end
+            end # lines loop
+            
+            # Generate the functions and set them in the right places
+            if func_string == ""
+                log_entry("While importing, nothing was found for "*var);
             else
-                codevol = linears;
-                codesurf = face_linears;
+                set_code(variables[i], func_string);
             end
             
-            # Loop over variables and check to see if a matching function is present.
-            for i=1:length(variables)
-                # Scan the file for a pattern like
-                #   function LHS_volume_function_for_u
-                #       ...
-                #   end #LHS_volume_function_for_u
-                #
-                # Set LHS/RHS, volume/surface, and the variable name
-                var = string(variables[i].symbol);
-                vfunc_name = LorR*"_volume_function_for_"*var;
-                vfunc_string = "";
-                sfunc_name = LorR*"_surface_function_for_"*var;
-                sfunc_string = "";
-                afunc_name = "assembly_function_for_"*var;
-                afunc_string = "";
-                for st=1:length(lines)
-                    if occursin("function "*vfunc_name, lines[st])
-                        # s is the start of the function
-                        for en=(st+1):length(lines)
-                            if occursin("end #"*vfunc_name, lines[en])
-                                # en is the end of the function
-                                st = en; # update st
-                                break;
-                            else
-                                vfunc_string *= lines[en];
-                            end
-                        end
-                    elseif occursin("function "*sfunc_name, lines[st])
-                        # s is the start of the function
-                        for en=(st+1):length(lines)
-                            if occursin("end #"*sfunc_name, lines[en])
-                                # en is the end of the function
-                                st = en; # update st
-                                break;
-                            else
-                                sfunc_string *= lines[en];
-                            end
-                        end
-                    elseif LorR == RHS && occursin("function "*afunc_name, lines[st])
-                        # s is the start of the function
-                        for en=(st+1):length(lines)
-                            if occursin("end #"*afunc_name, lines[en])
-                                # en is the end of the function
-                                st = en; # update st
-                                break;
-                            else
-                                afunc_string *= lines[en];
-                            end
-                        end
-                    end
-                end # lines loop
-                
-                # Generate the functions and set them in the right places
-                if vfunc_string == ""
-                    log_entry("Warning: While importing, no "*LorR*" volume function was found for "*var);
-                else
-                    makeFunction("args; kwargs...", CodeGenerator.code_string_to_expr(vfunc_string));
-                    if LorR == LHS
-                        set_lhs(variables[i]);
-                    else
-                        set_rhs(variables[i]);
-                    end
-                end
-                if sfunc_string == ""
-                    log_entry("Warning: While importing, no "*LorR*" surface function was found for "*var);
-                else
-                    makeFunction("args; kwargs...", CodeGenerator.code_string_to_expr(sfunc_string));
-                    if LorR == LHS
-                        set_lhs_surface(variables[i]);
-                    else
-                        set_rhs_surface(variables[i]);
-                    end
-                end
-                if afunc_string == ""
-                    log_entry("Warning: While importing, no assembly function was found for "*var*" (using default)");
-                else
-                    if config.solver_type == FV
-                        args = "var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; is_explicit=true";
-                    elseif config.solver_type == CG
-                        args = "var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; rhs_only=false";
-                    end
-                    makeFunction(args, CodeGenerator.code_string_to_expr(afunc_string));
-                    set_assembly_loops(variables[i]);
-                end
-                
-            end # vars loop
-        end
+        end # vars loop
         
         close(file);
         log_entry("Imported code from "*filename*".jl");
