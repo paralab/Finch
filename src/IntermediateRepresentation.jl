@@ -23,7 +23,7 @@ using AbstractTrees
 
 export IR_entry_types, IR_string, print_tree, testIR
 export IR_part, IR_data_node, IR_data_access, IR_operation_node, IR_block_node, IR_loop_node, IR_conditional_node, IR_comment_node
-export build_IR_fem
+export build_IR_fem, build_IR_fvm
 
 # See finch_import_symbols.jl for a list of all imported symbols.
 import ..Finch: @import_finch_symbols
@@ -60,10 +60,9 @@ struct IR_entry_types
     named_op::Int8      # = 16 # a special op keyword that will be interpreted by codegen as needed
     
     # data types
-    scalar_data::Int8    # = 21 # a single value (x)
-    array_data::Int8     # = 22 # an array location (x[1,3])
-    matrix_data::Int8    # = 23 # an entire matrix (A) size is stored in index
-    vector_data::Int8    # = 24 # an entire vector (v) size is stored in index
+    int_data::Int8      # = 21 # These are for int and float of unspecified size
+    float_data::Int8    # = 22
+    
     int_32_data::Int8    # = 25
     int_64_data::Int8    # = 26
     float_32_data::Int8  # = 27
@@ -88,10 +87,8 @@ struct IR_entry_types
             15=>"member op",
             16=>"named op",
             
-            21=>"scalar data",
-            22=>"array data",
-            23=>"matrix data",
-            24=>"vector_data",
+            21=>"Int",
+            22=>"Float64",
             25=>"Int32",
             26=>"Int64",
             27=>"Float32",
@@ -101,7 +98,7 @@ struct IR_entry_types
             31=>"read",
             32=>"write"
         ),
-        1,2,3,4, 11,12,13,14,15,16, 21,22,23,24,25,26,27,28,29, 31,32
+        1,2,3,4, 11,12,13,14,15,16, 21,22,25,26,27,28,29, 31,32
         );
 end
 
@@ -109,13 +106,14 @@ end
 # It could be a variable name or an array name with index symbols.
 struct IR_data_node <: IR_part
     type::Int8 # The type of data
-    var::Symbol
-    index::Vector{Union{Symbol,Int,IR_part}}
-    IR_data_node(t::Int8, v::Symbol) = new(t,v,[]);
-    IR_data_node(t::Int8, v::Symbol, i::Vector) = new(t,v,i);
+    label::Symbol
+    size::Vector{Union{Symbol,Int,IR_part}} # scalars = [], unknown array size = [:?]
+    index::Vector{Union{Symbol,Int,IR_part}} # only used when refering to an element of an array
+    IR_data_node(t::Int8, v::Symbol) = new(t,v,[],[]);
+    IR_data_node(t::Int8, v::Symbol, s::Vector, i::Vector) = new(t,v,s,i);
 end
 AbstractTrees.children(a::IR_data_node) = a.index;
-AbstractTrees.printnode(io::IO, a::IR_data_node) = print(io, string(a.var));
+AbstractTrees.printnode(io::IO, a::IR_data_node) = print(io, string(a.label));
 
 # Holds info about a data access
 # type is read or write
@@ -190,8 +188,8 @@ mutable struct IR_loop_node <: IR_part
     type::Int8   # The type of loop
     collection::Symbol
     iterator::Symbol
-    first::Union{Int,Symbol}
-    last::Union{Int,Symbol}
+    first::Union{Int,Symbol,IR_part}
+    last::Union{Int,Symbol,IR_part}
     body::IR_block_node #Vector{IR_part}
     deps::Vector{IR_data_access}
     function IR_loop_node(t::Int8, c::Symbol, i::Symbol, f, l, b)
@@ -380,18 +378,13 @@ function IR_string(a::IR_operation_node)
 end
 function IR_string(a::IR_data_node)
     IRtypes = IR_entry_types();
-    result = string(a.var);
-    if a.type==IRtypes.array_data && length(a.index) > 0
+    result = string(a.label);
+    if length(a.size)>0 && length(a.index) > 0
         result *= "["*string(a.index[1]);
         for i=2:length(a.index)
             result *= ","*string(a.index[i]);
         end
         result *= "]";
-    elseif a.type==IRtypes.matrix_data && length(a.index) > 1
-        result *= "{Matrix("*string(a.index[1]);
-        result *= ","*string(a.index[2]) * ")}";
-    elseif a.type==IRtypes.vector_data && length(a.index) > 0
-        result *= "{Vector("*string(a.index[1]) * ")}";
     end
     return result;
 end
@@ -412,6 +405,7 @@ end
 #############################################################################################################
 include("IR_utils.jl");
 include("IR_build_FEM.jl");
+# include("IR_build_FVM.jl");
 
 #############################################################################################################
 

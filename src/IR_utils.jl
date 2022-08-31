@@ -41,7 +41,7 @@ function arithmetic_expr_to_IR(ex)
             end
         end
         
-        return IR_data_node(IRtypes.array_data, Symbol(str));
+        return IR_data_node(IRtypes.float_64_data, Symbol(str), [1], []);
         
     elseif typeof(ex) == Expr && ex.head === :call
         args = [];
@@ -61,8 +61,8 @@ end
 # For an array type IR_data_node this adds an index
 # (A, i) -> A[i]
 function apply_indexed_access(IR, index, IRtypes::Union{IR_entry_types, Nothing} = nothing)
-    if typeof(IR) == IR_data_node && IR.type == IRtypes.array_data
-        return IR_data_node(IR.type, IR.var, index);
+    if typeof(IR) == IR_data_node && length(IR.size) > 0
+        return IR_data_node(IR.type, IR.label, IR.size, index);
         
     elseif typeof(IR) == IR_operation_node
         # make a copy
@@ -279,6 +279,32 @@ function get_coef_index(c)
     end
     
     return ind;
+end
+
+# Which side of a face is this entity on?
+# Return a number: 0 = no side specified, 1/2 = side 1/2 in face2element order, 3 = average both, 4 = neighborhood
+function get_face_side_info(ent)
+    side = 0; # 0 means no side flag
+    if typeof(ent) == SymEntity
+        for flagi=1:length(ent.flags)
+            if occursin("DGSIDE1", ent.flags[flagi]) || occursin("CELL1", ent.flags[flagi])
+                return 1;
+            elseif occursin("DGSIDE2", ent.flags[flagi]) || occursin("CELL2", ent.flags[flagi])
+                return 2;
+            elseif occursin("CENTRAL", ent.flags[flagi])
+                return 3;
+            elseif occursin("NEIGHBORHOOD", ent.flags[flagi])
+                return 4;
+            end
+        end
+        
+    elseif typeof(ent) == Expr && length(ent.args) == 2 # This should only be allowed for negative signs :(-ent)
+        side = get_face_side_info(ent.args[2]);
+        
+    # else number or ?? -> 0
+    end
+    
+    return side;
 end
 
 # Assume the term looks like a*b*c or a*(b*c) or something similar.

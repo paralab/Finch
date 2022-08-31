@@ -7,7 +7,7 @@ export generateFor, useLog, domain, solverType, functionSpace, trialSpace, testS
         mesh, exportMesh, variable, coefficient, parameter, testSymbol, index, boundary, addBoundaryID,
         referencePoint, timeInterval, initial, preStepFunction, postStepFunction, callbackFunction,
         variableTransform, transformVariable,
-        weakForm, flux, source, assemblyLoops,
+        weakForm, conservationForm, flux, source, assemblyLoops,
         exportCode, importCode, printLatex,
         evalInitialConditions, solve, cachesimSolve, finalizeFinch, cachesim, outputValues,
         mortonNodes, hilbertNodes, tiledNodes, mortonElements, hilbertElements, 
@@ -667,7 +667,7 @@ function weakForm(var, wf)
     wfvars = [];
     wfex = [];
     if !(length(var) == length(wf))
-        printerr("Error in weak form: # of unknowns must equal # of equations. (example: @weakform([a,b,c], [f1,f2,f3]))");
+        printerr("Error in weak form: # of unknowns must equal # of equations. (example: weakform([a,b,c], [f1,f2,f3]))");
     end
     for vi=1:length(var)
         push!(wfvars, var[vi].symbol);
@@ -730,6 +730,102 @@ function weakForm(var, wf)
         full_IR = build_IR_fem(lhs_symexpr, nothing, rhs_symexpr, nothing, var, config, prob, time_stepper);
     end
     log_entry("Weak form IR: "*string(full_IR),3);
+    
+    # Generate code from IR
+    code = generate_code_layer(var, full_IR, solver_type, language, gen_framework);
+    log_entry("Code layer: \n" * code, 3);
+    set_code(var, code);
+    
+    end # timer block
+end
+
+"""
+    conservationForm(var, cf)
+
+Write the integral conservation form of the PDE. This should be an expression
+that is assumed to be equal to the time derivative of the variable.
+Surface integrals for the flux are wrapped in surface(), and all other terms are
+assumed to be volume integrals for the source. Do not include the time derivative
+as it is implicitly assumed.
+var can be a variable or an array of variables. When using arrays, cf must
+also be an array of matching size.
+cf is a string expression or array of them. It can include numbers, coefficients,
+variables, parameters, indexers, and symbolic operators.
+"""
+function conservationForm(var, cf)
+    
+    @timeit timer_output "CodeGen-conservationform" begin
+    
+    if !(typeof(var) <: Array)
+        var = [var];
+        cf = [cf];
+    end
+    cfvars = [];
+    cfex = [];
+    if !(length(var) == length(cf))
+        printerr("Error in conservation form: # of unknowns must equal # of equations. (example: conservationform([a,b,c], [f1,f2,f3]))");
+    end
+    for vi=1:length(var)
+        push!(cfvars, var[vi].symbol);
+        push!(cfex, Meta.parse((cf)[vi]));
+    end
+    solver_type = var[1].discretization;
+    
+    log_entry("Making conservation form for variable(s): "*string(cfvars));
+    log_entry("Conservation form, input: "*string(cf));
+    
+    # This is the parsing step. It goes from an Expr to arrays of Basic
+    result_exprs = sp_parse(cfex, cfvars, is_FV=true);
+    if length(result_exprs) == 4 # has surface terms
+        (lhs_symexpr, rhs_symexpr, lhs_surf_symexpr, rhs_surf_symexpr) = result_exprs;
+    else
+        (lhs_symexpr, rhs_symexpr) = result_exprs;
+    end
+    
+    # Here we set a SymExpression for each of the pieces. 
+    # This is an Expr tree that is passed to the code generator.
+    if length(result_exprs) == 4 # has surface terms
+        set_symexpressions(var, lhs_symexpr, LHS, "volume");
+        set_symexpressions(var, lhs_surf_symexpr, LHS, "surface");
+        set_symexpressions(var, rhs_symexpr, RHS, "volume");
+        set_symexpressions(var, rhs_surf_symexpr, RHS, "surface");
+        
+        log_entry("lhs volume symexpression:\n\t"*string(lhs_symexpr));
+        log_entry("lhs surface symexpression:\n\t"*string(lhs_surf_symexpr));
+        log_entry("rhs volume symexpression:\n\t"*string(rhs_symexpr));
+        log_entry("rhs surface symexpression:\n\t"*string(rhs_surf_symexpr));
+        
+        log_entry("Latex equation:\n\t\t \\int_{K} -"*symexpression_to_latex(lhs_symexpr)*
+                    " dx + \\int_{K}"*symexpression_to_latex(rhs_symexpr)*" dx"*
+                    "\\int_{\\partial K}"*symexpression_to_latex(lhs_surf_symexpr)*
+                    " ds - \\int_{\\partial K}"*symexpression_to_latex(rhs_surf_symexpr)*" ds", 3);
+    else
+        set_symexpressions(var, lhs_symexpr, LHS, "volume");
+        set_symexpressions(var, rhs_symexpr, RHS, "volume");
+        
+        log_entry("lhs symexpression:\n\t"*string(lhs_symexpr));
+        log_entry("rhs symexpression:\n\t"*string(rhs_symexpr));
+        
+        log_entry("Latex equation:\n\t\t\$ \\int_{K}"*symexpression_to_latex(lhs_symexpr)*
+                    " dx = \\int_{K}"*symexpression_to_latex(rhs_symexpr)*" dx", 3);
+    end
+    
+    # Init stepper here so it can be used in generation
+    if prob.time_dependent
+        init_stepper(grid_data.allnodes, time_stepper);
+        if use_specified_steps
+            time_stepper.dt = specified_dt;
+            time_stepper.Nsteps = specified_Nsteps;
+        end
+    end
+    
+    # change symbolic layer into IR
+    if length(result_exprs) == 4
+        full_IR = build_IR_fvm(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, var, config, prob, time_stepper, fv_info);
+    else
+        full_IR = build_IR_fvm(lhs_symexpr, nothing, rhs_symexpr, nothing, var, config, prob, time_stepper, fv_info);
+    end
+    log_entry("Conservation form IR: "*string(full_IR),3);
     
     # Generate code from IR
     code = generate_code_layer(var, full_IR, solver_type, language, gen_framework);
@@ -945,7 +1041,7 @@ end
     importCode(filename)
 
 Import elemental calculation and assembly loop code for all variables if possible.
-The function definition line and ending line must match a specific format to 
+The "begin", "end", and "No code" comment lines must match a specific format to 
 properly match them to the variables, so do not modify those lines from the
 exported code.
 """

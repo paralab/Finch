@@ -40,11 +40,11 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     end
     
     code *="
-    @timeit timer_output \"prepare\" begin
-    
     # Useful symbols for FEM
     Q = refel.Q;
     wg = refel.wg;
+    
+    # Useful symbols for FVM
     
     # Prepare some useful numbers
     dofs_per_node = "*string(dofs_per_node)*";
@@ -56,10 +56,11 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     dofs_partition = dofs_per_node * nnodes_partition;
     nodes_per_element = refel.Np;
     qnodes_per_element = refel.Nqp;
+    faces_per_element = refel.Nfaces;
     dofs_per_element = dofs_per_node * nodes_per_element;
     num_elements = mesh.nel_owned;
+    num_faces = mesh.nface_owned + mesh.nface_ghost;
     
-    end
     "
     
     # The assembly is taken from the IR
@@ -68,10 +69,10 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     # Post assembly part
     code *="
     
-    return nothing;
-    "
+    return nothing;\n"
+    
     if wrap_in_function
-        code *= "end # function\n";
+        code *= "\nend # function\n";
     end
     
     return code;
@@ -87,11 +88,11 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
     node_type = typeof(IR);
     
     if node_type == IR_data_node # data nodes will look like "x" or "x[i,2]" or "x[a[1],17]"
-        var_name = string(IR.var);
+        var_name = string(IR.label);
         
-        if IR.type == IRtypes.scalar_data
+        if length(IR.size) == 0
             code = var_name;
-        elseif IR.type == IRtypes.array_data && length(IR.index) > 0
+        elseif length(IR.size) > 0 && length(IR.index) > 0
             code = var_name*"[";
             for i=1:length(IR.index)
                 if typeof(IR.index[i]) <: IR_part
@@ -104,19 +105,13 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
                 end
             end
             code *= "]";
-        elseif IR.type == IRtypes.matrix_data
-            code = var_name;
-        elseif IR.type == IRtypes.vector_data
-            code = var_name;
         else
             code = var_name;
         end
-        # handle struct access
-        
         
     elseif node_type == IR_operation_node
         if IR.type == IRtypes.allocate_op # zeros(Float64, 2,5)
-            code = "zeros("*IRtypes.name[IR.args[1]];
+            code = indent * "zeros("*IRtypes.name[IR.args[1]];
             for i=2:length(IR.args)
                 code *= ", ";
                 if typeof(IR.args[i]) <: IR_part
@@ -129,9 +124,9 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
             
         elseif IR.type == IRtypes.assign_op # x = ...
             if typeof(IR.args[1]) <: IR_part
-                code = generate_from_IR_julia(IR.args[1], IRtypes);
+                code = indent * generate_from_IR_julia(IR.args[1], IRtypes);
             else
-                code = string(IR.args[1]);
+                code = indent * string(IR.args[1]);
             end
             code *= " = ";
             if typeof(IR.args[2]) <: IR_part
@@ -177,16 +172,15 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
             code = string(IR.args[1]) * "." * generate_from_IR_julia(IR.args[2], IRtypes);
             
         elseif IR.type == IRtypes.named_op # handled case by case
-            code = generate_named_op(IR, IRtypes);
+            code = generate_named_op(IR, IRtypes, indent);
         end
         
     elseif node_type == IR_block_node # A collection of statements. Do them one line at a time
         code = "";
         for i=1:length(IR.parts)
             if typeof(IR.parts[i]) == IR_operation_node
-                code *= indent * "    "; # indent
-                code *= generate_from_IR_julia(IR.parts[i], IRtypes);
-                code *= ";\n";
+                code *= generate_from_IR_julia(IR.parts[i], IRtypes, indent * "    ");
+                code *= "\n";
             elseif typeof(IR.parts[i]) == IR_block_node
                 code *= generate_from_IR_julia(IR.parts[i], IRtypes, indent);
             else
@@ -225,7 +219,7 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
     return code;
 end
 
-function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types, Nothing} = nothing)
+function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types, Nothing} = nothing, indent="")
     code = "";
     code = string(IR.args[1]); # TODO
     
@@ -242,29 +236,29 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         
     elseif op === :TIMER
         # A timer has two more args, the label and the content
-        code = "@timeit timer_output \""*string(IR.args[2])*"\" begin\n";
-        code *= generate_from_IR_julia(IR.args[3], IRtypes);
-        code *= "\nend\n";
+        code = indent * "@timeit timer_output \""*string(IR.args[2])*"\" begin\n";
+        code *= generate_from_IR_julia(IR.args[3], IRtypes, indent);
+        code *= "\n" * indent * "end # timer:"*string(IR.args[2])*"\n";
         
     elseif op === :FILL_ARRAY
         # args[2] is the array, args[3] is the value
-        code = generate_from_IR_julia(IR.args[2], IRtypes) * " .= " * string(IR.args[3]);
+        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " .= " * string(IR.args[3]);
         
     elseif op === :GLOBAL_FINALIZE
         # This will eventually be more complicated, but let's do the default for now
-        code = "global_matrix = sparse(global_matrix_I, global_matrix_J, global_matrix_V);"
+        code = indent * "global_matrix = sparse(global_matrix_I, global_matrix_J, global_matrix_V);"
         
     elseif op === :GLOBAL_SOLVE
         # This will eventually be more complicated, but let's do the default for now
-        code = generate_from_IR_julia(IR.args[2], IRtypes) * " .= "* generate_from_IR_julia(IR.args[3], IRtypes) *" \\ "* generate_from_IR_julia(IR.args[4], IRtypes) *";"
+        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " .= "* generate_from_IR_julia(IR.args[3], IRtypes) *" \\ "* generate_from_IR_julia(IR.args[4], IRtypes) *";"
         
     elseif op === :GATHER_SOLUTION
         # place variable arrays in solution vector
-        code = generate_from_IR_julia(IR.args[2], IRtypes) * " = CGSolver.get_var_vals(var);";
+        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = CGSolver.get_var_vals(var);";
         
     elseif op === :SCATTER_SOLUTION
         # place solution in variable arrays
-        code = "CGSolver.place_sol_in_vars(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *");";
+        code = indent * "CGSolver.place_sol_in_vars(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *");";
         
     elseif op === :LINALG_MATRIX_BLOCK
         n_blocks = IR.args[2];

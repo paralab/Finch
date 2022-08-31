@@ -285,22 +285,33 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
                 stepper_type = time_stepper[2].type;
             end
             # There is an assumed Dt(u) added which is the only time derivative.
-            if is_flux
-                log_entry("flux, before modifying for time: "*string(lhs)*" - "*string(rhs));
-                (newlhs, newrhs) = reformat_for_stepper_fv_flux(lhs, rhs, stepper_type);
-                log_entry("flux, modified for time stepping: "*string(newlhs)*" + "*string(newrhs));
-            else # source
-                log_entry("source, before modifying for time: "*string(lhs)*" - "*string(rhs));
-                (newlhs, newrhs) = reformat_for_stepper_fv_source(lhs, rhs, stepper_type);
-                log_entry("source, modified for time stepping: "*string(newlhs)*" + "*string(newrhs));
-            end
+            # if is_flux
+            #     log_entry("flux, before modifying for time: "*string(lhs)*" - "*string(rhs));
+            #     (newlhs, newrhs) = reformat_for_stepper_fv_flux(lhs, rhs, stepper_type);
+            #     log_entry("flux, modified for time stepping: "*string(newlhs)*" + "*string(newrhs));
+            # else # source
+            #     log_entry("source, before modifying for time: "*string(lhs)*" - "*string(rhs));
+            #     (newlhs, newrhs) = reformat_for_stepper_fv_source(lhs, rhs, stepper_type);
+            #     log_entry("source, modified for time stepping: "*string(newlhs)*" + "*string(newrhs));
+            # end
+            log_entry("flux, before modifying for time: "*string(surflhs)*" - "*string(surfrhs));
+            (newsurflhs, newsurfrhs) = reformat_for_stepper_fv_flux(surflhs, surfrhs, stepper_type);
+            log_entry("flux, modified for time stepping: "*string(newsurflhs)*" + "*string(newsurfrhs));
+            log_entry("source, before modifying for time: "*string(lhs)*" - "*string(rhs));
+            (newlhs, newrhs) = reformat_for_stepper_fv_source(lhs, rhs, stepper_type);
+            log_entry("source, modified for time stepping: "*string(newlhs)*" + "*string(newrhs));
+            
             # Parse Basic->Expr and insert placeholders
             newlhs = basic_to_expr_and_place(newlhs, placeholders)
             newrhs = basic_to_expr_and_place(newrhs, placeholders)
+            newsurflhs = basic_to_expr_and_place(newsurflhs, placeholders)
+            newsurfrhs = basic_to_expr_and_place(newsurfrhs, placeholders)
             # Build a SymExpression for each of the pieces. 
-            (lhs_symexpr, rhs_symexpr) = build_symexpressions(var, newlhs, newrhs, remove_zeros=true);
+            (lhs_symexpr, rhs_symexpr, lhs_surf_symexpr, rhs_surf_symexpr) = build_symexpressions(var, newlhs, newrhs, newsurflhs, newsurfrhs, remove_zeros=true);
             lhs = lhs_symexpr;
             rhs = rhs_symexpr;
+            surflhs = lhs_surf_symexpr;
+            surfrhs = rhs_surf_symexpr;
             
         else # FE
             if stepper_type == MIXED_STEPPER && typeof(time_stepper) <: Array
