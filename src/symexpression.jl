@@ -459,8 +459,9 @@ function replace_special_ops(ex)
     elseif typeof(ex) == Symbol
         # check against these special ones that need to be replaced
         # This will eventually contain more complex things.
-        specials = [:symbolmin, :symbolmax, :isgreaterthan, :islessthan, :conditional];
-        replacements = Dict([(:symbolmin, :min), (:symbolmax, :max), (:isgreaterthan, :>), (:islessthan, :<), (:conditional, :conditional_function)]);
+        specials = [:symbolmin, :symbolmax, :isgreaterthan, :islessthan, :conditional, :exp];
+        replacements = Dict([(:symbolmin, :min), (:symbolmax, :max), (:isgreaterthan, :>), 
+                            (:islessthan, :<), (:conditional, :conditional_function), (:exp, :exp)]);
         if ex in specials
             newex = replacements[ex];
         elseif occursin("CALLBACK_", string(ex))

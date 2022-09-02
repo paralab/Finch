@@ -21,7 +21,7 @@ module IntermediateRepresentation
 # Implement AbstractTrees for plotting/printing/using other tools if desired
 using AbstractTrees
 
-export IR_entry_types, IR_string, print_tree, testIR
+export IR_entry_types, IR_string, print_IR, repr_IR
 export IR_part, IR_data_node, IR_data_access, IR_operation_node, IR_block_node, IR_loop_node, IR_conditional_node, IR_comment_node
 export build_IR_fem, build_IR_fvm
 
@@ -61,7 +61,7 @@ struct IR_entry_types
     
     # data types
     int_data::Int8      # = 21 # These are for int and float of unspecified size
-    float_data::Int8    # = 22
+    float_data::Int8    # = 22 #
     
     int_32_data::Int8    # = 25
     int_64_data::Int8    # = 26
@@ -160,13 +160,13 @@ function AbstractTrees.printnode(io::IO, a::IR_operation_node)
     elseif a.type == IRtypes.assign_op
         print(io,"=");
     elseif a.type == IRtypes.function_op
-        print(io, IR_string(a.args[1]));
+        print(io, string(a.args[1]));
     elseif a.type == IRtypes.math_op
-        print(io, IR_string(a.args[1]));
+        print(io, string(a.args[1]));
     elseif a.type == IRtypes.member_op
-        print(io, IR_string(a.args[1]));
+        print(io, string(a.args[1]));
     elseif a.type == IRtypes.named_op
-        print(io, IR_string(a.args[1]));
+        print(io, string(a.args[1]));
     else
         print(io, "unknown op");
     end
@@ -176,9 +176,12 @@ end
 # Use for the body of a loop or conditional or for a top-level container
 mutable struct IR_block_node <: IR_part
     parts::Vector{IR_part}
+    label::String
+    IR_block_node(p::Vector) = new(p, "")
+    IR_block_node(p::Vector, s::String) = new(p, s)
 end
 AbstractTrees.children(a::IR_block_node) = a.parts;
-AbstractTrees.printnode(io::IO, a::IR_block_node) = print(io,"block");
+AbstractTrees.printnode(io::IO, a::IR_block_node) = print(io,"block:"*a.label);
 
 # This is a loop.
 # The type could be time, space, dof, or index
@@ -394,12 +397,15 @@ function IR_string(a::IR_data_access)
     return result;
 end
 function IR_string(a::IR_comment_node)
-    return a.string;
+    return "# "*a.string;
 end
 
 # Prints the IR_part as a tree
-function print_IR_tree(a::IR_part)
+function print_IR(a::IR_part)
     AbstractTrees.print_tree(a);
+end
+function repr_IR(a::IR_part)
+    return AbstractTrees.repr_tree(a, maxdepth=20);
 end
 
 #############################################################################################################

@@ -221,14 +221,13 @@ end
 
 function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types, Nothing} = nothing, indent="")
     code = "";
-    code = string(IR.args[1]); # TODO
     
     op = IR.args[1];
     if op === :COEF_EVAL
         code = "evaluate_coefficient(coefficients[" * string(IR.args[2]) * "], " * string(IR.args[3]) * ", x, y, z, t, nodeID)";
         
     elseif op === :KNOWN_VAR
-        code = "variables[" * string(IR.args[2]) * "].values[nodeID]"; # only works for scalars
+        code = "variables[" * string(IR.args[2]) * "].values["*string(IR.args[3])*", "*string(IR.args[4])*"]";
         
     elseif op === :ROWCOL_TO_INDEX
         # code = string(IR.args[2]) * " + (" * string(IR.args[3]) * "-1)*" * string(IR.args[4]);

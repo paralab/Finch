@@ -519,15 +519,34 @@ function sym_burgerGodunov_op(u, f)
     return result;
 end
 
+function sym_exp_op(e)
+    # Input will be an array of Basic. Output should be in a similar array.
+    if typeof(e) <: Array
+        result = copy(e);
+        for i=1:length(result)
+            result[i] = sym_exp_op(e[i]);
+        end
+        
+    elseif typeof(e) == Basic
+        @funs(exp)
+        result = exp(e);
+    elseif typeof(e) <: Number
+        # If the input was just a constant, the result will just be that constant.
+        result = Basic(exp(e));
+    end
+    return result;
+end
 
 # Load them into the global arrays
 op_names = [:dot, :inner, :cross, :transpose, :surface, :ave, :jump, :normal, 
             :Dt, :deriv, :grad, :div, :curl, :laplacian,
-            :left, :right, :central, :neighborhood, :upwind, :upwindA, :burgerGodunov];
+            :left, :right, :central, :neighborhood, :upwind, :upwindA, :burgerGodunov,
+            :exp];
 _handles = [sym_dot_op, sym_inner_op, sym_cross_op, sym_transpose_op, sym_surface_op, sym_ave_op, sym_jump_op, 
             sym_normal_op, sym_Dt_op, sym_deriv_op, sym_grad_op, 
             sym_div_op, sym_curl_op, sym_laplacian_op,
-            sym_left_op, sym_right_op, sym_central_op, sym_neighborhood_op, sym_upwind_op, sym_upwindA_op, sym_burgerGodunov_op];
+            sym_left_op, sym_right_op, sym_central_op, sym_neighborhood_op, sym_upwind_op, sym_upwindA_op, sym_burgerGodunov_op,
+            sym_exp_op];
 for i=1:length(op_names)
     push!(ops, SymOperator(op_names[i], _handles[i]));
 end

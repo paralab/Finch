@@ -120,10 +120,11 @@ function sym_var(name, type, components=1)
     return symvar;
 end
 
-# Parses a variational form expression into a SymEngine Basic expression 
-# Takes an Expr, variable symbol
+# Parses a variational or integral form expression into a SymEngine Basic expression 
+# Takes an Expr and variable symbols
 # The symbols are only for determining lhs vs. rhs
 # Returns a tuple of SymEngine expressions (lhs, rhs) for the equation lhs = rhs
+# or (lhs, surf_lhs, rhs, surf_rhs) when there are surface integral terms
 # lhs contains terms including the unknown variable
 # rhs contains terms without it
 function sp_parse(ex, var; is_FV=false, is_flux=false)
@@ -242,6 +243,8 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
             (dtrhs,rhs) = split_dt(rhs,sz);
         end
     end
+    
+    
     
     # If there was a surface integral, separate those terms as well
     if has_surface

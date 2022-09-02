@@ -40,17 +40,17 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
     IRtypes = IR_entry_types();
     
     # These will hold the IR
-    allocate_block = IR_block_node([]);
-    prepare_block = IR_block_node([]);
-    derivmat_block = IR_block_node([]);
-    time_prepare_block = IR_block_node([]);
-    time_derivmat_block = IR_block_node([]);
-    matrix_block = IR_block_node([]);
-    vector_block = IR_block_node([]);
-    bdry_block = IR_block_node([]);
-    toglobal_block = IR_block_node([]);
-    time_bdry_block = IR_block_node([]);
-    time_toglobal_block = IR_block_node([]);
+    allocate_block = IR_block_node([],"allocation");
+    prepare_block = IR_block_node([],"prepare");
+    derivmat_block = IR_block_node([],"deriv mat");
+    time_prepare_block = IR_block_node([], "prepare");
+    time_derivmat_block = IR_block_node([], "deriv mat");
+    matrix_block = IR_block_node([],"elemental matrix");
+    vector_block = IR_block_node([],"elemental vector");
+    bdry_block = IR_block_node([],"boundary");
+    toglobal_block = IR_block_node([],"local to global");
+    time_bdry_block = IR_block_node([],"boundary");
+    time_toglobal_block = IR_block_node([],"local to global");
     
     # Allocate the global matrix and vector
     push!(allocate_block.parts, IR_comment_node("Allocate global matrix(IJV form) and vector."));
@@ -249,14 +249,14 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
         wrap_in_timer(:el_vector, vector_block),
         wrap_in_timer(:bdry_cond, bdry_block),
         toglobal_block
-    ])
+    ], "inner assembly")
     rhs_inner_loop.body = IR_block_node([
         time_prepare_block,
         time_derivmat_block,
         wrap_in_timer(:el_vector, vector_block),
         wrap_in_timer(:bdry_cond, time_bdry_block),
         time_toglobal_block
-    ])
+    ], "inner assembly")
     
     # time loop
     need_time_loop = prob.time_dependent;
@@ -274,7 +274,7 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
             IR_comment_node("###############################################"),
             IR_comment_node("Time stepping loop"),
             step_loop
-        ]);
+        ],"time stepping");
     else
         time_loop = IR_block_node([
             IR_operation_node(IRtypes.assign_op, [:t, 0]),
@@ -282,14 +282,14 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
             IR_operation_node(IRtypes.named_op, [:GLOBAL_FINALIZE]),
             wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
             wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :solution])),
-        ])
+        ],"solution")
     end
     
     # Put them all together in a master block
     master_block = IR_block_node([
         allocate_block,
         time_loop
-    ]);
+    ],"master");
     
     return master_block;
 end
@@ -627,7 +627,7 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
     IRtypes = IR_entry_types();
     
     # This will be returned
-    compute_block = IR_block_node([]);
+    compute_block = IR_block_node([],"elemental compute");
     
     # Separate the factors of each term into test, trial, coef and form the calculation
     if dofsper > 1
@@ -1270,7 +1270,7 @@ function generate_time_stepping_loop_fem(stepper, assembly)
             nb = length(stepper.b);
             nc = length(stepper.c);
             tmp_last = IR_data_node(IRtypes.float_64_data, :last_result, [:dofs_global], []);
-            tmp_result = IR_data_node(IRtypes.float_64_data, :tmpresult), [:dofs_global], [];
+            tmp_result = IR_data_node(IRtypes.float_64_data, :tmpresult, [:dofs_global], []);
             tmp_ki = IR_data_node(IRtypes.float_64_data, :tmpki, [:dofs_global], []);
             
             update_ki_loop_one = IR_loop_node(IRtypes.space_loop, :dofs, :k, 1, :dofs_global, IR_block_node([

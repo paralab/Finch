@@ -34,12 +34,355 @@ function init_solver()
     global post_step_function = default_post_step;
 end
 
-function linear_solve(var, func, stepper=nothing)
+function solve(var, func, stepper=nothing)
     # args = (var, grid_data, refel, geo_factors, config, coefficients, variables, test_functions, indexers, prob, stepper);
     return TimerOutputs.@timeit timer_output "cg_colve" func.func(var, grid_data, refel, geo_factors, config, 
                                                                 coefficients, variables, test_functions, indexers, prob, stepper);
 end
 
+##################################################################################################
+# utilities
+
+function place_sol_in_vars(var, sol, stepper=nothing)
+    # place the values in the variable value arrays
+    if typeof(var) <: Array
+        tmp = 0;
+        totalcomponents = 0;
+        for vi=1:length(var)
+            totalcomponents = totalcomponents + var[vi].total_components;
+        end
+        for vi=1:length(var)
+            components = var[vi].total_components;
+            for compi=1:components
+                var[vi].values[compi,:] .= sol[(compi+tmp):totalcomponents:end];
+            end
+            tmp = tmp + components;
+        end
+    else
+        components = var.total_components;
+        for compi=1:components
+            var.values[compi,:] .= sol[compi:components:end];
+        end
+    end
+end
+
+function get_var_vals(var, vect=nothing)
+    # place the variable values in a vector
+    if typeof(var) <: Array
+        tmp = 0;
+        totalcomponents = 0;
+        for vi=1:length(var)
+            totalcomponents = totalcomponents + var[vi].total_components;
+        end
+        if vect === nothing
+            vect = zeros(totalcomponents * length(var[1].values[1,:]));
+        end
+        for vi=1:length(var)
+            components = var[vi].total_components;
+            for compi=1:components
+                vect[(compi+tmp):totalcomponents:end] = var[vi].values[compi,:];
+                tmp = tmp + 1;
+            end
+        end
+    else
+        components = var.total_components;
+        if vect === nothing
+            vect = zeros(components * length(var.values[1,:]));
+        end
+        for compi=1:components
+            vect[compi:components:end] = var.values[compi,:];
+        end
+    end
+    
+    return vect;
+end
+
+######################################################################################
+# For partitioned meshes
+function get_partitioned_ordering(nnodes, dofs_per_node)
+    if config.num_procs > 1
+        # The global ordering of this partition's b vector entries
+        b_order_loc = zeros(Int, nnodes*dofs_per_node);
+        for ni=1:nnodes
+            for di=1:dofs_per_node
+                b_order_loc[(ni-1)*dofs_per_node + di] = (grid_data.partition2global[ni]-1)*dofs_per_node + di;
+            end
+        end
+        
+        # only proc 0 needs this info for now
+        if config.proc_rank == 0
+            # The b_sizes
+            send_buf = [nnodes*dofs_per_node];
+            recv_buf = zeros(Int, config.num_procs);
+            MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
+            
+            # b_order
+            chunk_sizes = recv_buf;
+            displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+            total_length = chunk_sizes[1];
+            for proc_i=2:config.num_procs
+                displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                total_length += chunk_sizes[proc_i];
+            end
+            full_b_order = zeros(Int, total_length);
+            b_order_buf = MPI.VBuffer(full_b_order, chunk_sizes, displacements, MPI.Datatype(Int));
+            MPI.Gatherv!(b_order_loc, b_order_buf, 0, MPI.COMM_WORLD);
+            
+            return (full_b_order, chunk_sizes);
+            
+        else
+            send_buf = [nnodes*dofs_per_node];
+            MPI.Gather!(send_buf, nothing, 0, MPI.COMM_WORLD);
+            MPI.Gatherv!(b_order_loc, nothing, 0, MPI.COMM_WORLD);
+            
+            return ([1], [1]);
+        end
+        
+    else
+        return (nothing, nothing);
+    end
+end
+
+# For multiple processes, gather the system, distribute the solution
+# Note: rescatter_b only applies when rhs_only
+function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes; rescatter_b=false)
+    rhs_only = (A===nothing);
+    if config.num_procs > 1
+        if !rhs_only
+            # For now just gather all of A in proc 0 to assemble.
+            # The row and column indices have to be changed according to partition2global.
+            # Also, b must be reordered on proc 0, so send the needed indices as well.
+            (AI, AJ, AV) = findnz(A);
+            for i=1:length(AI)
+                dof = mod(AI[i]-1,dofs_per_node)+1;
+                node = Int(floor((AI[i]-dof) / dofs_per_node) + 1);
+                AI[i] = (grid_data.partition2global[node] - 1) * dofs_per_node + dof;
+                
+                dof = mod(AJ[i]-1,dofs_per_node)+1;
+                node = Int(floor((AJ[i]-dof) / dofs_per_node) + 1);
+                AJ[i] = (grid_data.partition2global[node] - 1) * dofs_per_node + dof;
+            end
+            
+            if config.proc_rank == 0
+                # First figure out how long each proc's arrays are
+                send_buf = [length(AI)];
+                recv_buf = zeros(Int, config.num_procs);
+                MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
+                
+                # Use gatherv to accumulate A
+                chunk_sizes = recv_buf;
+                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+                total_length = chunk_sizes[1];
+                for proc_i=2:config.num_procs
+                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                    total_length += chunk_sizes[proc_i];
+                end
+                full_AI = zeros(Int, total_length);
+                full_AJ = zeros(Int, total_length);
+                full_AV = zeros(Float64, total_length);
+                AI_buf = MPI.VBuffer(full_AI, chunk_sizes, displacements, MPI.Datatype(Int));
+                AJ_buf = MPI.VBuffer(full_AJ, chunk_sizes, displacements, MPI.Datatype(Int));
+                AV_buf = MPI.VBuffer(full_AV, chunk_sizes, displacements, MPI.Datatype(Float64));
+                
+                MPI.Gatherv!(AI, AI_buf, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AJ, AJ_buf, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AV, AV_buf, 0, MPI.COMM_WORLD);
+                
+                # # Modify AI and AJ to global indices using b_order
+                # b_start = 0;
+                # for proc_i=1:config.num_procs
+                #     for ai=(displacements[proc_i]+1):(displacements[proc_i] + chunk_sizes[proc_i])
+                #         full_AI[ai] = b_order[b_start + full_AI[ai]];
+                #         full_AJ[ai] = b_order[b_start + full_AJ[ai]];
+                #     end
+                #     b_start += b_sizes[proc_i];
+                # end
+                
+                # Assemble A
+                full_A = sparse(full_AI, full_AJ, full_AV);
+                
+                # Next gather b
+                chunk_sizes = b_sizes;
+                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+                total_length = chunk_sizes[1];
+                for proc_i=2:config.num_procs
+                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                    total_length += chunk_sizes[proc_i];
+                end
+                full_b = zeros(total_length);
+                b_buf = MPI.VBuffer(full_b, chunk_sizes, displacements, MPI.Datatype(Float64));
+                MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
+                
+                # Overlapping values will be added.
+                new_b = zeros(grid_data.nnodes_global * dofs_per_node);
+                for i=1:total_length
+                    new_b[b_order[i]] += full_b[i];
+                end
+                
+                return (full_A, new_b);
+                
+            else # other procs just send their data
+                send_buf = [length(AI)];
+                MPI.Gather!(send_buf, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AI, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AJ, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AV, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
+                
+                return (ones(1,1),[1]);
+            end
+            
+        else # RHS only\
+            if config.proc_rank == 0
+                # gather b
+                chunk_sizes = b_sizes;
+                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+                total_length = chunk_sizes[1];
+                for proc_i=2:config.num_procs
+                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                    total_length += chunk_sizes[proc_i];
+                end
+                full_b = zeros(total_length);
+                b_buf = MPI.VBuffer(full_b, chunk_sizes, displacements, MPI.Datatype(Float64));
+                MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
+                
+                # Overlapping values will be added.
+                new_b = zeros(grid_data.nnodes_global * dofs_per_node);
+                for i=1:total_length
+                    new_b[b_order[i]] += full_b[i];
+                end
+                
+                if rescatter_b
+                    return distribute_solution(new_b, nnodes, dofs_per_node, b_order, b_sizes)
+                else
+                    return new_b;
+                end
+                
+            else # other procs just send their data
+                MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
+                
+                if rescatter_b
+                    return distribute_solution(nothing, nnodes, dofs_per_node, b_order, b_sizes)
+                else
+                    return [1];
+                end
+            end
+        end
+        
+    else # one process
+        if rhs_only
+            return b;
+        else
+            return (A, b);
+        end
+    end
+end
+
+function distribute_solution(sol, nnodes, dofs_per_node, b_order, b_sizes)
+    if config.num_procs > 1
+        my_sol = zeros(nnodes*dofs_per_node);
+        if config.proc_rank == 0 # 0 has the full sol
+            # Need to reorder b and put in a larger array according to b_order
+            total_length = sum(b_sizes);
+            full_sol = zeros(total_length);
+            for i=1:total_length
+                full_sol[i] = sol[b_order[i]];
+            end
+            
+            # scatter b
+            chunk_sizes = b_sizes;
+            displacements = zeros(Int, config.num_procs); # for the irregular scatterv
+            for proc_i=2:config.num_procs
+                displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+            end
+            sol_buf = MPI.VBuffer(full_sol, chunk_sizes, displacements, MPI.Datatype(Float64));
+            
+            # Scatter it amongst the little ones
+            MPI.Scatterv!(sol_buf, my_sol, 0, MPI.COMM_WORLD);
+            
+        else # Others don't have sol
+            MPI.Scatterv!(nothing, my_sol, 0, MPI.COMM_WORLD);
+        end
+        return my_sol;
+        
+    else
+        return sol;
+    end
+end
+
+# Simply does a reduction.
+# Works for scalar values or vectors, but vectors are not themselves reduced.
+# 1, 2, 3 -> 6
+# [1,10,100], [2,20,200], [3,30,300] -> [6,60,600]
+function combine_values(val; combine_op = +)
+    if config.num_procs > 1
+        rval = MPI.Allreduce(val, combine_op, MPI.COMM_WORLD);
+        return rval;
+        
+    else
+        return val;
+    end
+end
+
+# This reduces a global vector to one value
+# [1,10,100], [2,20,200], [3,30,300] -> 666
+function reduce_vector(vec::Array)
+    if config.num_procs > 1
+        rval = MPI.Allreduce(sum(vec), +, MPI.COMM_WORLD);
+        return rval;
+        
+    else
+        return sum(vec);
+    end
+end
+
+################################################################
+## Options for solving the assembled linear system
+################################################################
+function linear_system_solve(A,b)
+    if config.num_procs > 1 && config.proc_rank > 0
+        # Other procs don't have the full A, just return b
+        return b;
+    end
+    
+    if config.linalg_backend == DEFAULT_SOLVER
+        return A\b;
+    elseif config.linalg_backend == PETSC_SOLVER
+        # For now try this simple setup.
+        # There will be many options that need to be available to the user. TODO
+        # The matrix should really be constructed from the begninning as a PETSc one. TODO
+        
+        petsclib = PETSc.petsclibs[1]           #
+        inttype = PETSc.inttype(petsclib);      # These should maybe be kept in config
+        scalartype = PETSc.scalartype(petsclib);#
+        
+        (I, J, V) = findnz(A);
+        (n,n) = size(A);
+        nnz = zeros(inttype, n); # number of non-zeros per row
+        for i=1:length(I)
+            nnz[I[i]] += 1;
+        end
+        
+        petscA = PETSc.MatSeqAIJ{scalartype}(n,n,nnz);
+        for i=1:length(I)
+            petscA[I[i],J[i]] = V[i];
+        end
+        PETSc.assemble(petscA);
+        
+        ksp = PETSc.KSP(petscA; ksp_rtol=1e-8, pc_type="jacobi", ksp_monitor=false); # Options should be available to user
+        
+        return ksp\b;
+    elseif config.linalg_backend == CUDA_SOLVER
+        elty = typeof(b[1])
+        x = zeros(elty ,length(b))
+        tol = convert(real(elty),1e-6)
+        x = CUDA.CUSOLVER.csrlsvlu!(A, b, x, tol ,one(Cint),'O')
+        return x
+    end
+end
+
+#######################################################################################################
+# old things that will be removed eventually
 
 
 function old_linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=nothing)
@@ -322,7 +665,7 @@ function old_linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=
     end
 end
 
-function nonlinear_solve(var, nlvar, bilinear, linear, stepper=nothing; assemble_loops=nothing)
+function old_nonlinear_solve(var, nlvar, bilinear, linear, stepper=nothing; assemble_loops=nothing)
     if config.num_pertitions > 1
         printerr("nonlinear solver is not ready for partitioned meshes. sorry.", fatal=true);
     end
@@ -707,342 +1050,6 @@ function insert_bilinear!(AI, AJ, AV, Astart, ael, glb, dof, Ndofs)
     
 end
 
-function place_sol_in_vars(var, sol, stepper=nothing)
-    # place the values in the variable value arrays
-    if typeof(var) <: Array
-        tmp = 0;
-        totalcomponents = 0;
-        for vi=1:length(var)
-            totalcomponents = totalcomponents + var[vi].total_components;
-        end
-        for vi=1:length(var)
-            components = var[vi].total_components;
-            for compi=1:components
-                var[vi].values[compi,:] .= sol[(compi+tmp):totalcomponents:end];
-            end
-            tmp = tmp + components;
-        end
-    else
-        components = var.total_components;
-        for compi=1:components
-            var.values[compi,:] .= sol[compi:components:end];
-        end
-    end
-end
 
-function get_var_vals(var, vect=nothing)
-    # place the variable values in a vector
-    if typeof(var) <: Array
-        tmp = 0;
-        totalcomponents = 0;
-        for vi=1:length(var)
-            totalcomponents = totalcomponents + var[vi].total_components;
-        end
-        if vect === nothing
-            vect = zeros(totalcomponents * length(var[1].values[1,:]));
-        end
-        for vi=1:length(var)
-            components = var[vi].total_components;
-            for compi=1:components
-                vect[(compi+tmp):totalcomponents:end] = var[vi].values[compi,:];
-                tmp = tmp + 1;
-            end
-        end
-    else
-        components = var.total_components;
-        if vect === nothing
-            vect = zeros(components * length(var.values[1,:]));
-        end
-        for compi=1:components
-            vect[compi:components:end] = var.values[compi,:];
-        end
-    end
-    
-    return vect;
-end
-
-######################################################################################
-# For partitioned meshes
-function get_partitioned_ordering(nnodes, dofs_per_node)
-    if config.num_procs > 1
-        # The global ordering of this partition's b vector entries
-        b_order_loc = zeros(Int, nnodes*dofs_per_node);
-        for ni=1:nnodes
-            for di=1:dofs_per_node
-                b_order_loc[(ni-1)*dofs_per_node + di] = (grid_data.partition2global[ni]-1)*dofs_per_node + di;
-            end
-        end
-        
-        # only proc 0 needs this info for now
-        if config.proc_rank == 0
-            # The b_sizes
-            send_buf = [nnodes*dofs_per_node];
-            recv_buf = zeros(Int, config.num_procs);
-            MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
-            
-            # b_order
-            chunk_sizes = recv_buf;
-            displacements = zeros(Int, config.num_procs); # for the irregular gatherv
-            total_length = chunk_sizes[1];
-            for proc_i=2:config.num_procs
-                displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
-                total_length += chunk_sizes[proc_i];
-            end
-            full_b_order = zeros(Int, total_length);
-            b_order_buf = MPI.VBuffer(full_b_order, chunk_sizes, displacements, MPI.Datatype(Int));
-            MPI.Gatherv!(b_order_loc, b_order_buf, 0, MPI.COMM_WORLD);
-            
-            return (full_b_order, chunk_sizes);
-            
-        else
-            send_buf = [nnodes*dofs_per_node];
-            MPI.Gather!(send_buf, nothing, 0, MPI.COMM_WORLD);
-            MPI.Gatherv!(b_order_loc, nothing, 0, MPI.COMM_WORLD);
-            
-            return ([1], [1]);
-        end
-        
-    else
-        return (nothing, nothing);
-    end
-end
-
-# For multiple processes, gather the system, distribute the solution
-# Note: rescatter_b only applies when rhs_only
-function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes; rescatter_b=false)
-    rhs_only = (A===nothing);
-    if config.num_procs > 1
-        if !rhs_only
-            # For now just gather all of A in proc 0 to assemble.
-            # The row and column indices have to be changed according to partition2global.
-            # Also, b must be reordered on proc 0, so send the needed indices as well.
-            (AI, AJ, AV) = findnz(A);
-            for i=1:length(AI)
-                dof = mod(AI[i]-1,dofs_per_node)+1;
-                node = Int(floor((AI[i]-dof) / dofs_per_node) + 1);
-                AI[i] = (grid_data.partition2global[node] - 1) * dofs_per_node + dof;
-                
-                dof = mod(AJ[i]-1,dofs_per_node)+1;
-                node = Int(floor((AJ[i]-dof) / dofs_per_node) + 1);
-                AJ[i] = (grid_data.partition2global[node] - 1) * dofs_per_node + dof;
-            end
-            
-            if config.proc_rank == 0
-                # First figure out how long each proc's arrays are
-                send_buf = [length(AI)];
-                recv_buf = zeros(Int, config.num_procs);
-                MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
-                
-                # Use gatherv to accumulate A
-                chunk_sizes = recv_buf;
-                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
-                total_length = chunk_sizes[1];
-                for proc_i=2:config.num_procs
-                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
-                    total_length += chunk_sizes[proc_i];
-                end
-                full_AI = zeros(Int, total_length);
-                full_AJ = zeros(Int, total_length);
-                full_AV = zeros(Float64, total_length);
-                AI_buf = MPI.VBuffer(full_AI, chunk_sizes, displacements, MPI.Datatype(Int));
-                AJ_buf = MPI.VBuffer(full_AJ, chunk_sizes, displacements, MPI.Datatype(Int));
-                AV_buf = MPI.VBuffer(full_AV, chunk_sizes, displacements, MPI.Datatype(Float64));
-                
-                MPI.Gatherv!(AI, AI_buf, 0, MPI.COMM_WORLD);
-                MPI.Gatherv!(AJ, AJ_buf, 0, MPI.COMM_WORLD);
-                MPI.Gatherv!(AV, AV_buf, 0, MPI.COMM_WORLD);
-                
-                # # Modify AI and AJ to global indices using b_order
-                # b_start = 0;
-                # for proc_i=1:config.num_procs
-                #     for ai=(displacements[proc_i]+1):(displacements[proc_i] + chunk_sizes[proc_i])
-                #         full_AI[ai] = b_order[b_start + full_AI[ai]];
-                #         full_AJ[ai] = b_order[b_start + full_AJ[ai]];
-                #     end
-                #     b_start += b_sizes[proc_i];
-                # end
-                
-                # Assemble A
-                full_A = sparse(full_AI, full_AJ, full_AV);
-                
-                # Next gather b
-                chunk_sizes = b_sizes;
-                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
-                total_length = chunk_sizes[1];
-                for proc_i=2:config.num_procs
-                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
-                    total_length += chunk_sizes[proc_i];
-                end
-                full_b = zeros(total_length);
-                b_buf = MPI.VBuffer(full_b, chunk_sizes, displacements, MPI.Datatype(Float64));
-                MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
-                
-                # Overlapping values will be added.
-                new_b = zeros(grid_data.nnodes_global * dofs_per_node);
-                for i=1:total_length
-                    new_b[b_order[i]] += full_b[i];
-                end
-                
-                return (full_A, new_b);
-                
-            else # other procs just send their data
-                send_buf = [length(AI)];
-                MPI.Gather!(send_buf, nothing, 0, MPI.COMM_WORLD);
-                MPI.Gatherv!(AI, nothing, 0, MPI.COMM_WORLD);
-                MPI.Gatherv!(AJ, nothing, 0, MPI.COMM_WORLD);
-                MPI.Gatherv!(AV, nothing, 0, MPI.COMM_WORLD);
-                MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
-                
-                return (ones(1,1),[1]);
-            end
-            
-        else # RHS only\
-            if config.proc_rank == 0
-                # gather b
-                chunk_sizes = b_sizes;
-                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
-                total_length = chunk_sizes[1];
-                for proc_i=2:config.num_procs
-                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
-                    total_length += chunk_sizes[proc_i];
-                end
-                full_b = zeros(total_length);
-                b_buf = MPI.VBuffer(full_b, chunk_sizes, displacements, MPI.Datatype(Float64));
-                MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
-                
-                # Overlapping values will be added.
-                new_b = zeros(grid_data.nnodes_global * dofs_per_node);
-                for i=1:total_length
-                    new_b[b_order[i]] += full_b[i];
-                end
-                
-                if rescatter_b
-                    return distribute_solution(new_b, nnodes, dofs_per_node, b_order, b_sizes)
-                else
-                    return new_b;
-                end
-                
-            else # other procs just send their data
-                MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
-                
-                if rescatter_b
-                    return distribute_solution(nothing, nnodes, dofs_per_node, b_order, b_sizes)
-                else
-                    return [1];
-                end
-            end
-        end
-        
-    else # one process
-        if rhs_only
-            return b;
-        else
-            return (A, b);
-        end
-    end
-end
-
-function distribute_solution(sol, nnodes, dofs_per_node, b_order, b_sizes)
-    if config.num_procs > 1
-        my_sol = zeros(nnodes*dofs_per_node);
-        if config.proc_rank == 0 # 0 has the full sol
-            # Need to reorder b and put in a larger array according to b_order
-            total_length = sum(b_sizes);
-            full_sol = zeros(total_length);
-            for i=1:total_length
-                full_sol[i] = sol[b_order[i]];
-            end
-            
-            # scatter b
-            chunk_sizes = b_sizes;
-            displacements = zeros(Int, config.num_procs); # for the irregular scatterv
-            for proc_i=2:config.num_procs
-                displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
-            end
-            sol_buf = MPI.VBuffer(full_sol, chunk_sizes, displacements, MPI.Datatype(Float64));
-            
-            # Scatter it amongst the little ones
-            MPI.Scatterv!(sol_buf, my_sol, 0, MPI.COMM_WORLD);
-            
-        else # Others don't have sol
-            MPI.Scatterv!(nothing, my_sol, 0, MPI.COMM_WORLD);
-        end
-        return my_sol;
-        
-    else
-        return sol;
-    end
-end
-
-# Simply does a reduction.
-# Works for scalar values or vectors, but vectors are not themselves reduced.
-# 1, 2, 3 -> 6
-# [1,10,100], [2,20,200], [3,30,300] -> [6,60,600]
-function combine_values(val; combine_op = +)
-    if config.num_procs > 1
-        rval = MPI.Allreduce(val, combine_op, MPI.COMM_WORLD);
-        return rval;
-        
-    else
-        return val;
-    end
-end
-
-# This reduces a global vector to one value
-# [1,10,100], [2,20,200], [3,30,300] -> 666
-function reduce_vector(vec::Array)
-    if config.num_procs > 1
-        rval = MPI.Allreduce(sum(vec), +, MPI.COMM_WORLD);
-        return rval;
-        
-    else
-        return sum(vec);
-    end
-end
-
-################################################################
-## Options for solving the assembled linear system
-################################################################
-function linear_system_solve(A,b)
-    if config.num_procs > 1 && config.proc_rank > 0
-        # Other procs don't have the full A, just return b
-        return b;
-    end
-    
-    if config.linalg_backend == DEFAULT_SOLVER
-        return A\b;
-    elseif config.linalg_backend == PETSC_SOLVER
-        # For now try this simple setup.
-        # There will be many options that need to be available to the user. TODO
-        # The matrix should really be constructed from the begninning as a PETSc one. TODO
-        
-        petsclib = PETSc.petsclibs[1]           #
-        inttype = PETSc.inttype(petsclib);      # These should maybe be kept in config
-        scalartype = PETSc.scalartype(petsclib);#
-        
-        (I, J, V) = findnz(A);
-        (n,n) = size(A);
-        nnz = zeros(inttype, n); # number of non-zeros per row
-        for i=1:length(I)
-            nnz[I[i]] += 1;
-        end
-        
-        petscA = PETSc.MatSeqAIJ{scalartype}(n,n,nnz);
-        for i=1:length(I)
-            petscA[I[i],J[i]] = V[i];
-        end
-        PETSc.assemble(petscA);
-        
-        ksp = PETSc.KSP(petscA; ksp_rtol=1e-8, pc_type="jacobi", ksp_monitor=false); # Options should be available to user
-        
-        return ksp\b;
-    elseif config.linalg_backend == CUDA_SOLVER
-        elty = typeof(b[1])
-        x = zeros(elty ,length(b))
-        tol = convert(real(elty),1e-6)
-        x = CUDA.CUSOLVER.csrlsvlu!(A, b, x, tol ,one(Cint),'O')
-        return x
-    end
-end
 
 end #module

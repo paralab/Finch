@@ -15,7 +15,7 @@ import ..Finch: @import_finch_symbols
 @import_finch_symbols()
 
 # IR symbols
-import ..Finch: IntermediateRepresentation, IR_entry_types, IR_string, print_tree,
+import ..Finch: IntermediateRepresentation, IR_entry_types, IR_string, print_IR, repr_IR,
             IR_part, IR_data_node, IR_data_access, IR_operation_node, 
             IR_block_node, IR_loop_node, IR_conditional_node, IR_comment_node
             

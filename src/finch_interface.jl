@@ -729,7 +729,7 @@ function weakForm(var, wf)
     else
         full_IR = build_IR_fem(lhs_symexpr, nothing, rhs_symexpr, nothing, var, config, prob, time_stepper);
     end
-    log_entry("Weak form IR: "*string(full_IR),3);
+    log_entry("Weak form IR: \n"*repr_IR(full_IR),3);
     
     # Generate code from IR
     code = generate_code_layer(var, full_IR, solver_type, language, gen_framework);
@@ -825,7 +825,7 @@ function conservationForm(var, cf)
     else
         full_IR = build_IR_fvm(lhs_symexpr, nothing, rhs_symexpr, nothing, var, config, prob, time_stepper, fv_info);
     end
-    log_entry("Conservation form IR: "*string(full_IR),3);
+    log_entry("Conservation form IR: "*repr_IR(full_IR),3);
     
     # Generate code from IR
     code = generate_code_layer(var, full_IR, solver_type, language, gen_framework);
@@ -1218,7 +1218,22 @@ function evalInitialConditions()
 end # Just for consistent style because this is also an internal function
 
 """
-    solve(var, nlvar=nothing; nonlinear=false)
+    nonlinear(;maxIters=100, relativeTol=1e-5, absoluteTol=1e-5)
+
+Use to signal that this problem contains nonlinearity and needs an
+iterative solution. Set the parameters for the iteration.
+The tolerances are for the infinity norm of the change between 
+iterations (u(i) - u(i-1)).
+"""
+function nonlinear(;maxIters=100, relativeTol=1e-5, absoluteTol=1e-5)
+    prob.nonlinear = true;
+    prob.max_iters = maxIters;
+    prob.relative_tol = relativeTol;
+    prob.absolute_tol = absoluteTol;
+end
+
+"""
+    solve(var)
 
 Either solve the problem using an internal target, or generate all code
 files for an external target.
@@ -1226,7 +1241,7 @@ Var is a variable or array of variables to solve for.
 The keyword arguments are for nonlinear equations which have very limited
 support, so generally they won't be used.
 """
-function solve(var, nlvar=nothing; nonlinear=false)
+function solve(var)
     if use_cachesim
         return cachesimSolve(var);
     end
@@ -1281,90 +1296,23 @@ function solve(var, nlvar=nothing; nonlinear=false)
         
         # Use the appropriate solver
         if config.solver_type == CG
-            lhs = bilinears[varind];
-            rhs = linears[varind];
             func = solve_function[varind];
-            loop_func = assembly_loops[varind];
             
             if prob.time_dependent
-                # time_stepper = init_stepper(grid_data.allnodes, time_stepper);
-                # if use_specified_steps
-                #     time_stepper.dt = specified_dt;
-				#     time_stepper.Nsteps = specified_Nsteps;
-                # end
-                if (nonlinear)
-                    if time_stepper.type == EULER_EXPLICIT || time_stepper.type == LSRK4
-                        printerr("Warning: Use implicit stepper for nonlinear problem. cancelling solve.");
-                        return;
-                    end
-                	t = @elapsed(result = CGSolver.nonlinear_solve(var, nlvar, lhs, rhs, time_stepper, assemble_func=loop_func));
-				else
-                	# t = @elapsed(result = CGSolver.linear_solve(var, lhs, rhs, time_stepper, assemble_func=loop_func));
-                    t = @elapsed(result = CGSolver.linear_solve(var, func, time_stepper));
-				end
-                # result is already stored in variables
+                t = @elapsed(result = CGSolver.solve(var, func, time_stepper));
             else
-                # solve it!
-				if (nonlinear)
-                	t = @elapsed(result = CGSolver.nonlinear_solve(var, nlvar, lhs, rhs, assemble_func=loop_func));
-                else
-                    t = @elapsed(result = CGSolver.linear_solve(var, func));
-				end
-                
-                # values should already be placed in variable arrays
+                t = @elapsed(result = CGSolver.solve(var, func));
             end
             
             log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
             
         elseif config.solver_type == DG
-            lhs = bilinears[varind];
-            rhs = linears[varind];
-            slhs = face_bilinears[varind];
-            srhs = face_linears[varind];
+            func = solve_function[varind];
             
             if prob.time_dependent
-                time_stepper = init_stepper(grid_data.allnodes, time_stepper);
-                if use_specified_steps
-                    time_stepper.dt = specified_dt;
-				    time_stepper.Nsteps = specified_Nsteps;
-                end
-				if (nonlinear)
-                	# t = @elapsed(result = DGSolver.nonlinear_solve(var, nlvar, lhs, rhs, slhs, srhs, time_stepper));
-                    printerr("Nonlinear solver not ready for DG");
-                    return;
-				else
-                	t = @elapsed(result = DGSolver.linear_solve(var, lhs, rhs, slhs, srhs, time_stepper));
-				end
-                # result is already stored in variables
+                t = @elapsed(result = DGSolver.solve(var, func, time_stepper));
             else
-                # solve it!
-				if (nonlinear)
-                	# t = @elapsed(result = DGSolver.nonlinear_solve(var, nlvar, lhs, rhs, slhs, srhs));
-                    printerr("Nonlinear solver not ready for DG");
-                else
-                    t = @elapsed(result = DGSolver.linear_solve(var, lhs, rhs, slhs, srhs));
-				end
-                
-                # place the values in the variable value arrays
-                if typeof(var) <: Array && length(result) > 1
-                    tmp = 0;
-                    totalcomponents = 0;
-                    for vi=1:length(var)
-                        totalcomponents = totalcomponents + length(var[vi].symvar);
-                    end
-                    for vi=1:length(var)
-                        components = length(var[vi].symvar);
-                        for compi=1:components
-                            var[vi].values[compi,:] = result[(compi+tmp):totalcomponents:end];
-                            tmp = tmp + 1;
-                        end
-                    end
-                elseif length(result) > 1
-                    components = length(var.symvar);
-                    for compi=1:components
-                        var.values[compi,:] = result[compi:components:end];
-                    end
-                end
+                t = @elapsed(result = DGSolver.solve(var, func));
             end
             
             log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
@@ -1386,7 +1334,7 @@ function solve(var, nlvar=nothing; nonlinear=false)
                     time_stepper.dt = specified_dt;
 				    time_stepper.Nsteps = specified_Nsteps;
                 end
-				if (nonlinear)
+				if (prob.nonlinear)
                 	printerr("Nonlinear solver not ready for FV");
                     return;
 				else
@@ -1478,7 +1426,7 @@ function solve(var, nlvar=nothing; nonlinear=false)
                     end
                 end
                 
-				if (nonlinear)
+				if (prob.nonlinear)
                 	printerr("Nonlinear solver not ready for mixed solver");
                     return;
 				else
@@ -1500,11 +1448,11 @@ function solve(var, nlvar=nothing; nonlinear=false)
 end
 
 """
-    cachesimSolve(var, nlvar=nothing; nonlinear=false)
+    cachesimSolve(var)
 
 When using the cache simulator target, this is used instead of solve().
 """
-function cachesimSolve(var, nlvar=nothing; nonlinear=false)
+function cachesimSolve(var)
     if !(!generate_external && (language == JULIA || language == 0))
         printerr("Cachesim solve is only ready for Julia direct solve");
     else
