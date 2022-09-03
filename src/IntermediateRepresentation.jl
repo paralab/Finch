@@ -49,7 +49,8 @@ struct IR_entry_types
     time_loop::Int8   # = 1 # time stepping
     space_loop::Int8  # = 2 # element/face/node
     dof_loop::Int8    # = 3 # variable components
-    index_loop::Int8  # = 4 # other indices such as matrix indices
+    index_loop::Int8  # = 4 # other indices in a for loop
+    while_loop::Int8  # = 5 # while loop
     
     # operation types
     allocate_op::Int8 # = 11 # allocation has at least two args: type, dims...
@@ -79,6 +80,7 @@ struct IR_entry_types
             2=>"space loop",
             3=>"dof loop",
             4=>"index loop",
+            5=>"while loop",
             
             11=>"allocate op",
             12=>"assign op",
@@ -98,7 +100,7 @@ struct IR_entry_types
             31=>"read",
             32=>"write"
         ),
-        1,2,3,4, 11,12,13,14,15,16, 21,22,25,26,27,28,29, 31,32
+        1,2,3,4,5, 11,12,13,14,15,16, 21,22,25,26,27,28,29, 31,32
         );
 end
 
@@ -184,9 +186,11 @@ AbstractTrees.children(a::IR_block_node) = a.parts;
 AbstractTrees.printnode(io::IO, a::IR_block_node) = print(io,"block:"*a.label);
 
 # This is a loop.
-# The type could be time, space, dof, or index
+# The type could be time, space, dof, or index or while
 # It has a name of the collection it is looping over, the iterator symbol, and limits.
 # If limits are both zero it loops over the whole collection.
+# If it is a while loop, the "last" component is an IR_part for a condition,
+# and the iterator is included and incremented at the beginning of the loop.
 mutable struct IR_loop_node <: IR_part
     type::Int8   # The type of loop
     collection::Symbol
@@ -213,6 +217,8 @@ function AbstractTrees.printnode(io::IO, a::IR_loop_node)
     str = "Loop{";
     if a.first == 0 && a.last == 0
         str *= string(a.collection);
+    elseif a.type == IRtypes.while_loop
+        str *= "while "*string(a.last);
     else
         str *= string(a.iterator)*"="*string(a.first)*", "*string(a.last);
     end

@@ -32,9 +32,8 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
         end
     end
     
-    # Support piece
-    args = "(var, mesh, refel, geometric_factors, config, coefficients, variables, test_functions, indexers, prob, time_stepper)";
-    
+    # static piece
+    args = "(var, mesh, refel, geometric_factors, config, coefficients, variables, test_functions, indexers, prob, time_stepper, oldvar=nothing)";
     if wrap_in_function
         code = "function generated_solve_function_for_"*string(var[1].symbol) * args * "\n";
     end
@@ -154,19 +153,45 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
             end
             code *= ")";
             
-        elseif IR.type == IRtypes.math_op # *(a, b, 2)
-            code = string(IR.args[1]) * "(";
-            for i=2:length(IR.args)
-                if typeof(IR.args[i]) <: IR_part
-                    code *= generate_from_IR_julia(IR.args[i], IRtypes);
-                else
-                    code *= string(IR.args[i]);
+        elseif IR.type == IRtypes.math_op # (a * b * c) or sin(a)
+            if IR.args[1] in [:+, :-, :*, :/, :&&, :||, :<, :>, :(==), :(>=), :(<=)]
+                if length(IR.args) < 3 # -a, +a
+                    code = "(" * string(IR.args[1]);
+                    if typeof(IR.args[2]) <: IR_part
+                        code *= generate_from_IR_julia(IR.args[2], IRtypes);
+                    else
+                        code *= string(IR.args[2]);
+                    end
+                    code *= ")";
+                else # a + b + c + d
+                    code = "(";
+                    for i=2:length(IR.args)
+                        if typeof(IR.args[i]) <: IR_part
+                            code *= generate_from_IR_julia(IR.args[i], IRtypes);
+                        else
+                            code *= string(IR.args[i]);
+                        end
+                        if i < length(IR.args)
+                            code *= " " * string(IR.args[1]) * " ";
+                        end
+                    end
+                    code *= ")";
                 end
-                if i < length(IR.args)
-                    code *= ", ";
+                
+            else # sin(a)
+                code = string(IR.args[1]) * "(";
+                for i=2:length(IR.args)
+                    if typeof(IR.args[i]) <: IR_part
+                        code *= generate_from_IR_julia(IR.args[i], IRtypes);
+                    else
+                        code *= string(IR.args[i]);
+                    end
+                    if i < length(IR.args)
+                        code *= ", ";
+                    end
                 end
+                code *= ")";
             end
-            code *= ")";
             
         elseif IR.type == IRtypes.member_op # refel.Q
             code = string(IR.args[1]) * "." * generate_from_IR_julia(IR.args[2], IRtypes);
@@ -190,15 +215,27 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
         end
         
     elseif node_type == IR_loop_node
-        if (IR.first == IR.last) && IR.first==0
-            range = string(IR.collection);
-        else
-            range = string(IR.first) * ":" * string(IR.last);
+        # while and for loops
+        if IR.type == IRtypes.while_loop
+            condition = generate_from_IR_julia(IR.last, IRtypes);
+            code = indent * string(IR.iterator) * " = " * string(IR.first) * ";\n";
+            code *= indent * "while (" * condition * ")\n";
+            code *= indent * "    " * string(IR.iterator) * " += 1;\n";
+            code *= generate_from_IR_julia(IR.body, IRtypes, indent);
+            code *= indent * "end\n";
+            
+        else # for loop
+            if (IR.first == IR.last) && IR.first==0
+                range = string(IR.collection);
+            else
+                range = string(IR.first) * ":" * string(IR.last);
+            end
+            
+            code = indent * "for "* string(IR.iterator) * " = " * range * "\n";
+            code *= generate_from_IR_julia(IR.body, IRtypes, indent);
+            code *= indent * "end\n";
         end
         
-        code = indent * "for "* string(IR.iterator) * " = " * range * "\n";
-        code *= generate_from_IR_julia(IR.body, IRtypes, indent);
-        code *= indent * "end\n";
         
     elseif node_type == IR_conditional_node
         code = indent * "if " * generate_from_IR_julia(IR.condition, IRtypes) * "\n";
@@ -207,8 +244,10 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
             code *= indent * "else\n" * generate_from_IR_julia(IR.elsepart, IRtypes, indent);
         end
         code *= indent * "end\n";
+        
     elseif node_type == IR_comment_node
         code = indent * "#= " * IR.string * " =#\n";
+        
     elseif node_type <: IR_part
         code = IR_string(IR);
         
@@ -257,7 +296,11 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         
     elseif op === :SCATTER_SOLUTION
         # place solution in variable arrays
-        code = indent * "CGSolver.place_sol_in_vars(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *");";
+        if length(IR.args) < 3
+            code = indent * "CGSolver.place_sol_in_vars(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *");";
+        else
+            code = indent * "CGSolver.place_sol_in_vars("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* generate_from_IR_julia(IR.args[2], IRtypes) *");";
+        end
         
     elseif op === :LINALG_MATRIX_BLOCK
         n_blocks = IR.args[2];

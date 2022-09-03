@@ -9,7 +9,9 @@ export generateFor, useLog, domain, solverType, functionSpace, trialSpace, testS
         variableTransform, transformVariable,
         weakForm, conservationForm, flux, source, assemblyLoops,
         exportCode, importCode, printLatex,
-        evalInitialConditions, solve, cachesimSolve, finalizeFinch, cachesim, outputValues,
+        evalInitialConditions, nonlinear, 
+        solve, cachesimSolve, 
+        finalizeFinch, cachesim, outputValues,
         mortonNodes, hilbertNodes, tiledNodes, mortonElements, hilbertElements, 
         tiledElements, elementFirstNodes, randomNodes, randomElements,
         # These do not match the interface style, but are kept for legacy support. May be removed.
@@ -675,6 +677,15 @@ function weakForm(var, wf)
     end
     solver_type = var[1].discretization;
     
+    # If nonlinear iteration is used, need to make copies of variables for previous step
+    if prob.nonlinear
+        oldvar = [];
+        for i=1:length(var)
+            oldname = "OLD"*string(var[i].symbol);
+            push!(oldvar, variable(oldname, type=var[i].type, location=var[i].location, method=var[i].discretization, index=var[i].index));
+        end
+    end
+    
     log_entry("Making weak form for variable(s): "*string(wfvars));
     log_entry("Weak form, input: "*string(wf));
     
@@ -1246,6 +1257,11 @@ function solve(var)
         return cachesimSolve(var);
     end
     
+    # For consistency put single variables in an array
+    if typeof(var) == Variable
+        var = [var];
+    end
+    
     global time_stepper; # This should not be necessary. It will go away eventually
     
     # Wrap this all in a timer
@@ -1253,40 +1269,25 @@ function solve(var)
     
     # Generate files or solve directly
     if !(!generate_external && (language == JULIA || language == 0)) # if an external code gen target is ready
-        if typeof(var) <: Array
-            varind = var[1].index;
-        else
-            varind = var.index;
-        end
+        varind = var[1].index;
         generate_all_files(var, bilinears[varind], face_bilinears[varind], linears[varind], face_linears[varind]);
         
     else
-        if typeof(var) <: Array
-            varnames = "["*string(var[1].symbol);
-            for vi=2:length(var)
-                varnames = varnames*", "*string(var[vi].symbol);
-            end
-            varnames = varnames*"]";
-            varind = var[1].index;
-        else
-            varnames = string(var.symbol);
-            varind = var.index;
+        varnames = "["*string(var[1].symbol);
+        for vi=2:length(var)
+            varnames = varnames*", "*string(var[vi].symbol);
         end
+        varnames = varnames*"]";
+        varind = var[1].index;
         
         # Evaluate initial conditions if not already done
         eval_initial_conditions();
         
         # If any of the variables are indexed types, generate assembly loops
         var_indexers = [];
-        if typeof(var) <: Array
-            for vi=1:length(var)
-                if !(var[vi].indexer === nothing)
-                    push!(var_indexers, var[vi].indexer);
-                end
-            end
-        else
-            if !(var.indexer === nothing)
-                var_indexers = [var.indexer];
+        for vi=1:length(var)
+            if !(var[vi].indexer === nothing)
+                push!(var_indexers, var[vi].indexer);
             end
         end
         if length(var_indexers)>0 && assembly_loops[varind] === nothing
@@ -1294,14 +1295,29 @@ function solve(var)
             assemblyLoops(var, ["elements"; var_indexers]);
         end
         
+        # If nonlinear, a matching set of variables should have been created. find them
+        if prob.nonlinear
+            oldvar = [];
+            for i=1:length(var)
+                oldname = Symbol("OLD"*string(var[i].symbol));
+                for v in variables
+                    if oldname === v.symbol
+                        push!(oldvar, v);
+                        v.values .= var[i].values; # copy initial conditions
+                        break;
+                    end
+                end
+            end
+        end
+        
         # Use the appropriate solver
         if config.solver_type == CG
             func = solve_function[varind];
             
-            if prob.time_dependent
-                t = @elapsed(result = CGSolver.solve(var, func, time_stepper));
+            if prob.nonlinear
+                t = @elapsed(result = CGSolver.nonlinear_solve(var, oldvar, func, time_stepper));
             else
-                t = @elapsed(result = CGSolver.solve(var, func));
+                t = @elapsed(result = CGSolver.solve(var, func, time_stepper));
             end
             
             log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);

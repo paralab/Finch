@@ -40,6 +40,13 @@ function solve(var, func, stepper=nothing)
                                                                 coefficients, variables, test_functions, indexers, prob, stepper);
 end
 
+function nonlinear_solve(var, oldvar, func, stepper=nothing)
+    # args = (var, grid_data, refel, geo_factors, config, coefficients, variables, test_functions, indexers, prob, stepper);
+    #        (var, mesh, refel, geometric_factors, config, coefficients, variables, test_functions, indexers, prob, time_stepper, oldvar=nothing)
+    return TimerOutputs.@timeit timer_output "cg_colve" func.func(var, grid_data, refel, geo_factors, config, 
+                                                                coefficients, variables, test_functions, indexers, prob, stepper, oldvar);
+end
+
 ##################################################################################################
 # utilities
 

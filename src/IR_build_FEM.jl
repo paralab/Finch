@@ -258,37 +258,87 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
         time_toglobal_block
     ], "inner assembly")
     
-    # time loop
-    need_time_loop = prob.time_dependent;
-    if need_time_loop
-        step_loop = generate_time_stepping_loop_fem(time_stepper, rhs_assembly_loop);
-        # step_loop.body = IR_block_node([rhs_assembly_loop]); # TODO add solve and scatter
-        time_loop = IR_block_node([
-            IR_operation_node(IRtypes.assign_op, [:t, 0]),
-            IR_operation_node(IRtypes.assign_op, [:dt, time_stepper.dt]),
-            IR_comment_node("Initial loop to build matrix"),
-            wrap_in_timer(:first_assembly, assembly_loop),
-            IR_operation_node(IRtypes.named_op, [:GLOBAL_FINALIZE]),
-            IR_operation_node(IRtypes.named_op, [:GATHER_SOLUTION, :solution]),
+    # Package it all in one piece to add to master
+    if prob.time_dependent
+        if prob.nonlinear
+            # TODO
+            compute_block = IR_block_node([IR_comment_node("TODO, time step with nonlinear iteration")]);
             
-            IR_comment_node("###############################################"),
-            IR_comment_node("Time stepping loop"),
-            step_loop
-        ],"time stepping");
-    else
-        time_loop = IR_block_node([
-            IR_operation_node(IRtypes.assign_op, [:t, 0]),
-            wrap_in_timer(:first_assembly, assembly_loop),
-            IR_operation_node(IRtypes.named_op, [:GLOBAL_FINALIZE]),
-            wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
-            wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :solution])),
-        ],"solution")
+        else # linear
+            step_loop = generate_time_stepping_loop_fem(time_stepper, rhs_assembly_loop);
+            # step_loop.body = IR_block_node([rhs_assembly_loop]); # TODO add solve and scatter
+            compute_block = IR_block_node([
+                IR_operation_node(IRtypes.assign_op, [:t, 0]),
+                IR_operation_node(IRtypes.assign_op, [:dt, time_stepper.dt]),
+                IR_comment_node("Initial loop to build matrix"),
+                wrap_in_timer(:first_assembly, assembly_loop),
+                IR_operation_node(IRtypes.named_op, [:GLOBAL_FINALIZE]),
+                IR_operation_node(IRtypes.named_op, [:GATHER_SOLUTION, solvec]),
+                
+                IR_comment_node("###############################################"),
+                IR_comment_node("Time stepping loop"),
+                step_loop
+            ],"computation");
+        end
+        
+    else # stationary
+        if prob.nonlinear
+            nl_change_abs = IR_data_node(IRtypes.float_64_data, :nl_change_abs);
+            nl_change_rel = IR_data_node(IRtypes.float_64_data, :nl_change_rel);
+            oldsolvec = IR_data_node(IRtypes.float_64_data, :solution_old, [:dofs_global], []);
+            zero_el_vec = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY,
+                IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], []), 0]);
+            zero_bdry_done = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY,
+                IR_data_node(IRtypes.boolean_data, :bdry_done, [:nnodes_global], []), :false]);
+            push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
+                oldsolvec,
+                IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])
+                ]));
+            compute_block = IR_block_node([
+                IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_64_data, :t), 0]),
+                IR_operation_node(IRtypes.assign_op, [nl_change_abs, 1]),
+                IR_operation_node(IRtypes.assign_op, [nl_change_rel, 1]),
+                # The nonlinear iteration
+                wrap_in_timer(:nonlinear_iteration, IR_loop_node(IRtypes.while_loop, :while_loop, :nl_iter, 0, 
+                    IR_operation_node(IRtypes.math_op, [:&&, 
+                        IR_operation_node(IRtypes.math_op, [:<, :nl_iter, prob.max_iters]),
+                        IR_operation_node(IRtypes.math_op, [:>, nl_change_rel, prob.relative_tol]),
+                        IR_operation_node(IRtypes.math_op, [:>, nl_change_abs, prob.absolute_tol])
+                    ]), 
+                    IR_block_node([
+                        # zero vec and bdry (May need mat as well depending on target?)
+                        zero_el_vec,
+                        zero_bdry_done,
+                        # compute
+                        wrap_in_timer(:assembly, assembly_loop),
+                        IR_operation_node(IRtypes.named_op, [:GLOBAL_FINALIZE]),
+                        wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, solvec, :global_matrix, :global_vector])),
+                        wrap_in_timer(:scatter, IR_block_node([
+                            IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, solvec, :var]),
+                            IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, solvec, :oldvar]),
+                        ])),
+                        # norm of change and update old
+                        wrap_in_timer(:res_and_update, generate_residual_and_update(solvec, oldsolvec, nl_change_abs, nl_change_rel))
+                    ])
+                ))
+                
+            ],"computation")
+            
+        else # linear
+            compute_block = IR_block_node([
+                IR_operation_node(IRtypes.assign_op, [:t, 0]),
+                wrap_in_timer(:assembly, assembly_loop),
+                IR_operation_node(IRtypes.named_op, [:GLOBAL_FINALIZE]),
+                wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, solvec, :global_matrix, :global_vector])),
+                wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, solvec])),
+            ],"computation")
+        end
     end
     
     # Put them all together in a master block
     master_block = IR_block_node([
         allocate_block,
-        time_loop
+        compute_block
     ],"master");
     
     return master_block;
@@ -1450,6 +1500,46 @@ function generate_linalg_Tv_product(A, b, i, j)
     end
     
     return IR_operation_node(IRtypes.math_op, [:*, A_part, b_part]);
+end
+
+# For array a and b and scalar c do
+# c = norm(a-b) and copy a into b
+# d = c / norm(a)
+function generate_residual_and_update(vec_a, vec_b, val_c, val_d)
+    IRtypes = IR_entry_types();
+    # tmp = (vec_a[norm_i] - vec_b[norm_i])
+    vec_a_i = apply_indexed_access(vec_a, [:norm_i], IRtypes);
+    vec_b_i = apply_indexed_access(vec_b, [:norm_i], IRtypes);
+    dif = IR_operation_node(IRtypes.math_op, [:-, vec_a_i, vec_b_i]);
+    
+    block = IR_block_node([
+        # zero c
+        IR_operation_node(IRtypes.assign_op, [val_c, 0]),
+        IR_operation_node(IRtypes.assign_op, [val_d, 0]),
+        # loop over vector
+        IR_loop_node(IRtypes.index_loop, :dofs, :norm_i, 1, :dofs_global, IR_block_node([
+            # add to norm val_c = val_c + (vec_a[norm_i] - vec_b[norm_i])
+            IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_64_data, :tmp), dif]),
+            IR_operation_node(IRtypes.assign_op, [val_c, 
+                IR_operation_node(IRtypes.math_op, [:+, val_c, 
+                    IR_operation_node(IRtypes.math_op, [:*, :tmp, :tmp])
+                ])
+            ]),
+            IR_operation_node(IRtypes.assign_op, [val_d, 
+                IR_operation_node(IRtypes.math_op, [:+, val_d, 
+                    IR_operation_node(IRtypes.math_op, [:*, vec_a_i, vec_a_i])
+                ])
+            ]),
+            # update b
+            IR_operation_node(IRtypes.assign_op, [vec_b_i, vec_a_i])
+        ])),
+        # sqrt(val_c)
+        IR_operation_node(IRtypes.assign_op, [val_c, IR_operation_node(IRtypes.math_op, [:sqrt, val_c])]),
+        IR_operation_node(IRtypes.assign_op, [val_d, IR_operation_node(IRtypes.math_op, [:sqrt, val_d])]),
+        IR_operation_node(IRtypes.assign_op, [val_d, IR_operation_node(IRtypes.math_op, [:/, val_c, val_d])])
+    ])
+    
+    return block;
 end
 
 # creates something like (a-b)*c + d
