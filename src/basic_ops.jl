@@ -519,34 +519,123 @@ function sym_burgerGodunov_op(u, f)
     return result;
 end
 
+###################################################################
+# These are basic math ops like sin and exp
 function sym_exp_op(e)
-    # Input will be an array of Basic. Output should be in a similar array.
     if typeof(e) <: Array
         result = copy(e);
-        for i=1:length(result)
-            result[i] = sym_exp_op(e[i]);
-        end
-        
+        for i=1:length(result) result[i] = sym_exp_op(e[i]); end
     elseif typeof(e) == Basic
         @funs(exp)
         result = exp(e);
-    elseif typeof(e) <: Number
-        # If the input was just a constant, the result will just be that constant.
+    else #if typeof(e) <: Number
         result = Basic(exp(e));
     end
     return result;
 end
 
+function sym_sin_op(e)
+    if typeof(e) <: Array
+        result = copy(e);
+        for i=1:length(result) result[i] = sym_sin_op(e[i]); end
+    elseif typeof(e) == Basic
+        @funs(sin)
+        result = sin(e);
+    else #if typeof(e) <: Number
+        result = Basic(sin(e));
+    end
+    return result;
+end
+
+function sym_cos_op(e)
+    if typeof(e) <: Array
+        result = copy(e);
+        for i=1:length(result) result[i] = sym_cos_op(e[i]); end
+    elseif typeof(e) == Basic
+        @funs(cos)
+        result = cos(e);
+    else #if typeof(e) <: Number
+        result = Basic(cos(e));
+    end
+    return result;
+end
+
+function sym_tan_op(e)
+    if typeof(e) <: Array
+        result = copy(e);
+        for i=1:length(result) result[i] = sym_tan_op(e[i]); end
+    elseif typeof(e) == Basic
+        @funs(tan)
+        result = tan(e);
+    else #if typeof(e) <: Number
+        result = Basic(tan(e));
+    end
+    return result;
+end
+
+function sym_abs_op(e)
+    if typeof(e) <: Array
+        result = copy(e);
+        for i=1:length(result) result[i] = sym_abs_op(e[i]); end
+    elseif typeof(e) == Basic
+        @funs(abs)
+        result = abs(e);
+    else #if typeof(e) <: Number
+        result = Basic(abs(e));
+    end
+    return result;
+end
+
+function sym_sinh_op(e)
+    if typeof(e) <: Array
+        result = copy(e);
+        for i=1:length(result) result[i] = sym_sinh_op(e[i]); end
+    elseif typeof(e) == Basic
+        @funs(sinh)
+        result = sinh(e);
+    else #if typeof(e) <: Number
+        result = Basic(sinh(e));
+    end
+    return result;
+end
+
+function sym_cosh_op(e)
+    if typeof(e) <: Array
+        result = copy(e);
+        for i=1:length(result) result[i] = sym_cosh_op(e[i]); end
+    elseif typeof(e) == Basic
+        @funs(cosh)
+        result = cosh(e);
+    else #if typeof(e) <: Number
+        result = Basic(cosh(e));
+    end
+    return result;
+end
+
+function sym_tanh_op(e)
+    if typeof(e) <: Array
+        result = copy(e);
+        for i=1:length(result) result[i] = sym_tanh_op(e[i]); end
+    elseif typeof(e) == Basic
+        @funs(tanh)
+        result = tanh(e);
+    else #if typeof(e) <: Number
+        result = Basic(tanh(e));
+    end
+    return result;
+end
+
+
 # Load them into the global arrays
 op_names = [:dot, :inner, :cross, :transpose, :surface, :ave, :jump, :normal, 
             :Dt, :deriv, :grad, :div, :curl, :laplacian,
             :left, :right, :central, :neighborhood, :upwind, :upwindA, :burgerGodunov,
-            :exp];
+            :exp, :sin, :cos, :tan, :abs, :sinh, :cosh, :tanh];
 _handles = [sym_dot_op, sym_inner_op, sym_cross_op, sym_transpose_op, sym_surface_op, sym_ave_op, sym_jump_op, 
             sym_normal_op, sym_Dt_op, sym_deriv_op, sym_grad_op, 
             sym_div_op, sym_curl_op, sym_laplacian_op,
             sym_left_op, sym_right_op, sym_central_op, sym_neighborhood_op, sym_upwind_op, sym_upwindA_op, sym_burgerGodunov_op,
-            sym_exp_op];
+            sym_exp_op, sym_sin_op, sym_cos_op, sym_tan_op, sym_abs_op, sym_sinh_op, sym_cosh_op, sym_tanh_op];
 for i=1:length(op_names)
     push!(ops, SymOperator(op_names[i], _handles[i]));
 end

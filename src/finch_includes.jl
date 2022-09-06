@@ -153,6 +153,29 @@ catch e
     
 end
 
+try
+    using Zygote
+catch e
+    if force_package_install
+        println("Zygote package is not yet installed. Installing now.");
+        using Pkg
+        Pkg.add("Zygote")
+        using Zygote
+        
+    else
+        println("Zygote package is not yet installed. It is optional.\nWould you like to install now? y/n.");
+        response = readline();
+        if response=="Y" || response=="y"
+            using Pkg
+            Pkg.add("Zygote")
+            using Zygote
+        else
+            println("Continuing without Zygote")
+        end
+    end
+    
+end
+
 ######################
 
 # include these first

@@ -209,21 +209,31 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
     has_surface = check_for_surface(sterms);
     
     # Each element has an lhs and rhs
+    # Also isolate terms that are nonlinear in the unknown
     lhs = copy(sterms); # set up the container right
     rhs = copy(sterms);
+    nlt = copy(sterms);
+    nlv = copy(sterms);
+    has_nonlinear = false;
     if typeof(var) <: Array
         for i=1:length(symex)
             sz = size(symex[i]);
-            (lhs[i],rhs[i]) = split_left_right(sterms[i],sz,var);
+            (lhs[i],rhs[i],nlt[i],nlv[i]) = split_left_right_nonlinear(sterms[i],sz,var);
             if length(rhs[i]) == 0
                 rhs[i] = [Basic(0)];
+            end
+            if length(nlt[i]) > 0 || has_nonlinear
+                has_nonlinear = true;
             end
         end
     else
         sz = size(symex);
-        (lhs,rhs) = split_left_right(sterms,sz,var);
+        (lhs,rhs,nlt,nlv) = split_left_right_nonlinear(sterms,sz,var);
         if length(rhs[1]) == 0
             rhs[1] = [Basic(0)];
+        end
+        if length(nlt) > 0
+            has_nonlinear = true;
         end
     end
     
@@ -243,8 +253,6 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
             (dtrhs,rhs) = split_dt(rhs,sz);
         end
     end
-    
-    
     
     # If there was a surface integral, separate those terms as well
     if has_surface
@@ -278,6 +286,49 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
             log_entry("SP surfLHS = "*string(surflhs), 3);
             log_entry("SP surfRHS = "*string(surfrhs), 3);
         end
+    end
+    
+    # Linearize any nonlinear terms and generate derivative functions
+    if has_nonlinear
+        log_entry("SP NONLINEAR = "*string(nlt), 3);
+        # If nlt[i] is a nonlinear Basic expression, replace the unknown symbol (u) with an old one (OLDu)
+        # and put it in RHS. Note that OLDu has already been defined automatically.
+        # Then generate a function for nlt[i], use AD to generate a derivative of it,
+        # create a callback function for the derivative, insert that callback function in
+        # the expression multiplied by var on lhs and oldvar on rhs.
+        # the test function part must be kept separate for this process.
+        if typeof(var) <: Array
+            for vi=1:length(var)
+                for i=1:length(nlt[vi][1])
+                    # println("nlt: "*string(nlt[vi][1][i])*" nlv: "*string(nlv[vi][1][i]))
+                    old_nlv = apply_old_to_symbol(nlv[vi][1][i]);
+                    old_term = subs(nlt[vi][1][i], (nlv[vi][1][i], old_nlv));
+                    deriv_term = create_deriv_func(old_term, old_nlv);
+                    # println("old: "*string(old_term))
+                    push!(rhs[vi][1], -old_term);
+                    push!(rhs[vi][1], deriv_term * old_nlv);
+                    push!(lhs[vi][1], deriv_term * nlv[vi][1][i]);
+                end
+            end
+        else
+            for i=1:length(nlt)
+                # println("nlt: "*string(nlt[1][i])*" nlv: "*string(nlv[1][i]))
+                old_nlv = apply_old_to_symbol(nlv[1][i]);
+                old_term = subs(nlt[1][i], (nlv[1][i], old_nlv));
+                deriv_term = create_deriv_func(old_term, old_nlv);
+                # println("old: "*string(old_term))
+                push!(rhs[1], -old_term);
+                push!(rhs[1], deriv_term * old_nlv);
+                push!(lhs[1], deriv_term * nlv[1][i]);
+            end
+        end
+        
+        if has_surface
+            log_entry("Linearized: "*string(lhs)*" + surface("*string(surflhs)*") = "*string(rhs)*" + surface("*string(surfrhs)*")");
+        else
+            log_entry("Linearized: "*string(lhs)*" = "*string(rhs));
+        end
+        
     end
     
     # If needed, reformat for time stepper
@@ -589,26 +640,9 @@ end
 
 # Eval to apply the sym_*_op ops to create a SymEngine expression
 function apply_ops(ex)
-    # try
-    #     if typeof(ex) <:Array
-    #         result = [];
-    #         for i=1:length(ex)
-    #             #println("evaluating: "*string(ex[i]));
-    #             push!(result, eval(ex[i]));
-    #         end
-    #         return result;
-    #     else
-    #         return eval(ex);
-    #     end
-    # catch e
-    #     printerr("Problem evaluating the symbolic expression: "*string(ex));
-    #     println(string(e));
-    #     return 0;
-    # end
     if typeof(ex) <:Array
         result = [];
         for i=1:length(ex)
-            #println("evaluating: "*string(ex[i]));
             push!(result, eval(ex[i]));
         end
         return result;
@@ -617,19 +651,60 @@ function apply_ops(ex)
     end
 end
 
+# Determine if this expression has an unknown variable symbol
 function has_unknown(ex, var)
     str = string(ex);
     result = false;
     if typeof(var) <: Array
         for i=1:length(var)
-            vs = "_"*string(var[i])*"_";
-            if occursin(vs, str)
+            varsymbol = "_"*string(var[i])*"_";
+            if occursin(varsymbol, str)
                 result = true;
             end
         end
     else
-        vs = "_"*string(var)*"_";
-        result = occursin(vs, str);
+        varsymbol = "_"*string(var)*"_";
+        result = occursin(varsymbol, str);
+    end
+    
+    return result;
+end
+
+# Determine if a Basic is nonlinear in an unknown
+# For now assume single unknowns
+# return nothing if no nonlinearity detected
+# otherwise return the symbol containing the nonlinear variable
+function check_for_nonlinear(ex, var)
+    result = nothing;
+    if typeof(ex) == Basic
+        # Extract a list of all symbols from ex
+        allsymbols = SymEngine.free_symbols(ex);
+        
+        # for now, assume only one unknown variable is present
+        # Figure out which one
+        if typeof(var) <: Array
+            present_var = var[1];
+            for i=1:length(var)
+                if has_unknown(ex, var[i]) # this one is present
+                    tmp = present_var; # just to bring in scope
+                    present_var = var[i];
+                end
+            end
+        else
+            present_var = var;
+        end
+        
+        # Find the corresponding symbol in the list
+        for s in allsymbols
+            if has_unknown(s, present_var)
+                # Try dividing ex by the symbol and see if it still remains
+                divided_ex = ex / s;
+                if has_unknown(divided_ex, present_var)
+                    result = s;
+                end
+                break;
+            end
+        end
     end
     
     return result;
@@ -738,22 +813,91 @@ function check_for_surface(terms)
     return result;
 end
 
-function split_left_right(sterms,sz,var)
+# function split_left_right(sterms,sz,var)
+#     lhs = copy(sterms); # set up the container right
+#     rhs = copy(sterms);
+#     if length(sz) == 0 # probably just a number
+#         rhs = sterms;
+#         lhs = [];
+#     elseif length(sz) == 1 # vector or scalar
+#         for i=1:sz[1]
+#             lhs[i] = Array{Basic,1}(undef,0);
+#             rhs[i] = Array{Basic,1}(undef,0);
+#             for ti=1:length(sterms[i])
+#                 if has_unknown(sterms[i][ti], var)
+#                     #println("lhs: "*string(sterms[i][ti]));
+#                     push!(lhs[i], sterms[i][ti]);
+#                 else
+#                     #println("rhs: "*string(sterms[i][ti]));
+#                     # switch sign to put on RHS
+#                     push!(rhs[i], -sterms[i][ti]);
+#                 end
+#             end
+#         end
+#     elseif length(sz) == 2 # matrix
+#         for j=1:sz[2]
+#             for i=1:sz[1]
+#                 lhs[i,j] = Basic(0);
+#                 rhs[i,j] = Basic(0);
+#                 for ti=1:length(sterms[i,j])
+#                     if has_unknown(sterms[i,j][ti], var)
+#                         #println("lhs: "*string(sterms[i,j][ti]));
+#                         push!(lhs[i,j], sterms[i,j][ti]);
+#                     else
+#                         #println("rhs: "*string(sterms[i,j][ti]));
+#                         push!(rhs[i,j], -sterms[i,j][ti]);
+#                     end
+#                 end
+#             end
+#         end
+#     elseif length(sz) == 3 # rank 3
+#         for k=1:sz[3]
+#             for j=1:sz[2]
+#                 for i=1:sz[1]
+#                     lhs[i,j,k] = Basic(0);
+#                     rhs[i,j,k] = Basic(0);
+#                     for ti=1:length(sterms[i,j,k])
+#                         if has_unknown(sterms[i,j,k][ti], var)
+#                             #println("lhs: "*string(sterms[i,j,k][ti]));
+#                             push!(lhs[i,j,k], sterms[i,j,k][ti]);
+#                         else
+#                             #println("rhs: "*string(sterms[i,j,k][ti]));
+#                             push!(rhs[i,j,k], -sterms[i,j,k][ti]);
+#                         end
+#                     end
+#                 end
+#             end
+#         end
+#     end
+#     return (lhs,rhs);
+# end
+
+function split_left_right_nonlinear(sterms,sz,var)
     lhs = copy(sterms); # set up the container right
     rhs = copy(sterms);
+    nl = copy(sterms);
+    nlv = copy(sterms);
     if length(sz) == 0 # probably just a number
         rhs = sterms;
         lhs = [];
+        nl = [];
+        nlv = [];
     elseif length(sz) == 1 # vector or scalar
         for i=1:sz[1]
             lhs[i] = Array{Basic,1}(undef,0);
             rhs[i] = Array{Basic,1}(undef,0);
+            nl[i] = Array{Basic,1}(undef,0);
+            nlv[i] = Array{Basic,1}(undef,0);
             for ti=1:length(sterms[i])
                 if has_unknown(sterms[i][ti], var)
-                    #println("lhs: "*string(sterms[i][ti]));
-                    push!(lhs[i], sterms[i][ti]);
+                    nl_var = check_for_nonlinear(sterms[i][ti], var);
+                    if !(nl_var === nothing)
+                        push!(nl[i], sterms[i][ti]);
+                        push!(nlv[i], nl_var);
+                    else
+                        push!(lhs[i], sterms[i][ti]);
+                    end
                 else
-                    #println("rhs: "*string(sterms[i][ti]));
                     # switch sign to put on RHS
                     push!(rhs[i], -sterms[i][ti]);
                 end
@@ -762,12 +906,19 @@ function split_left_right(sterms,sz,var)
     elseif length(sz) == 2 # matrix
         for j=1:sz[2]
             for i=1:sz[1]
-                lhs[i,j] = Basic(0);
-                rhs[i,j] = Basic(0);
+                lhs[i,j] = Array{Basic,1}(undef,0);
+                rhs[i,j] = Array{Basic,1}(undef,0);
+                nl[i,j] = Array{Basic,1}(undef,0);
+                nlv[i,j] = Array{Basic,1}(undef,0);
                 for ti=1:length(sterms[i,j])
                     if has_unknown(sterms[i,j][ti], var)
-                        #println("lhs: "*string(sterms[i,j][ti]));
-                        push!(lhs[i,j], sterms[i,j][ti]);
+                        nl_var = check_for_nonlinear(sterms[i,j][ti], var);
+                        if !(nl_var === nothing)
+                            push!(nl[i,j], sterms[i,j][ti]);
+                            push!(nli[i,j], nl_var);
+                        else
+                            push!(lhs[i,j], sterms[i,j][ti]);
+                        end
                     else
                         #println("rhs: "*string(sterms[i,j][ti]));
                         push!(rhs[i,j], -sterms[i,j][ti]);
@@ -779,12 +930,19 @@ function split_left_right(sterms,sz,var)
         for k=1:sz[3]
             for j=1:sz[2]
                 for i=1:sz[1]
-                    lhs[i,j,k] = Basic(0);
-                    rhs[i,j,k] = Basic(0);
+                    lhs[i,j,k] = Array{Basic,1}(undef,0);
+                    rhs[i,j,k] = Array{Basic,1}(undef,0);
+                    nl[i,j,k] = Array{Basic,1}(undef,0);
+                    nli[i,j,k] = Array{Basic,1}(undef,0);
                     for ti=1:length(sterms[i,j,k])
                         if has_unknown(sterms[i,j,k][ti], var)
-                            #println("lhs: "*string(sterms[i,j,k][ti]));
-                            push!(lhs[i,j,k], sterms[i,j,k][ti]);
+                            nl_var = check_for_nonlinear(sterms[i,j,k][ti], var);
+                            if !(nl_var === nothing)
+                                push!(nl[i,j,k], sterms[i,j,k][ti]);
+                                push!(nli[i,j,k], nl_var);
+                            else
+                                push!(lhs[i,j,k], sterms[i,j,k][ti]);
+                            end
                         else
                             #println("rhs: "*string(sterms[i,j,k][ti]));
                             push!(rhs[i,j,k], -sterms[i,j,k][ti]);
@@ -794,7 +952,7 @@ function split_left_right(sterms,sz,var)
             end
         end
     end
-    return (lhs,rhs);
+    return (lhs, rhs, nl, nlv);
 end
 
 function split_dt(terms, sz)
@@ -989,6 +1147,103 @@ function apply_flag_to_all_symbols(flag, ex)
     end
     
     return ex;
+end
+
+# Adds "OLD" to the variable symbol
+function apply_old_to_symbol(ex)
+    str = string(ex);
+    # Find u in FLAG_FLAG__u_n
+    # Does it have any flags?
+    st = 1;
+    if str[1] == '_' # no flags
+        st = 2;
+        
+    else # skip until "__"
+        for i=2:length(str)
+            tmp = st;
+            if str[i-1] == '_' && str[i] == '_'
+                st = i+1;
+                break;
+            end
+        end
+    end
+    
+    if st > 1
+        newstr = str[1:(st-1)] * "OLD" * str[st:end];
+    else
+        newstr = str;
+        printerr("Applying OLD to a misformed symbol? " * str)
+    end
+    
+    return symbols(newstr);
+end
+
+# Given a Basic term and variable, generate a function for the term.
+# Use AD to generate a derivative with respect to var.
+# Use this derivative to create a callback function.
+# First strip off the test function factor.
+# 
+function create_deriv_func(term, var)
+    # Figure out the present test function symbol
+    allsymbols = SymEngine.free_symbols(term);
+    test_symbol = nothing;
+    for c in test_functions
+        for s in allsymbols
+            if occursin("_"*string(c.symbol)*"_", string(s)) && test_symbol === nothing
+                test_symbol = s;
+                break;
+            end
+        end
+    end
+    
+    # If present, trim off test function factor by dividing
+    if !(test_symbol === nothing)
+        new_term = term / test_symbol;
+    else
+        new_term = term;
+    end
+    
+    # create a string for the needed args
+    allsymbols = SymEngine.free_symbols(new_term);
+    first_arg = string(var);
+    other_args = "";
+    arg_list = [string(var)];
+    for s in allsymbols
+        if !(s == var)
+            other_args *= ", " * string(s);
+            push!(arg_list, string(s));
+        end
+    end
+    arg_str = first_arg * other_args;
+    
+    # Create a string for the function
+    func_str = "("*arg_str*")->("*string(new_term)*")";
+    
+    # Make a derivative
+    dfunc_str = "function df("*arg_str*") return Zygote.gradient("*func_str*", "*arg_str*")[1]; end"
+    dfunc = eval(Meta.parse(dfunc_str));
+    
+    # Put it in a callback function
+    i = length(callback_functions);
+    dfunc_name = "ADFUNCTION"*string(i+1);
+    # callbackFunction(dfunc, name=dfunc_name);
+    push!(callback_functions, CallbackFunction(dfunc_name, arg_list, "", dfunc))
+    log_entry("Added callback function for AD: "*dfunc_name, 2);
+    
+    # This will be placed in the term like ADFUNCTIONi(args)
+    str = "CALLBACK_"*dfunc_name*"("*arg_str*")";
+    
+    # Create a symengine fun
+    sfun = SymEngine.SymFunction("CALLBACK_"*dfunc_name);
+    
+    # If there was a test function, put it back now
+    if !(test_symbol === nothing)
+        new_term = Basic(str) * test_symbol;
+    else
+        new_term = Basic(str);
+    end
+    
+    return new_term;
 end
 
 end # module
