@@ -41,6 +41,11 @@ function linear_solve(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=n
 end
 
 function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, stepper=nothing, assemble_func=nothing)
+    doprofile = config.proc_rank == 0;
+    if doprofile
+        prof_begin = Base.Libc.time();
+    end
+    
     # If more than one variable
     if typeof(var) <: Array
         # multiple variables being solved for simultaneously
@@ -77,6 +82,19 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
     face_done = zeros(nfaces); # Increment when the corresponding flux value is computed.
     allocated_vecs = (sourcevec, fluxvec, facefluxvec, face_done);
     
+    # struct temp_omnistruct
+    #     nel::Int64
+    #     elemental_order::Vector{Int64}
+    #     var::Variable
+    #     fv_grid::Grid
+    #     fv_geo_factors::GeometricFactors
+    #     fv_info::FVInfo
+    #     refel::Refel
+    #     prob::Finch_prob
+    # end
+    # Build the omnistruct to pass to assemble
+    omnistruct = temp_omnistruct(nel, elemental_order, var, fv_grid, fv_geo_factors, fv_info, refel, prob);
+    
     if prob.time_dependent && !(stepper === nothing)
         log_entry("Beginning "*string(stepper.Nsteps)*" time steps.");
         t = 0;
@@ -96,6 +114,16 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
         last2update = 0;
         last10update = 0;
         if config.proc_rank == 0 print("Time stepping progress(%): 0"); end
+        if doprofile
+            prof_setup = Base.Libc.time() - prof_begin;
+            prof_steps = Base.Libc.time();
+            prof_exch = 0.0;
+            prof_pre = 0.0;
+            prof_evolve = 0.0;
+            prof_val = 0.0;
+            prof_post = 0.0;
+        end
+        
         for i=1:stepper.Nsteps
             if stepper.stages > 1
                 # LSRK4 is a special case, low storage
@@ -115,7 +143,7 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                         if config.num_partitions > 1 exchange_ghosts(var, grid, i); end
                         pre_step_function();
                         
-                        sol = assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, rktime, stepper.dt, assemble_loops=assemble_func);
+                        sol = assemble(omnistruct, var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, rktime, stepper.dt, assemble_loops=assemble_func);
                         
                         
                         if rki == 1 # because a1 == 0
@@ -170,7 +198,7 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                         if config.num_partitions > 1 exchange_ghosts(var, grid, i); end
                         pre_step_function();
                         
-                        tmpki[:,stage] = assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, stime, stepper.dt, assemble_loops=assemble_func);
+                        tmpki[:,stage] = assemble(omnistruct, var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, stime, stepper.dt, assemble_loops=assemble_func);
                         
                     end
                     # Stages are done. Assemble the final result for this step
@@ -184,21 +212,47 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                 end
                 
             elseif stepper.type == EULER_EXPLICIT
+                tic = Base.Libc.time();
                 if config.num_partitions > 1 exchange_ghosts(var, grid, i); end
-                pre_step_function();
+                toc = Base.Libc.time();
+                if doprofile
+                    prof_exch += toc-tic;
+                end
+                tic = toc;
                 
-                sol = sol .+ stepper.dt .* assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func);
+                pre_step_function();
+                toc = Base.Libc.time();
+                if doprofile
+                    prof_pre += toc-tic;
+                end
+                tic = toc;
+                
+                sol .= sol .+ stepper.dt .* assemble(omnistruct, var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func);
+                toc = Base.Libc.time();
+                if doprofile
+                    prof_evolve += toc-tic;
+                end
+                tic = toc;
                 
                 FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
                 place_sol_in_vars(var, sol, stepper);
+                if doprofile
+                    prof_val += toc-tic;
+                end
+                tic = toc;
                 
                 post_step_function();
+                toc = Base.Libc.time();
+                if doprofile
+                    prof_post += toc-tic;
+                end
+                tic = toc;
                 
             elseif stepper.type == PECE
                 # Predictor (explicit Euler)
                 if config.num_partitions > 1 exchange_ghosts(var, grid, i); end
                 pre_step_function();
-                tmpsol = sol .+ stepper.dt .* assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func);
+                tmpsol = sol .+ stepper.dt .* assemble(omnistruct, var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func);
                 
                 FV_copy_bdry_vals_to_vector(var, tmpsol, grid, dofs_per_node);
                 place_sol_in_vars(var, tmpsol, stepper);
@@ -207,7 +261,7 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                 # Corrector (implicit Euler)
                 if config.num_partitions > 1 exchange_ghosts(var, grid, i); end
                 pre_step_function();
-                sol = sol .+ stepper.dt .* assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t+stepper.dt, stepper.dt, assemble_loops=assemble_func);
+                sol = sol .+ stepper.dt .* assemble(omnistruct, var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t+stepper.dt, stepper.dt, assemble_loops=assemble_func);
                 
                 FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
                 place_sol_in_vars(var, sol, stepper);
@@ -240,6 +294,21 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
         if config.proc_rank == 0 println(""); end
         if config.num_partitions > 1 exchange_ghosts(var, grid, 0); end
         end_t = Base.Libc.time();
+        
+        if doprofile
+            prof_end= Base.Libc.time();
+            prof_steps = prof_end - prof_steps;
+            prof_total = prof_end - prof_begin;
+            
+            println("solve time: total = ", prof_total);
+            println("            setup = ", prof_setup);
+            println("            steps = ", prof_steps);
+            println("                   [ghost = ", prof_exch);
+            println("                   [presteo = ", prof_pre);
+            println("                   [evolve = ", prof_evolve);
+            println("                   [vals = ", prof_val);
+            println("                   [poststep = ", prof_post);
+        end
         
         log_entry("Stepping took "*string(end_t-start_t)*" seconds.");
         return sol;
@@ -376,8 +445,19 @@ function linear_solve_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
     end
 end
 
+struct temp_omnistruct
+    nel::Int64
+    elemental_order::Vector{Int64}
+    var::Union{Variable, Vector{Variable}}
+    fv_grid::Grid
+    fv_geo_factors::GeometricFactors
+    fv_info::FVInfo
+    refel::Refel
+    prob::Finch_prob
+end
+
 #
-function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; assemble_loops=nothing, is_explicit=true)
+function assemble(omni, var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; assemble_loops=nothing, is_explicit=true)
     # If an assembly loop function was provided, use it
     if !(assemble_loops === nothing)
         return assemble_loops.func(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt, is_explicit=is_explicit);
@@ -387,7 +467,7 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
         return assemble_using_parent_child(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt, is_explicit=is_explicit);
     end
     
-    nel = fv_grid.nel_owned;
+    nel = omni.fv_grid.nel_owned;
     dofs_squared = dofs_per_node*dofs_per_node;
     
     # Label things that were allocated externally
@@ -415,8 +495,9 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
     end
     
     # Elemental loop
-    for ei=1:nel
-        eid = elemental_order[ei]; # The index of this element
+    @inbounds(
+    for ei=1:omni.nel
+        eid = omni.elemental_order[ei]; # The index of this element
         first_ind = (eid-1)*dofs_per_node + 1; # First global index for this element
         last_ind = eid*dofs_per_node; # last global index
         
@@ -427,7 +508,7 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
         ##### Source integrated over the cell #####
         # Compute RHS volume integral
         if !(source_rhs === nothing)
-            sourceargs = (var, eid, 0, fv_grid, fv_geo_factors, fv_info, refel, t, dt);
+            sourceargs = (omni.var, eid, 0, omni.fv_grid, omni.fv_geo_factors, omni.fv_info, omni.refel, t, dt);
             source = source_rhs.func(sourceargs);
             # Add to global source vector
             sourcevec[first_ind:last_ind] = source;
@@ -449,8 +530,8 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
         
         ##### Flux integrated over the faces #####
         # Loop over this element's faces.
-        for i=1:refel.Nfaces
-            fid = fv_grid.element2face[i, eid];
+        for i=1:omni.refel.Nfaces
+            fid = omni.fv_grid.element2face[i, eid];
             # Only one element on either side is available here. For more use parent/child version.
             (leftel, rightel) = fv_grid.face2element[:,fid];
             if rightel == 0
@@ -465,17 +546,17 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                 if do_face_here
                     face_done[fid] = 1; # Possible race condition, but in the worst case it will be computed twice.
                     
-                    fluxargs = (var, eid, fid, neighborhood, fv_grid, fv_geo_factors, fv_info, refel, t, dt);
-                    flux = flux_rhs.func(fluxargs) .* fv_geo_factors.area[fid];
+                    fluxargs = (omni.var, eid, fid, neighborhood, omni.fv_grid, omni.fv_geo_factors, omni.fv_info, omni.refel, t, dt);
+                    flux = flux_rhs.func(fluxargs) .* omni.fv_geo_factors.area[fid];
                     # Add to global flux vector for faces
                     facefluxvec[((fid-1)*dofs_per_node + 1):(fid*dofs_per_node)] = flux;
                     # Combine all flux for this element
-                    fluxvec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] += flux ./ fv_geo_factors.volume[eid];
+                    fluxvec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] += flux ./ omni.fv_geo_factors.volume[eid];
                     
                 else
                     # This flux has either been computed or is being computed by another thread.
                     # The state will need to be known before paralellizing, but for now assume it's complete.
-                    fluxvec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] -= facefluxvec[((fid-1)*dofs_per_node + 1):(fid*dofs_per_node)] ./ fv_geo_factors.volume[eid];
+                    fluxvec[((eid-1)*dofs_per_node + 1):(eid*dofs_per_node)] -= facefluxvec[((fid-1)*dofs_per_node + 1):(fid*dofs_per_node)] ./ omni.fv_geo_factors.volume[eid];
                 end
             end
             
@@ -542,11 +623,11 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
             end
             
             # Boundary conditions are applied to flux
-            fbid = fv_grid.facebid[fid]; # BID of this face
+            fbid = omni.fv_grid.facebid[fid]; # BID of this face
             if fbid > 0
-                facex = fv_grid.allnodes[:, fv_grid.face2glb[:,1,fid]];  # face node coordinates
+                facex = omni.fv_grid.allnodes[:, omni.fv_grid.face2glb[:,1,fid]];  # face node coordinates
                 
-                if typeof(var) <: Array
+                if typeof(omni.var) <: Array
                     dofind = 0;
                     for vi=1:length(var)
                         for compo=1:length(var[vi].symvar)
@@ -580,29 +661,29 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
                 else
                     for d=1:dofs_per_node
                         dofind = d;
-                        if prob.bc_type[var.index, fbid] == NO_BC
+                        if omni.prob.bc_type[var.index, fbid] == NO_BC
                             # do nothing
-                        elseif prob.bc_type[var.index, fbid] == FLUX
+                        elseif omni.prob.bc_type[var.index, fbid] == FLUX
                             # compute the value and add it to the flux directly
                             # Qvec = (refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, refel.face2local[fv_grid.faceRefelInd[1,fid]]]
                             # Qvec = Qvec ./ fv_geo_factors.area[fid];
                             # bflux = FV_flux_bc_rhs_only(prob.bc_func[var.index, fbid][d], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
-                            bflux = FV_flux_bc_rhs_only_simple(prob.bc_func[var.index, fbid][d], fid, t) .* fv_geo_factors.area[fid];
+                            bflux = FV_flux_bc_rhs_only_simple(omni.prob.bc_func[var.index, fbid][d], fid, t) .* omni.fv_geo_factors.area[fid];
                             if !is_explicit
                                 bflux = bflux .* dt;
                             end
                             
-                            fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ fv_geo_factors.volume[eid];
+                            fluxvec[(eid-1)*dofs_per_node + dofind] += (bflux - facefluxvec[(fid-1)*dofs_per_node + dofind]) ./ omni.fv_geo_factors.volume[eid];
                             facefluxvec[(fid-1)*dofs_per_node + dofind] = bflux;
-                        elseif prob.bc_type[var.index, fbid] == DIRICHLET
+                        elseif omni.prob.bc_type[var.index, fbid] == DIRICHLET
                             # Set variable array and handle after the face loop
-                            var.values[d,eid] = FV_evaluate_bc(prob.bc_func[var.index, fbid][d], eid, fid, t);
+                            var.values[d,eid] = FV_evaluate_bc(omni.prob.bc_func[var.index, fbid][d], eid, fid, t);
                             # If implicit, this needs to be handled before solving
                             if !is_explicit
                                 #TODO
                             end
                         else
-                            printerr("Unsupported boundary condition type: "*prob.bc_type[var.index, fbid]);
+                            printerr("Unsupported boundary condition type: "*omni.prob.bc_type[omni.var.index, fbid]);
                         end
                     end
                 end
@@ -611,6 +692,7 @@ function assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vec
         end# face loop
         
     end# element loop
+    )#inbounds
     
     for i=1:length(sourcevec)
         sourcevec[i] += fluxvec[i];
