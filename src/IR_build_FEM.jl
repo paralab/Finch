@@ -35,6 +35,8 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
         end
     else
         var = [var]; # put it in an array for consistency
+        offset_ind = zeros(Int, 1);
+        dofsper = length(var[1].symvar);
     end
     
     IRtypes = IR_entry_types();
@@ -74,7 +76,8 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
         globalmat_V,
         IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :allocated_nonzeros])
         ]));
-        
+    
+    # Global vectors
     globalvec = IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], []);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         globalvec,
@@ -89,15 +92,9 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
         
     # I and J should be initialized to 1
     push!(allocate_block.parts, IR_operation_node(IRtypes.named_op, [
-        :FILL_ARRAY,
-        globalmat_I,
-        1
-        ]));
+        :FILL_ARRAY, globalmat_I, 1, :allocated_nonzeros]));
     push!(allocate_block.parts, IR_operation_node(IRtypes.named_op, [
-        :FILL_ARRAY,
-        globalmat_J,
-        1
-        ]));
+        :FILL_ARRAY, globalmat_J, 1, :allocated_nonzeros]));
     
     # Allocate the elemental matrix and vector
     push!(allocate_block.parts, IR_comment_node("Allocate elemental matrix and vector."));
@@ -223,9 +220,11 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
     
     # add to global sysem
     push!(toglobal_block.parts, IR_comment_node("Place elemental parts in global system."));
-    push!(toglobal_block.parts, generate_local_to_global_fem(dofsper, offset_ind));
+    # push!(toglobal_block.parts, generate_local_to_global_fem(dofsper));
+    push!(toglobal_block.parts, IR_operation_node(IRtypes.named_op, [:LOCAL2GLOBAL, dofsper]));
     push!(time_toglobal_block.parts, IR_comment_node("Place elemental parts in global system."));
-    push!(time_toglobal_block.parts, generate_local_to_global_fem(dofsper, offset_ind, vec_only=true));
+    # push!(time_toglobal_block.parts, generate_local_to_global_fem(dofsper, vec_only=true));
+    push!(time_toglobal_block.parts, IR_operation_node(IRtypes.named_op, [:LOCAL2GLOBAL_VEC, dofsper]));
     
     # assembly loop
     indices = [];
@@ -287,9 +286,9 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
             nl_change_rel = IR_data_node(IRtypes.float_64_data, :nl_change_rel);
             oldsolvec = IR_data_node(IRtypes.float_64_data, :solution_old, [:dofs_global], []);
             zero_el_vec = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY,
-                IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], []), 0]);
+                IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], []), 0, :dofs_global]);
             zero_bdry_done = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY,
-                IR_data_node(IRtypes.boolean_data, :bdry_done, [:nnodes_global], []), :false]);
+                IR_data_node(IRtypes.boolean_data, :bdry_done, [:nnodes_global], []), :false, :nnodes_global]);
             push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
                 oldsolvec,
                 IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])
@@ -758,7 +757,7 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
         
         if lorr == LHS
             linalg_matrix_block_args = [];
-            push!(linalg_matrix_block_args, :LINALG_MATRIX_BLOCK);
+            push!(linalg_matrix_block_args, :LINALG_MATMAT_BLOCKS);
             push!(linalg_matrix_block_args, 0);
             push!(linalg_matrix_block_args, :nodes_per_element);
             push!(linalg_matrix_block_args, :element_matrix);
@@ -775,7 +774,7 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
                             submat_rhs = submatrices[smi,smj][1];
                         end
                         # push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [
-                        #                             :LINALG_MATRIX_BLOCK, 
+                        #                             :LINALG_MATMAT_BLOCKS, 
                         #                             smi, smj, :nodes_per_element, :element_matrix, submat_rhs]));
                         push!(linalg_matrix_block_args, smi);
                         push!(linalg_matrix_block_args, smj);
@@ -787,9 +786,10 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
             end
             linalg_matrix_block_args[2] = num_nonzero_blocks;
             push!(compute_block.parts, IR_operation_node(IRtypes.named_op, linalg_matrix_block_args));
-        else
+            
+        else # RHS
             linalg_vector_block_args = [];
-            push!(linalg_vector_block_args, :LINALG_VECTOR_BLOCK);
+            push!(linalg_vector_block_args, :LINALG_MATVEC_BLOCKS);
             push!(linalg_vector_block_args, 0);
             push!(linalg_vector_block_args, :nodes_per_element);
             push!(linalg_vector_block_args, :element_vector);
@@ -805,7 +805,7 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
                     end
                     
                     # push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [
-                    #                             :LINALG_VECTOR_BLOCK, 
+                    #                             :LINALG_MATVEC_BLOCKS, 
                     #                             smj, :nodes_per_element, :element_vector, submat_rhs]));
                     push!(linalg_vector_block_args, smj);
                     push!(linalg_vector_block_args, submat_rhs);
@@ -845,18 +845,18 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
             combined_rhs = IR_operation_node(IRtypes.math_op, new_term_vec);
             if lorr == LHS
                 push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [
-                    :LINALG_MATRIX_BLOCK, 1, :nodes_per_element, :element_matrix, 1, 1, combined_rhs]));
+                    :LINALG_MATMAT_BLOCKS, 1, :nodes_per_element, :element_matrix, 1, 1, combined_rhs]));
             else
                 push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [ 
-                    :LINALG_VECTOR_BLOCK, 1, :nodes_per_element, :element_vector, 1, combined_rhs]));
+                    :LINALG_MATVEC_BLOCKS, 1, :nodes_per_element, :element_vector, 1, combined_rhs]));
             end
         else
             if lorr == LHS
                 push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [
-                    :LINALG_MATRIX_BLOCK, 1, :nodes_per_element, :element_matrix, 1, 1, term_vec[1]]));
+                    :LINALG_MATMAT_BLOCKS, 1, :nodes_per_element, :element_matrix, 1, 1, term_vec[1]]));
             else
                 push!(compute_block.parts, IR_operation_node(IRtypes.named_op, [ 
-                    :LINALG_VECTOR_BLOCK, 1, :nodes_per_element, :element_vector, 1, term_vec[1]]));
+                    :LINALG_MATVEC_BLOCKS, 1, :nodes_per_element, :element_vector, 1, term_vec[1]]));
             end
         end
         
@@ -948,7 +948,7 @@ function generate_term_calculation_fem(term, var, lorr, vors)
 end
 
 # This part inserts the elemental matrix and vector into the global one
-function generate_local_to_global_fem(dofs_per_node, offset_ind; vec_only=false)
+function generate_local_to_global_fem(dofs_per_node; vec_only=false)
     IRtypes = IR_entry_types();
     result_block = IR_block_node([]);
     vector_loop_body = IR_block_node([]);
@@ -1169,15 +1169,9 @@ function generate_time_stepping_loop_fem(stepper, assembly)
     IRtypes = IR_entry_types();
     tloop_body = IR_block_node([]);
     zero_el_vec = IR_operation_node(IRtypes.named_op, [
-        :FILL_ARRAY,
-        IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], []),
-        0
-        ]);
+        :FILL_ARRAY, IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], []), 0, :dofs_global]);
     zero_bdry_done = IR_operation_node(IRtypes.named_op, [
-        :FILL_ARRAY,
-        IR_data_node(IRtypes.boolean_data, :bdry_done, [:nnodes_global], []),
-        :false
-        ]);
+        :FILL_ARRAY, IR_data_node(IRtypes.boolean_data, :bdry_done, [:nnodes_global], []), :false, :nnodes_global]);
     if stepper.stages < 2
         # # This part would be used if the solution is updated like sol = sol + dt*()
         # sol_i = IR_data_node(IRtypes.array_data, :solution, [:update_i]);

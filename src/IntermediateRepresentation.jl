@@ -233,6 +233,9 @@ mutable struct IR_conditional_node <: IR_part
     body::IR_block_node #Vector{IR_part}
     elsepart::Union{IR_block_node, Nothing}
     deps::Vector{IR_data_access}
+    function IR_conditional_node(c, b)
+        IR_conditional_node(c, b, nothing)
+    end
     function IR_conditional_node(c, b, e)
         if typeof(b) == IR_block_node
             block = b;
@@ -417,7 +420,7 @@ end
 #############################################################################################################
 include("IR_utils.jl");
 include("IR_build_FEM.jl");
-# include("IR_build_FVM.jl");
+include("IR_build_FVM.jl");
 
 #############################################################################################################
 

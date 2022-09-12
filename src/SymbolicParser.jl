@@ -303,7 +303,7 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
                     # println("nlt: "*string(nlt[vi][1][i])*" nlv: "*string(nlv[vi][1][i]))
                     old_nlv = apply_old_to_symbol(nlv[vi][1][i]);
                     old_term = subs(nlt[vi][1][i], (nlv[vi][1][i], old_nlv));
-                    deriv_term = create_deriv_func(old_term, old_nlv);
+                    deriv_term = create_deriv_func(old_term, old_nlv, prob.derivative_type);
                     # println("old: "*string(old_term))
                     push!(rhs[vi][1], -old_term);
                     push!(rhs[vi][1], deriv_term * old_nlv);
@@ -315,7 +315,7 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
                 # println("nlt: "*string(nlt[1][i])*" nlv: "*string(nlv[1][i]))
                 old_nlv = apply_old_to_symbol(nlv[1][i]);
                 old_term = subs(nlt[1][i], (nlv[1][i], old_nlv));
-                deriv_term = create_deriv_func(old_term, old_nlv);
+                deriv_term = create_deriv_func(old_term, old_nlv, prob.derivative_type);
                 # println("old: "*string(old_term))
                 push!(rhs[1], -old_term);
                 push!(rhs[1], deriv_term * old_nlv);
@@ -674,11 +674,13 @@ end
 # For now assume single unknowns
 # return nothing if no nonlinearity detected
 # otherwise return the symbol containing the nonlinear variable
+# Note: conditionals will look nonlinear, so check both branches separately.
 function check_for_nonlinear(ex, var)
     result = nothing;
     if typeof(ex) == Basic
         # Extract a list of all symbols from ex
         allsymbols = SymEngine.free_symbols(ex);
+        divided_ex = copy(ex);
         
         # for now, assume only one unknown variable is present
         # Figure out which one
@@ -694,17 +696,44 @@ function check_for_nonlinear(ex, var)
             present_var = var;
         end
         
+        # Look for certain functions like conditional()
+        allfuns = SymEngine.function_symbols(ex);
+        # println(" allfuns: " * string(allfuns))
+        for f in allfuns
+            f_name = SymEngine.get_name(f);
+            # println("  name: "*string(f_name))
+            if f_name == "conditional"
+                # check each of the args for nonlinearity
+                f_args = SymEngine.get_args(f);
+                # println("  args: "*string(f_args))
+                for fa in f_args
+                    nl = check_for_nonlinear(fa, var);
+                    if !(nl===nothing)
+                        return nl;
+                    end
+                end
+                # At this point the args were not nonlinear
+                # divide out the function to prevent problems
+                divided_ex = divided_ex / f;
+            end
+        end
+        # update allsymbols with removed conditionals
+        allsymbols = SymEngine.free_symbols(divided_ex);
+        
         # Find the corresponding symbol in the list
         for s in allsymbols
             if has_unknown(s, present_var)
                 # Try dividing ex by the symbol and see if it still remains
-                divided_ex = ex / s;
+                divided_ex = divided_ex / s;
                 if has_unknown(divided_ex, present_var)
                     result = s;
+                    # println(" NL: "*string(divided_ex))
                 end
                 break;
             end
         end
+        
+        
     end
     
     return result;
@@ -977,8 +1006,8 @@ function split_dt(terms, sz)
     elseif length(sz) == 2 # matrix
         for j=1:sz[2]
             for i=1:sz[1]
-                hasdt[i,j] = Basic(0);
-                nodt[i,j] = Basic(0);
+                hasdt[i,j] = Array{Basic,1}(undef,0);
+                nodt[i,j] = Array{Basic,1}(undef,0);
                 for ti=1:length(terms[i,j])
                     if check_for_dt(terms[i,j][ti])
                         #println("hasdt: "*string(terms[i,j][ti]));
@@ -995,8 +1024,8 @@ function split_dt(terms, sz)
         for k=1:sz[3]
             for j=1:sz[2]
                 for i=1:sz[1]
-                    hasdt[i,j,k] = Basic(0);
-                    nodt[i,j,k] = Basic(0);
+                    hasdt[i,j,k] = Array{Basic,1}(undef,0);
+                    nodt[i,j,k] = Array{Basic,1}(undef,0);
                     for ti=1:length(terms[i,j,k])
                         if check_for_dt(terms[i,j,k][ti])
                             #println("hasdt: "*string(terms[i,j,k][ti]));
@@ -1035,8 +1064,8 @@ function split_surf(terms, sz)
     elseif length(sz) == 2 # matrix
         for j=1:sz[2]
             for i=1:sz[1]
-                hassurf[i,j] = Basic(0);
-                nosurf[i,j] = Basic(0);
+                hassurf[i,j] = Array{Basic,1}(undef,0);
+                nosurf[i,j] = Array{Basic,1}(undef,0);
                 for ti=1:length(terms[i,j])
                     if check_for_surface(terms[i,j][ti])
                         terms[i,j][ti] = subs(terms[i,j][ti], SURFACEINTEGRAL=>1);
@@ -1051,8 +1080,8 @@ function split_surf(terms, sz)
         for k=1:sz[3]
             for j=1:sz[2]
                 for i=1:sz[1]
-                    hassurf[i,j,k] = Basic(0);
-                    nosurf[i,j,k] = Basic(0);
+                    hassurf[i,j,k] = Array{Basic,1}(undef,0);
+                    nosurf[i,j,k] = Array{Basic,1}(undef,0);
                     for ti=1:length(terms[i,j,k])
                         if check_for_surface(terms[i,j,k][ti])
                             terms[i,j,k][ti] = subs(terms[i,j,k][ti], SURFACEINTEGRAL=>1);
@@ -1179,68 +1208,76 @@ function apply_old_to_symbol(ex)
 end
 
 # Given a Basic term and variable, generate a function for the term.
-# Use AD to generate a derivative with respect to var.
-# Use this derivative to create a callback function.
-# First strip off the test function factor.
+# If method is "AD": 
+#   Use AD to generate a derivative with respect to var.
+#   Use this derivative to create a callback function.
+#   First strip off the test function factor, add at end.
+# If method is "symbolic":
+#   Use symengine to make symbolic derivative with respect to var.
 # 
-function create_deriv_func(term, var)
-    # Figure out the present test function symbol
-    allsymbols = SymEngine.free_symbols(term);
-    test_symbol = nothing;
-    for c in test_functions
-        for s in allsymbols
-            if occursin("_"*string(c.symbol)*"_", string(s)) && test_symbol === nothing
-                test_symbol = s;
-                break;
+function create_deriv_func(term, var, method)
+    if method == "AD"
+        # Figure out the present test function symbol
+        allsymbols = SymEngine.free_symbols(term);
+        test_symbol = nothing;
+        for c in test_functions
+            for s in allsymbols
+                if occursin("_"*string(c.symbol)*"_", string(s)) && test_symbol === nothing
+                    test_symbol = s;
+                    break;
+                end
             end
         end
-    end
-    
-    # If present, trim off test function factor by dividing
-    if !(test_symbol === nothing)
-        new_term = term / test_symbol;
-    else
-        new_term = term;
-    end
-    
-    # create a string for the needed args
-    allsymbols = SymEngine.free_symbols(new_term);
-    first_arg = string(var);
-    other_args = "";
-    arg_list = [string(var)];
-    for s in allsymbols
-        if !(s == var)
-            other_args *= ", " * string(s);
-            push!(arg_list, string(s));
+        
+        # If present, trim off test function factor by dividing
+        if !(test_symbol === nothing)
+            new_term = term / test_symbol;
+        else
+            new_term = term;
         end
-    end
-    arg_str = first_arg * other_args;
-    
-    # Create a string for the function
-    func_str = "("*arg_str*")->("*string(new_term)*")";
-    
-    # Make a derivative
-    dfunc_str = "function df("*arg_str*") return Zygote.gradient("*func_str*", "*arg_str*")[1]; end"
-    dfunc = eval(Meta.parse(dfunc_str));
-    
-    # Put it in a callback function
-    i = length(callback_functions);
-    dfunc_name = "ADFUNCTION"*string(i+1);
-    # callbackFunction(dfunc, name=dfunc_name);
-    push!(callback_functions, CallbackFunction(dfunc_name, arg_list, "", dfunc))
-    log_entry("Added callback function for AD: "*dfunc_name, 2);
-    
-    # This will be placed in the term like ADFUNCTIONi(args)
-    str = "CALLBACK_"*dfunc_name*"("*arg_str*")";
-    
-    # Create a symengine fun
-    sfun = SymEngine.SymFunction("CALLBACK_"*dfunc_name);
-    
-    # If there was a test function, put it back now
-    if !(test_symbol === nothing)
-        new_term = Basic(str) * test_symbol;
-    else
-        new_term = Basic(str);
+        
+        # create a string for the needed args
+        allsymbols = SymEngine.free_symbols(new_term);
+        first_arg = string(var);
+        other_args = "";
+        arg_list = [string(var)];
+        for s in allsymbols
+            if !(s == var)
+                other_args *= ", " * string(s);
+                push!(arg_list, string(s));
+            end
+        end
+        arg_str = first_arg * other_args;
+        
+        # Create a string for the function
+        func_str = "("*arg_str*")->("*string(new_term)*")";
+        
+        # Make a derivative
+        dfunc_str = "function df("*arg_str*") return Zygote.gradient("*func_str*", "*arg_str*")[1]; end"
+        dfunc = eval(Meta.parse(dfunc_str));
+        
+        # Put it in a callback function
+        i = length(callback_functions);
+        dfunc_name = "ADFUNCTION"*string(i+1);
+        # callbackFunction(dfunc, name=dfunc_name);
+        push!(callback_functions, CallbackFunction(dfunc_name, arg_list, "", dfunc))
+        log_entry("Added callback function for AD: "*dfunc_name, 2);
+        
+        # This will be placed in the term like ADFUNCTIONi(args)
+        str = "CALLBACK_"*dfunc_name*"("*arg_str*")";
+        
+        # Create a symengine fun
+        sfun = SymEngine.SymFunction("CALLBACK_"*dfunc_name);
+        
+        # If there was a test function, put it back now
+        if !(test_symbol === nothing)
+            new_term = Basic(str) * test_symbol;
+        else
+            new_term = Basic(str);
+        end
+        
+    else # symbolic
+        new_term = SymEngine.diff(term, var);
     end
     
     return new_term;

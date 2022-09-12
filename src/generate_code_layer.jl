@@ -10,7 +10,9 @@ function generate_code_layer(var, IR, solver, language, framework)
     ### External targets ##############################################################
     # The appropriate code gen function should be set
     else
-        code = external_generate_code_layer_function(IR);
+        # code = external_generate_code_layer_function(IR);
+        code = " See code in generated files ";
+        
     end
     
     return code;

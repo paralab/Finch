@@ -21,6 +21,7 @@ mutable struct Finch_prob
     
     # Nonlinear iteration info
     nonlinear::Bool                 # Is there a nonlinear iteration
+    derivative_type::String         # "AD" or "symbolic"
     max_iters::Int                  # Max iterations
     relative_tol::Float64           # Relative tolerance for change between iterations (u(i) - u(i-1))
     absolute_tol::Float64           # Absolute tolerance
@@ -35,6 +36,7 @@ mutable struct Finch_prob
         0, 
         Array{Any,1}(undef,(0)),
         false,
+        "AD",
         1,
         1.0,
         1.0

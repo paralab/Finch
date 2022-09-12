@@ -180,21 +180,20 @@ function set_included_gen_target(lang, framework, dirpath, name; head="")
     
     # Need to set these three functions
     
-    set_generation_target(get_external_language_elements, generate_external_code_layer, generate_external_files);
+    set_generation_target(get_external_language_elements, generate_external_files);
 end
 
 # Setting a custom target requires three functions
 # 1. get_external_language_elements() - file extensions, comment chars etc.
-# 2. generate_external_code_layer(var, entities, terms, lorr, vors) - Turns symbolic expressions into code
-# 3. generate_external_files(var, lhs_vol, lhs_surf, rhs_vol, rhs_surf) - Writes all files based on generated code
-function set_custom_gen_target(lang_elements, code_layer, file_maker, dirpath, name; head="", params=nothing)
+# 3. generate_external_files(var, IR) - Writes all files based on generated code
+function set_custom_gen_target(lang_elements, file_maker, dirpath, name; head="", params=nothing)
     global language = CUSTOM_GEN_TARGET;
     global gen_framework = CUSTOM_GEN_TARGET;
     global output_dir = dirpath;
     global project_name = name;
     global generate_external = true;
     init_code_generator(dirpath, name, head);
-    set_generation_target(lang_elements, code_layer, file_maker);
+    set_generation_target(lang_elements, file_maker);
 end
 
 # Set parameters used by code generation. This is specific to the target.
@@ -542,6 +541,8 @@ function add_variable(var)
     
     if language == JULIA || language == 0
         var.values = zeros(val_size);
+    else
+        var.values = zeros(1,0);
     end
     
     # make symbolic layer variable symbols
@@ -897,7 +898,7 @@ function add_callback_function(f)
 end
 
 # Generates a function from a code string and sets that as the code for the variable(s).
-function set_code(var, code)
+function set_code(var, code, IR)
     if language == JULIA || language == 0
         code_expr = CodeGenerator.code_string_to_expr(code);
         # args = "args; kwargs...";
@@ -915,9 +916,11 @@ function set_code(var, code)
     else
         if typeof(var) <:Array
             for i=1:length(var)
+                solve_function[var[i].index] = IR;
                 code_strings[1][var[i].index] = code;
             end
         else
+            solve_function[var.index] = IR;
             code_strings[1][var.index] = code;
         end
     end

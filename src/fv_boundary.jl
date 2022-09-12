@@ -1,5 +1,76 @@
 # Apply boundary conditions for FV
 
+# 
+function apply_boundary_conditions_face(var, eid, mesh, refel, geometric_factors, prob, t, flux_mat, flux_vec, bdry_done)
+    dofind = 0;
+    for vi=1:length(var)
+        for compo=1:length(var[vi].symvar)
+            dofind = dofind + 1;
+            if prob.bc_type[var[vi].index, fbid] == NO_BC
+                # do nothing
+            elseif prob.bc_type[var[vi].index, fbid] == FLUX
+                # compute the value and add it to the flux directly
+                # Qvec = (refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, refel.face2local[fv_grid.faceRefelInd[1,fid]]]
+                # Qvec = Qvec ./ fv_geo_factors.area[fid];
+                # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
+                flux_vec[dofind] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
+                # if !is_explicit
+                #     bflux = bflux .* dt;
+                # end
+                
+            elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
+                # Set variable array and handle after the face loop
+                var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
+                # If implicit, this needs to be handled before solving
+                # if !is_explicit
+                #     #TODO
+                # end
+            else
+                printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
+            end
+        end
+    end
+end
+
+# A RHS only version of above
+# Modify the flux vector
+function apply_boundary_conditions_face_rhs(var, eid, fid, fbid, mesh, refel, geometric_factors, prob, t, flux, bdry_done)
+    dofind = 0;
+    for vi=1:length(var)
+        for compo=1:length(var[vi].symvar)
+            dofind = dofind + 1;
+            if prob.bc_type[var[vi].index, fbid] == NO_BC
+                # do nothing
+            elseif prob.bc_type[var[vi].index, fbid] == FLUX
+                # compute the value and add it to the flux directly
+                # Qvec = (refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, refel.face2local[fv_grid.faceRefelInd[1,fid]]]
+                # Qvec = Qvec ./ fv_geo_factors.area[fid];
+                # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
+                flux[dofind] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
+                # if !is_explicit
+                #     bflux = bflux .* dt;
+                # end
+                
+            elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
+                # Set variable array and handle after the face loop
+                var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
+                # If implicit, this needs to be handled before solving
+                # if !is_explicit
+                #     #TODO
+                # end
+            else
+                printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
+            end
+        end
+    end
+end
+
+
+
+
+
+
+
 function FV_flux_bc_rhs_only(val, facex, Qvec, t=0, dofind = 1, totaldofs = 1)
     if typeof(val) <: Number
         return val;

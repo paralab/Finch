@@ -39,10 +39,9 @@ function generateFor(lang; filename=project_name, header="", params=nothing)
         # lang should be a filename for a custom target
         # This file must include these three functions:
         # 1. get_external_language_elements() - file extensions, comment chars etc.
-        # 2. generate_external_code_layer(var, entities, terms, lorr, vors) - Turns symbolic expressions into code
-        # 3. generate_external_files(var, lhs_vol, lhs_surf, rhs_vol, rhs_surf) - Writes all files based on generated code
+        # 3. generate_external_files(var, IR) - Writes all files based on generated code
         include(lang);
-        set_custom_gen_target(get_external_language_elements, generate_external_code_layer, generate_external_files, outputDirPath, filename, head=header);
+        set_custom_gen_target(get_external_language_elements, generate_external_files, outputDirPath, filename, head=header);
     else
         # Use an included target
         target_dir = @__DIR__
@@ -59,7 +58,7 @@ function generateFor(lang; filename=project_name, header="", params=nothing)
             target_file = "/targets/target_matlab_cg.jl";
         end
         include(target_dir * target_file);
-        set_custom_gen_target(get_external_language_elements, generate_external_code_layer, generate_external_files, outputDirPath, filename, head=header);
+        set_custom_gen_target(get_external_language_elements, generate_external_files, outputDirPath, filename, head=header);
     end
     if !(params === nothing)
         set_codegen_parameters(params);
@@ -745,7 +744,7 @@ function weakForm(var, wf)
     # Generate code from IR
     code = generate_code_layer(var, full_IR, solver_type, language, gen_framework);
     log_entry("Code layer: \n" * code, 3);
-    set_code(var, code);
+    set_code(var, code, full_IR);
     
     end # timer block
 end
@@ -841,7 +840,7 @@ function conservationForm(var, cf)
     # Generate code from IR
     code = generate_code_layer(var, full_IR, solver_type, language, gen_framework);
     log_entry("Code layer: \n" * code, 3);
-    set_code(var, code);
+    set_code(var, code, full_IR);
     
     end # timer block
 end
@@ -1236,8 +1235,9 @@ iterative solution. Set the parameters for the iteration.
 The tolerances are for the infinity norm of the change between 
 iterations (u(i) - u(i-1)).
 """
-function nonlinear(;maxIters=100, relativeTol=1e-5, absoluteTol=1e-5)
+function nonlinear(;maxIters=100, relativeTol=1e-5, absoluteTol=1e-5, derivative="AD")
     prob.nonlinear = true;
+    prob.derivative_type = derivative;
     prob.max_iters = maxIters;
     prob.relative_tol = relativeTol;
     prob.absolute_tol = absoluteTol;
@@ -1270,7 +1270,7 @@ function solve(var)
     # Generate files or solve directly
     if !(!generate_external && (language == JULIA || language == 0)) # if an external code gen target is ready
         varind = var[1].index;
-        generate_all_files(var, bilinears[varind], face_bilinears[varind], linears[varind], face_linears[varind]);
+        generate_all_files(var, solve_function[varind]);
         
     else
         varnames = "["*string(var[1].symbol);
@@ -1334,34 +1334,15 @@ function solve(var)
             log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
             
         elseif config.solver_type == FV
-            slhs = bilinears[varind];
-            srhs = linears[varind];
-            flhs = face_bilinears[varind];
-            frhs = face_linears[varind];
-            loop_func = assembly_loops[varind];
+            func = solve_function[varind];
             
-            if prob.time_dependent
-                if fv_grid === nothing
-                    time_stepper = init_stepper(grid_data.allnodes, time_stepper);
-                else
-                    time_stepper = init_stepper(fv_grid.allnodes, time_stepper);
-                end
-                if use_specified_steps
-                    time_stepper.dt = specified_dt;
-				    time_stepper.Nsteps = specified_Nsteps;
-                end
-				if (prob.nonlinear)
-                	printerr("Nonlinear solver not ready for FV");
-                    return;
-				else
-                	t = @elapsed(result = solver.linear_solve(var, slhs, srhs, flhs, frhs, time_stepper, loop_func));
-				end
-                # result is already stored in variables
-                log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
+            if prob.nonlinear
+                t = @elapsed(result = FVSolver.nonlinear_solve(var, oldvar, func, time_stepper));
             else
-                # does this make sense?
-                printerr("FV assumes time dependence. Set initial conditions etc.");
+                t = @elapsed(result = FVSolver.solve(var, func, time_stepper));
             end
+            
+            log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
             
         elseif config.solver_type == MIXED
             # Need to determine the variable index for fe and fv

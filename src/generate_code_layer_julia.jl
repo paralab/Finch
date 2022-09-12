@@ -51,14 +51,19 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     dof_offsets = "*string(offset_ind)*";
     nnodes_partition = size(mesh.allnodes,2);
     nnodes_global = nnodes_partition;
+    num_elements = mesh.nel_owned;
+    num_elements_global = mesh.nel_global;
+    num_faces = mesh.nface_owned + mesh.nface_ghost;
+    
     dofs_global = dofs_per_node * nnodes_global;
+    fv_dofs_global = dofs_per_node * num_elements_global;
     dofs_partition = dofs_per_node * nnodes_partition;
+    
     nodes_per_element = refel.Np;
     qnodes_per_element = refel.Nqp;
     faces_per_element = refel.Nfaces;
     dofs_per_element = dofs_per_node * nodes_per_element;
-    num_elements = mesh.nel_owned;
-    num_faces = mesh.nface_owned + mesh.nface_ghost;
+    
     
     "
     
@@ -292,20 +297,70 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         
     elseif op === :GATHER_SOLUTION
         # place variable arrays in solution vector
-        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = CGSolver.get_var_vals(var);";
+        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = get_var_vals(var);";
         
     elseif op === :SCATTER_SOLUTION
         # place solution in variable arrays
+        # FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
+        # place_sol_in_vars(var, sol, stepper);
         if length(IR.args) < 3
-            code = indent * "CGSolver.place_sol_in_vars(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *");";
+            code = indent * "copy_bdry_vals_to_vector(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *", mesh, dofs_per_node);\n";
+            code *= indent * "place_sol_in_vars(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *");";
         else
-            code = indent * "CGSolver.place_sol_in_vars("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* generate_from_IR_julia(IR.args[2], IRtypes) *");";
+            code = indent * "copy_bdry_vals_to_vector("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* 
+                            generate_from_IR_julia(IR.args[2], IRtypes) *", mesh, dofs_per_node);\n";
+            code = indent * "place_sol_in_vars("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* 
+                            generate_from_IR_julia(IR.args[2], IRtypes) *");";
         end
         
-    elseif op === :LINALG_MATRIX_BLOCK
+    elseif op === :LOCAL2GLOBAL
+        # put elemental matrix and vector in global system
+        code = generate_from_IR_julia(IntermediateRepresentation.generate_local_to_global_fem(IR.args[2]), IRtypes, indent);
+        
+    elseif op === :LOCAL2GLOBAL_VEC
+        # put elemental vector in global system
+        code = generate_from_IR_julia(IntermediateRepresentation.generate_local_to_global_fem(IR.args[2], vec_only=true), IRtypes, indent);
+        
+    elseif op === :LINALG_VEC_BLOCKS
+        # This sets blocks of a vector
         n_blocks = IR.args[2];
         blocksize = IR.args[3];
-        matname = string(IR.args[4]);
+        vecname = generate_from_IR_julia(IR.args[4], IRtypes);
+        
+        init_lines = "";
+        compute_lines = "";
+        code = "";
+        if blocksize > 1
+            # loop over blocksize TODO
+        end
+        
+        for blk = 1:n_blocks
+            r_ind = IR.args[4 + (blk-1)*2 + 1];
+            comp  = IR.args[4 + (blk-1)*2 + 2];
+            
+            if blocksize > 1
+                # TODO block loop : row_index = r_ind > 1 ? (string(r_ind-1)*"*"*string(blocksize)*" + row") : "row";
+                row_index = string(r_ind);
+            else # blocksize == 1
+                row_index = string(r_ind);
+            end
+            
+            content = generate_from_IR_julia(comp, IRtypes);
+            code *= indent * "$vecname[$row_index] = $content;\n";
+        end
+        
+        if blocksize > 1
+            # end # loop over blocksize
+        end
+    
+    elseif op === :LINALG_MATMAT_BLOCKS
+        # This is not just a matmat, 
+        # it is the loop structure for a block matmat that
+        # computes blocks that are computed like small 
+        # mat*mat loops. A_ij = sum_k( something(i,j,k) )
+        n_blocks = IR.args[2];
+        blocksize = IR.args[3];
+        matname = generate_from_IR_julia(IR.args[4], IRtypes);
         
         init_lines = "";
         compute_lines = "";
@@ -335,10 +390,14 @@ $compute_lines
         end
         end";
     
-    elseif op === :LINALG_VECTOR_BLOCK
+    elseif op === :LINALG_MATVEC_BLOCKS
+        # This is not just a matvec, 
+        # it is the loop structure for a block matvec that
+        # computes blocks that are computed like small 
+        # mat*vec loops. b_i = sum_j( something(i,j) )
         n_blocks = IR.args[2];
         blocksize = IR.args[3];
-        vecname = string(IR.args[4]);
+        vecname = generate_from_IR_julia(IR.args[4], IRtypes);
         
         init_lines = "";
         compute_lines = "";

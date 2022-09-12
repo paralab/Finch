@@ -214,6 +214,8 @@ include("fv_utils.jl");
 include("fv_neighborhood.jl");
 include("grid_parent_child.jl");
 include("polyharmonic_interp.jl");
+include("solver_utils.jl");
+include("boundary_utils.jl");
 
 include("output_data.jl");
 
