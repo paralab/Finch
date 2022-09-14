@@ -1198,12 +1198,13 @@ function generate_assembly_loop_fem(var, indices)
         if typeof(var[1].indexer) <: Array
             index_offset = Symbol("INDEX_VAL_"*string(var[1].indexer[1].symbol));
             prev_ind = length(var[1].indexer[1].range);
-            for i=2:length(var_indices)
+            for i=2:length(var[1].indexer)
                 index_offset = IR_operation_node(IRtypes.math_op, [:+, index_offset,
                     IR_operation_node(IRtypes.math_op, [:*, prev_ind, 
                         IR_operation_node(IRtypes.math_op, [:-, Symbol("INDEX_VAL_"*string(var[1].indexer[i].symbol)), 1])])]);
                 prev_ind *= length(var[1].indexer[i].range);
             end
+            index_offset = IR_operation_node(IRtypes.math_op, [:-, index_offset, 1]);
         else
             index_offset = IR_operation_node(IRtypes.math_op, [:-, Symbol("INDEX_VAL_"*string(var[1].indexer.symbol)), 1]);
         end
@@ -1231,7 +1232,7 @@ function generate_assembly_loop_fem(var, indices)
             elseif i > ind_shift
                 assembly_loop = IR_loop_node(IRtypes.index_loop, indices[i-ind_shift].symbol, 
                                 index_names[i].label, indices[i-ind_shift].range[1], 
-                                indices[i-ind_shift].range[i-ind_shift], assembly_loop);
+                                indices[i-ind_shift].range[end], assembly_loop);
             end
         end
     else # only an element loop
@@ -1354,9 +1355,8 @@ function generate_time_stepping_loop_fem(stepper, assembly)
                 wrap_in_timer(:step_assembly, assembly),
                 # solve
                 wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
-                # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, zero_vals=true);
-                IR_operation_node(IRtypes.function_op, [:copy_bdry_vals_to_variables, 
-                    :var, :solution, :mesh, :dofs_per_node, IR_operation_node(IRtypes.assign_op, [:zero_vals, :true])]),
+                # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, true);
+                IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution, :true]),
                 # update tmppi and tmpki
                 piki_condition,
                 # copy_bdry_vals_to_vector(var, tmppi, grid_data, dofs_per_node);
@@ -1411,10 +1411,13 @@ function generate_time_stepping_loop_fem(stepper, assembly)
                 IR_loop_node(IRtypes.time_loop, :stage, :j, 1, :rki, IR_block_node([
                     IR_operation_node(IRtypes.assign_op, [
                         IR_data_node(IRtypes.float_64_data, :tmpresult, [:dofs_global], [:k]),
-                        IR_operation_node(IRtypes.math_op, [:*, :dt, 
-                            IR_operation_node(IRtypes.member_op, [:time_stepper, 
-                                IR_data_node(IRtypes.float_64_data, :a, [na], [IR_operation_node(IRtypes.math_op, [:+, :rki, 1]), :j])]),
-                            IR_data_node(IRtypes.float_64_data, :tmpki, [:dofs_global], [:k, :j])
+                        IR_operation_node(IRtypes.math_op, [:+,
+                            IR_data_node(IRtypes.float_64_data, :tmpresult, [:dofs_global], [:k]),
+                            IR_operation_node(IRtypes.math_op, [:*, :dt, 
+                                IR_operation_node(IRtypes.member_op, [:time_stepper, 
+                                    IR_data_node(IRtypes.float_64_data, :a, [na], [IR_operation_node(IRtypes.math_op, [:+, :rki, 1]), :j])]),
+                                IR_data_node(IRtypes.float_64_data, :tmpki, [:dofs_global], [:k, :j])
+                            ])
                         ])
                     ])
                 ]))
@@ -1453,9 +1456,8 @@ function generate_time_stepping_loop_fem(stepper, assembly)
                 wrap_in_timer(:step_assembly, assembly),
                 # solve
                 wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
-                # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, zero_vals=true);
-                IR_operation_node(IRtypes.function_op, [:copy_bdry_vals_to_variables, 
-                    :var, :solution, :mesh, :dofs_per_node, IR_operation_node(IRtypes.assign_op, [:zero_vals, :true])]),
+                # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, true);
+                IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution, :true]),
                 # update tmpki
                 update_ki_condition
             ]);

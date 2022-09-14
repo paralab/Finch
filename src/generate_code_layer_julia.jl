@@ -268,7 +268,9 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
     
     op = IR.args[1];
     if op === :COEF_EVAL
-        code = "evaluate_coefficient(coefficients[" * string(IR.args[2]) * "], " * string(IR.args[3]) * ", x, y, z, t, nodeID)";
+        code = "evaluate_coefficient(coefficients[" * string(IR.args[2]) * "], " * string(IR.args[3]) * 
+            ", " * string(IR.args[4]) * ", " * string(IR.args[5]) * ", " * string(IR.args[6]) * 
+            ", " * string(IR.args[7]) * ", " * string(IR.args[8]) * ")";
         
     elseif op === :KNOWN_VAR
         code = "variables[" * string(IR.args[2]) * "].values["*generate_from_IR_julia(IR.args[3], IRtypes)*", "*string(IR.args[4])*"]";
@@ -297,7 +299,7 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         
     elseif op === :GATHER_SOLUTION
         # place variable arrays in solution vector
-        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = get_var_vals(var);";
+        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = get_var_vals(var, "* generate_from_IR_julia(IR.args[2], IRtypes) * ");";
         
     elseif op === :BDRY_TO_VECTOR
         # FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
@@ -306,6 +308,17 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         else
             code = indent * "copy_bdry_vals_to_vector("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* 
                             generate_from_IR_julia(IR.args[2], IRtypes) *", mesh, dofs_per_node);";
+        end
+        
+    elseif op === :BDRY_TO_VAR
+        # copy_bdry_vals_to_variables(var, solution, mesh, dofs_per_node, true)
+        if length(IR.args) < 4
+            code = indent * "copy_bdry_vals_to_variables(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *
+                            ", mesh, dofs_per_node, "* generate_from_IR_julia(IR.args[3], IRtypes) *");";
+        else
+            code = indent * "copy_bdry_vals_to_variables("* generate_from_IR_julia(IR.args[4], IRtypes) *", "* 
+                            generate_from_IR_julia(IR.args[2], IRtypes) *
+                            ", mesh, dofs_per_node, "* generate_from_IR_julia(IR.args[3], IRtypes) *");";
         end
         
     elseif op === :SCATTER_SOLUTION

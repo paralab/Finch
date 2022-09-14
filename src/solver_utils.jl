@@ -58,7 +58,7 @@ function get_var_vals(var, vect=nothing)
     return vect;
 end
 
-function copy_bdry_vals_to_variables(var, vec, grid, dofs_per_node; zero_vals=true)
+function copy_bdry_vals_to_variables(var, vec, grid, dofs_per_node, zero_vals=true)
     if typeof(var) <: Array
         dofind = 0;
         for vi=1:length(var)

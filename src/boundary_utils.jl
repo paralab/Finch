@@ -442,14 +442,8 @@ function apply_boundary_conditions_elemental(var::Vector{Variable}, eid::Int, gr
                         printerr("Unsupported boundary condition type: "*bc_type);
                     end
                     
-                    if component > 0 && var[vi].total_components > 1
-                        row_index += nnodes #* (var[vi].total_components-component + 1);
-                        col_offset += nnodes #* (var[vi].total_components-component + 1);
-                    else
-                        row_index += nnodes;
-                        col_offset += nnodes;
-                    end
-                    
+                    row_index += nnodes;
+                    col_offset += nnodes;
                 end
             end
             
@@ -503,11 +497,7 @@ function apply_boundary_conditions_elemental_rhs(var::Vector{Variable}, eid::Int
                         printerr("Unsupported boundary condition type: "*bc_type);
                     end
                     
-                    if component > 0 && var[vi].total_components > 1
-                        row_index += nnodes #* (var[vi].total_components-component + 1);
-                    else
-                        row_index += nnodes;
-                    end
+                    row_index += nnodes;
                 end
             end
             
@@ -517,10 +507,19 @@ function apply_boundary_conditions_elemental_rhs(var::Vector{Variable}, eid::Int
     end
 end
 
-function apply_boundary_conditions_face(var, eid, mesh, refel, geometric_factors, prob, t, flux_mat, flux_vec, bdry_done)
+function apply_boundary_conditions_face(var::Vector{Variable}, eid::Int, fid::Int, fbid::Int, mesh::Grid, refel::Refel, 
+                                        geometric_factors::GeometricFactors, prob::Finch_prob, t::Union{Int,Float64}, 
+                                        flux_mat::Matrix{Float64}, flux_vec::Vector{Float64}, bdry_done::Vector{Int}, 
+                                        component::Int = 0)
     dofind = 0;
     for vi=1:length(var)
-        for compo=1:length(var[vi].symvar)
+        if !(var[1].indexer === nothing)
+            compo_range = component + 1;
+            # row_index += nnodes * (component-1);
+        else
+            compo_range = 1:var[vi].total_components;
+        end
+        for compo=compo_range
             dofind = dofind + 1;
             if prob.bc_type[var[vi].index, fbid] == NO_BC
                 # do nothing
@@ -550,10 +549,18 @@ end
 
 # A RHS only version of above
 # Modify the flux vector
-function apply_boundary_conditions_face_rhs(var, eid, fid, fbid, mesh, refel, geometric_factors, prob, t, flux, bdry_done)
+function apply_boundary_conditions_face_rhs(var::Vector{Variable}, eid::Int, fid::Int, fbid::Int, mesh::Grid, refel::Refel, 
+                                            geometric_factors::GeometricFactors, prob::Finch_prob, t::Union{Int,Float64}, 
+                                            flux::Vector{Float64}, bdry_done::Vector{Int}, component::Int = 0)
     dofind = 0;
     for vi=1:length(var)
-        for compo=1:length(var[vi].symvar)
+        if !(var[1].indexer === nothing)
+            compo_range = component + 1;
+            # row_index += nnodes * (component-1);
+        else
+            compo_range = 1:var[vi].total_components;
+        end
+        for compo=compo_range
             dofind = dofind + 1;
             if prob.bc_type[var[vi].index, fbid] == NO_BC
                 # do nothing
