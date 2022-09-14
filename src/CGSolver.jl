@@ -13,8 +13,8 @@ import ..Finch: @import_finch_symbols
 
 import ..Finch: build_derivative_matrix
 
-include("fe_boundary.jl");
-include("nonlinear.jl")
+# include("fe_boundary.jl");
+# include("nonlinear.jl")
 include("cg_matrixfree.jl");
 include("level_benchmark.jl");
 

@@ -35,6 +35,7 @@ end
 # A RHS only version of above
 # Modify the flux vector
 function apply_boundary_conditions_face_rhs(var, eid, fid, fbid, mesh, refel, geometric_factors, prob, t, flux, bdry_done)
+    println("t in bdry: "*string(t))
     dofind = 0;
     for vi=1:length(var)
         for compo=1:length(var[vi].symvar)

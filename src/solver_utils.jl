@@ -42,8 +42,8 @@ function get_var_vals(var, vect=nothing)
             components = var[vi].total_components;
             for compi=1:components
                 vect[(compi+tmp):totalcomponents:end] = var[vi].values[compi,:];
-                tmp = tmp + 1;
             end
+            tmp = tmp + components;
         end
     else
         components = var.total_components;

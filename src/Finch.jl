@@ -55,6 +55,7 @@ coefficients = [];
 parameters = [];
 test_functions = [];
 indexers = [];
+ordered_indexers = [];
 variable_transforms = [];
 #generated functions
 genfunc_count = 0;
@@ -126,6 +127,7 @@ function init_finch(name="unnamedProject")
     global parameters = [];
     global test_functions = [];
     global indexers = [];
+    global ordered_indexers = [];
     global variable_transforms = [];
     global genfunc_count = 0;
     global genfunctions = [];
@@ -641,12 +643,17 @@ end
 # Adds an Indexer entity
 function add_indexer(indexer)
     push!(indexers, indexer);
+    push!(ordered_indexers, indexer);
     if length(indexer.range) < 3
         log_entry("Added indexer "*string(indexer.symbol)*" : "*string(indexer.range));
     else
         log_entry("Added indexer "*string(indexer.symbol)*" : ["*string(indexer.range[1])*", ... "*string(indexer.range[end])*"]");
     end
-    
+end
+
+# Sets the ordered indexers
+function set_ordered_indexers(ind)
+    global ordered_indexers = ind;
 end
 
 # Defines a variable transform
@@ -926,6 +933,36 @@ function set_code(var, code, IR)
     end
 end
 
+function set_symexpressions(var, ex, lorr, vors)
+    # If the ex is empty, don't set anything
+    if ex == [] || ex == [[]]
+        return;
+    end
+    
+    if typeof(var) <:Array
+        for i=1:length(var)
+            set_symexpressions(var[i], ex, lorr, vors);
+        end
+        
+    else
+        global symexpressions;
+        if lorr == LHS
+            if vors == "volume"
+                ind = 1;
+            else
+                ind = 2;
+            end
+        else # rhs
+            if vors == "volume"
+                ind = 3;
+            else
+                ind = 4;
+            end
+        end
+        symexpressions[ind][var.index] = ex;
+    end
+end
+
 # # Sets the RHS(linear) function for the given variable(s).
 # function set_rhs(var, code="")
 #     global linears;
@@ -1026,59 +1063,29 @@ end
 #     end
 # end
 
-function set_symexpressions(var, ex, lorr, vors)
-    # If the ex is empty, don't set anything
-    if ex == [] || ex == [[]]
-        return;
-    end
-    
-    if typeof(var) <:Array
-        for i=1:length(var)
-            set_symexpressions(var[i], ex, lorr, vors);
-        end
+# function set_assembly_loops(var, code="")
+#     global assembly_loops;
+#     if language == 0 || language == JULIA
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 assembly_loops[var[i].index] = genfunctions[end];
+#                 code_strings[5][var[i].index] = code;
+#             end
+#         else
+#             assembly_loops[var.index] = genfunctions[end];
+#             code_strings[5][var.index] = code;
+#         end
         
-    else
-        global symexpressions;
-        if lorr == LHS
-            if vors == "volume"
-                ind = 1;
-            else
-                ind = 2;
-            end
-        else # rhs
-            if vors == "volume"
-                ind = 3;
-            else
-                ind = 4;
-            end
-        end
-        symexpressions[ind][var.index] = ex;
-    end
-end
-
-function set_assembly_loops(var, code="")
-    global assembly_loops;
-    if language == 0 || language == JULIA
-        if typeof(var) <:Array
-            for i=1:length(var)
-                assembly_loops[var[i].index] = genfunctions[end];
-                code_strings[5][var[i].index] = code;
-            end
-        else
-            assembly_loops[var.index] = genfunctions[end];
-            code_strings[5][var.index] = code;
-        end
-        
-    else # external generation
-        if typeof(var) <:Array
-            for i=1:length(var)
-                assembly_loops[var[i].index] = code;
-            end
-        else
-            assembly_loops[var.index] = code;
-        end
-    end
-end
+#     else # external generation
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 assembly_loops[var[i].index] = code;
+#             end
+#         else
+#             assembly_loops[var.index] = code;
+#         end
+#     end
+# end
 
 function finalize()
     finalize_finch();

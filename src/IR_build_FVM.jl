@@ -18,26 +18,29 @@ time stepper
     solve+place (if implicit)
 
 =#
-function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, time_stepper, fv_info)
+function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config, prob, time_stepper, fv_info)
     dimension = config.dimension;
     # Count variables, dofs, and store offsets
     multivar = typeof(var) <:Array;
     varcount = 1;
     dofsper = 0;
+    dofsper_loop = 0;
     offset_ind = [0];
     if multivar
         varcount = length(var);
         offset_ind = zeros(Int, varcount);
-        dofsper = length(var[1].symvar);
+        dofsper = var[1].total_components;
+        dofsper_loop = length(var[1].symvar);
         for i=2:length(var)
             offset_ind[i] = dofsper;
-            dofsper = dofsper + length(var[i].symvar);
+            dofsper = dofsper + var[i].total_components;
+            dofsper_loop = dofsper_loop + length(var[i].symvar);
         end
     else
         var = [var]; # put it in an array for consistency
-        varcount = 1;
         offset_ind = zeros(Int, 1);
-        dofsper = length(var[1].symvar);
+        dofsper = var[1].total_components;
+        dofsper_loop = length(var[1].symvar);
     end
     fv_order = fv_info.fluxOrder;
     
@@ -124,16 +127,16 @@ function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
     else
         push!(allocate_block.parts, IR_comment_node("Allocate elemental source and flux."));
         push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
-            IR_data_node(IRtypes.float_64_data, :source, [:dofs_per_node], []),
-            IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, dofsper])
+            IR_data_node(IRtypes.float_64_data, :source, [:dofs_per_loop], []),
+            IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_per_loop])
             ]));
         push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
-            IR_data_node(IRtypes.float_64_data, :flux, [:dofs_per_node], []),
-            IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, dofsper])
+            IR_data_node(IRtypes.float_64_data, :flux, [:dofs_per_loop], []),
+            IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_per_loop])
             ]));
         push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
-            IR_data_node(IRtypes.float_64_data, :flux_tmp, [:dofs_per_node], []),
-            IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, dofsper])
+            IR_data_node(IRtypes.float_64_data, :flux_tmp, [:dofs_per_loop], []),
+            IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_per_loop])
             ]));
     end
     
@@ -279,10 +282,10 @@ function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
                 IR_operation_node(IRtypes.math_op, [:+, :flux, 
                     IR_operation_node(IRtypes.math_op, [:*, :flux_tmp, :area])])]));
         else
-            push!(face_loop_body.parts, IR_loop_node(IRtypes.dof_loop, :dofs, :dofi, 1, dofsper, IR_block_node([
-                IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_64_data, :flux, [dofsper], [:dofi]), 
-                IR_operation_node(IRtypes.math_op, [:+, IR_data_node(IRtypes.float_64_data, :flux, [dofsper], [:dofi]), 
-                    IR_operation_node(IRtypes.math_op, [:*, IR_data_node(IRtypes.float_64_data, :flux_tmp, [dofsper], [:dofi]), :area_over_volume])])])
+            push!(face_loop_body.parts, IR_loop_node(IRtypes.dof_loop, :dofs, :dofi, 1, :dofs_per_loop, IR_block_node([
+                IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_64_data, :flux, [:dofs_per_loop], [:dofi]), 
+                IR_operation_node(IRtypes.math_op, [:+, IR_data_node(IRtypes.float_64_data, :flux, [:dofs_per_loop], [:dofi]), 
+                    IR_operation_node(IRtypes.math_op, [:*, IR_data_node(IRtypes.float_64_data, :flux_tmp, [:dofs_per_loop], [:dofi]), :area_over_volume])])])
             ])));
         end
     end
@@ -294,8 +297,6 @@ function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
     push!(toglobal_block.parts, generate_local_to_global_fvm(dofsper, offset_ind, vec_only=!need_matrix));
     
     # assembly loop
-    indices = [];
-    # check for indexed variables TODO
     assembly_loop = generate_assembly_loop_fvm(var, indices);
     
     # find the innermost assembly loop
@@ -310,9 +311,9 @@ function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
         zero_flux = IR_operation_node(IRtypes.assign_op, [:flux, 0.0]);
         zero_flux_t = IR_operation_node(IRtypes.assign_op, [:flux_tmp, 0.0]);
     else
-        zero_source = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY, :source, 0.0, dofsper]);
-        zero_flux = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY, :flux, 0.0, dofsper]);
-        zero_flux_t = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY, :flux_tmp, 0.0, dofsper]);
+        zero_source = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY, :source, 0.0, :dofs_per_loop]);
+        zero_flux = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY, :flux, 0.0, :dofs_per_loop]);
+        zero_flux_t = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY, :flux_tmp, 0.0, :dofs_per_loop]);
     end
     # fill the elemental loop
     inner_loop.body = IR_block_node([
@@ -1064,7 +1065,7 @@ function generate_local_to_global_fvm(dofs_per_node, offset_ind; vec_only=false)
 end
 
 # Generate the assembly loop structures and insert the content
-function generate_assembly_loop_fvm(var, indices=[])
+function generate_assembly_loop_fvm(var, indices)
     IRtypes = IR_entry_types();
     # Each of the indices must be passed to the functions in a named tuple.
     # Pass all defined indexers.
@@ -1101,9 +1102,9 @@ function generate_assembly_loop_fvm(var, indices=[])
         
         # work outwards nesting assembly_loop
         for i=(length(index_names)-1):-1:1
-            if index_names[end] == "elements"
+            if index_names[i] == "elements"
                 assembly_loop = IR_loop_node(IRtypes.space_loop, :elements, :eid, 1, :num_elements, assembly_loop);
-            else
+            elseif i > ind_shift
                 assembly_loop = IR_loop_node(IRtypes.index_loop, indices[i-ind_shift].symbol, 
                                 index_names[i].label, indices[i-ind_shift].range[1], 
                                 indices[i-ind_shift].range[i-ind_shift], assembly_loop);
@@ -1139,6 +1140,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly)
             wrap_in_timer(:step_assembly, assembly),
             # before updating the bdry vals may need to be put in vars and zeroed in solution
             wrap_in_timer(:update_sol, update_loop),
+            IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution]),
             wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :solution])),
             IR_operation_node(IRtypes.assign_op, [
                 :t,
@@ -1159,7 +1161,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly)
         #     ])
         # ];
         
-        time_loop = IR_loop_node(IRtypes.time_loop, :time, :t, 1, stepper.Nsteps, tloop_body);
+        time_loop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper.Nsteps, tloop_body);
        
         # multistage explicit steppers
     elseif stepper.type == LSRK4
@@ -1261,9 +1263,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly)
             # update tmppi and tmpki
             piki_condition,
             # copy_bdry_vals_to_vector(var, tmppi, grid_data, dofs_per_node);
-            IR_operation_node(IRtypes.function_op, [
-                :copy_bdry_vals_to_vector, 
-                :var, :tmppi, :mesh, :dofs_per_node]),
+            IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :tmppi]),
             wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :tmppi]))
         ]);
         stage_loop = IR_loop_node(IRtypes.time_loop, :stages, :rki, 1, stepper.stages, stage_loop_body);
@@ -1281,7 +1281,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly)
                 tmp_ki,
                 IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :fv_dofs_global])]),
                 
-            IR_loop_node(IRtypes.time_loop, :time, :t, 1, stepper.Nsteps, tloop_body)
+            IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper.Nsteps, tloop_body)
         ]);
     elseif stepper.stages > 1
         # Explicit multi-stage methods: 
@@ -1382,9 +1382,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly)
             IR_block_node([
                 update_ki_loop_one,
                 # copy_bdry_vals_to_vector(var, tmpresult, grid_data, dofs_per_node);
-                IR_operation_node(IRtypes.function_op, [
-                    :copy_bdry_vals_to_vector, 
-                    :var, :tmpresult, :mesh, :dofs_per_node]),
+                IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :tmpresult]),
                 # place_sol_in_vars(var, tmpresult, stepper);
                 wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :tmpresult]))
             ]),
@@ -1436,9 +1434,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly)
         push!(tloop_body.parts, stage_loop);
         push!(tloop_body.parts, combine_loop);
         # copy_bdry_vals_to_vector(var, last_result, grid_data, dofs_per_node);
-        push!(tloop_body.parts, IR_operation_node(IRtypes.function_op, [
-                :copy_bdry_vals_to_vector, 
-                :var, :last_result, :mesh, :dofs_per_node]));
+        push!(tloop_body.parts, IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :last_result]))
         # place_sol_in_vars(var, last_result, stepper);
         push!(tloop_body.parts, wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :last_result])));
         # update time
@@ -1455,7 +1451,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly)
                 tmp_ki,
                 IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :fv_dofs_global, stepper.stages])]),
                 
-            IR_loop_node(IRtypes.time_loop, :time, :t, 1, stepper.Nsteps, tloop_body)
+            IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper.Nsteps, tloop_body)
         ]);
         
     else

@@ -377,9 +377,10 @@ end
 #######################################################################################################################
 
 # Apply boundary conditions to one element
-function apply_boundary_conditions_elemental(var::Union{Variable, Vector{Variable}}, eid::Int, grid::Grid, refel::Refel,
+function apply_boundary_conditions_elemental(var::Vector{Variable}, eid::Int, grid::Grid, refel::Refel,
                                             geo_facs::GeometricFactors, prob::Finch_prob, t::Union{Int,Float64},
-                                            elmat::Matrix{Float64}, elvec::Vector{Float64}, bdry_done::Vector{Bool})
+                                            elmat::Matrix{Float64}, elvec::Vector{Float64}, bdry_done::Vector{Int},
+                                            component::Int = 0)
     # Check each node to see if the bid is > 0 (on boundary)
     nnodes = refel.Np;
     norm_dot_grad = nothing;
@@ -390,60 +391,18 @@ function apply_boundary_conditions_elemental(var::Union{Variable, Vector{Variabl
         if node_bid > 0
             # This is a boundary node in node_bid
             # Handle the BC for each variable
-            if typeof(var) <: Array;
-                row_index = ni;
-                col_offset = 0;
-                for vi=1:length(var)
-                    for compo=1:var[vi].total_components
-                        bc_type = prob.bc_type[var[vi].index, node_bid];
-                        if bc_type == NO_BC
-                            # do nothing
-                        elseif bc_type == DIRICHLET
-                            # zero the row
-                            for nj=1:size(elmat,2)
-                                elmat[row_index, nj] = 0;
-                            end
-                            elvec[row_index] = 0;
-                            if !bdry_done[node_id]
-                                # elmat row is identity
-                                elmat[row_index, row_index] = 1;
-                                # elvec row is value
-                                elvec[row_index] = evaluate_at_node(prob.bc_func[var[vi].index, node_bid][compo], node_id, face_id, t, grid);
-                            end
-                            
-                        elseif bc_type == NEUMANN
-                            # zero the row
-                            for nj=1:size(elmat,2)
-                                elmat[row_index, nj] = 0;
-                            end
-                            elvec[row_index] = 0;
-                            if !bdry_done[node_id]
-                                # elmat row is grad dot norm
-                                if norm_dot_grad === nothing
-                                    # This only needs to be made once per element
-                                    norm_dot_grad = get_norm_dot_grad(eid, grid, refel, geo_facs);
-                                end
-                                for nj = 1:nnodes
-                                    elmat[row_index, col_offset+nj] = norm_dot_grad[ni, nj];
-                                end
-                                # elvec row is value
-                                elvec[row_index] = evaluate_at_node(prob.bc_func[var[vi].index, node_bid][compo], node_id, face_id, t, grid);
-                            end
-                        elseif bc_type == ROBIN
-                            printerr("Robin BCs not ready.");
-                        else
-                            printerr("Unsupported boundary condition type: "*bc_type);
-                        end
-                        
-                        row_index += nnodes;
-                        col_offset += nnodes;
-                    end
+            row_index = ni;
+            col_offset = 0;
+            for vi=1:length(var)
+                if !(var[1].indexer === nothing)
+                    compo_range = component + 1;
+                    # row_index += nnodes * (component-1);
+                    # col_offset += nnodes * (component-1);
+                else
+                    compo_range = 1:var[vi].total_components;
                 end
-            else
-                row_index = ni;
-                col_offset = 0;
-                for compo=1:var.total_components
-                    bc_type = prob.bc_type[var.index, node_bid];
+                for compo=compo_range
+                    bc_type = prob.bc_type[var[vi].index, node_bid];
                     if bc_type == NO_BC
                         # do nothing
                     elseif bc_type == DIRICHLET
@@ -452,19 +411,20 @@ function apply_boundary_conditions_elemental(var::Union{Variable, Vector{Variabl
                             elmat[row_index, nj] = 0;
                         end
                         elvec[row_index] = 0;
-                        if !bdry_done[node_id]
+                        if (bdry_done[node_id] == 0 || bdry_done[node_id] == eid)
                             # elmat row is identity
                             elmat[row_index, row_index] = 1;
                             # elvec row is value
-                            elvec[row_index] = evaluate_at_node(prob.bc_func[var.index, node_bid][compo], node_id, face_id, t, grid);
+                            elvec[row_index] = evaluate_at_node(prob.bc_func[var[vi].index, node_bid][compo], node_id, face_id, t, grid);
                         end
+                        
                     elseif bc_type == NEUMANN
                         # zero the row
                         for nj=1:size(elmat,2)
                             elmat[row_index, nj] = 0;
                         end
                         elvec[row_index] = 0;
-                        if !bdry_done[node_id]
+                        if (bdry_done[node_id] == 0 || bdry_done[node_id] == eid)
                             # elmat row is grad dot norm
                             if norm_dot_grad === nothing
                                 # This only needs to be made once per element
@@ -474,7 +434,7 @@ function apply_boundary_conditions_elemental(var::Union{Variable, Vector{Variabl
                                 elmat[row_index, col_offset+nj] = norm_dot_grad[ni, nj];
                             end
                             # elvec row is value
-                            elvec[row_index] = evaluate_at_node(prob.bc_func[var.index, node_bid][compo], node_id, face_id, t, grid);
+                            elvec[row_index] = evaluate_at_node(prob.bc_func[var[vi].index, node_bid][compo], node_id, face_id, t, grid);
                         end
                     elseif bc_type == ROBIN
                         printerr("Robin BCs not ready.");
@@ -482,21 +442,27 @@ function apply_boundary_conditions_elemental(var::Union{Variable, Vector{Variabl
                         printerr("Unsupported boundary condition type: "*bc_type);
                     end
                     
-                    row_index += nnodes;
-                    col_offset += nnodes;
+                    if component > 0 && var[vi].total_components > 1
+                        row_index += nnodes #* (var[vi].total_components-component + 1);
+                        col_offset += nnodes #* (var[vi].total_components-component + 1);
+                    else
+                        row_index += nnodes;
+                        col_offset += nnodes;
+                    end
+                    
                 end
             end
             
             # Set the flag to done
-            bdry_done[node_id] = true;
+            bdry_done[node_id] = eid;
         end
     end
 end
 
 # Apply boundary conditions to one element
-function apply_boundary_conditions_elemental_rhs(var::Union{Variable, Vector{Variable}}, eid::Int, grid::Grid, refel::Refel,
+function apply_boundary_conditions_elemental_rhs(var::Vector{Variable}, eid::Int, grid::Grid, refel::Refel,
                                             geo_facs::GeometricFactors, prob::Finch_prob, t::Union{Int,Float64},
-                                            elvec::Vector{Float64}, bdry_done::Vector{Bool})
+                                            elvec::Vector{Float64}, bdry_done::Vector{Int}, component::Int = 0)
     # Check each node to see if the bid is > 0 (on boundary)
     nnodes = refel.Np;
     for ni=1:nnodes
@@ -506,52 +472,30 @@ function apply_boundary_conditions_elemental_rhs(var::Union{Variable, Vector{Var
         if node_bid > 0
             # This is a boundary node in node_bid
             # Handle the BC for each variable
-            if typeof(var) <: Array;
-                row_index = ni;
-                for vi=1:length(var)
-                    for compo=1:var[vi].total_components
-                        bc_type = prob.bc_type[var[vi].index, node_bid];
-                        if bc_type == NO_BC
-                            # do nothing
-                        elseif bc_type == DIRICHLET
-                            elvec[row_index] = 0;
-                            if !bdry_done[node_id]
-                                # elvec row is value
-                                elvec[row_index] = evaluate_at_node(prob.bc_func[var[vi].index, node_bid][compo], node_id, face_id, t, grid);
-                            end
-                            
-                        elseif bc_type == NEUMANN
-                            elvec[row_index] = 0;
-                            if !bdry_done[node_id]
-                                # elvec row is value
-                                elvec[row_index] = evaluate_at_node(prob.bc_func[var[vi].index, node_bid][compo], node_id, face_id, t, grid);
-                            end
-                        elseif bc_type == ROBIN
-                            printerr("Robin BCs not ready.");
-                        else
-                            printerr("Unsupported boundary condition type: "*bc_type);
-                        end
-                        
-                        row_index += nnodes;
-                    end
+            row_index = ni;
+            for vi=1:length(var)
+                if !(var[1].indexer === nothing)
+                    compo_range = component + 1;
+                    # row_index += nnodes * (component-1);
+                else
+                    compo_range = 1:var[vi].total_components;
                 end
-            else
-                row_index = ni;
-                for compo=1:var.total_components
-                    bc_type = prob.bc_type[var.index, node_bid];
+                for compo=compo_range
+                    bc_type = prob.bc_type[var[vi].index, node_bid];
                     if bc_type == NO_BC
                         # do nothing
                     elseif bc_type == DIRICHLET
                         elvec[row_index] = 0;
-                        if !bdry_done[node_id]
+                        if (bdry_done[node_id] == 0 || bdry_done[node_id] == eid)
                             # elvec row is value
-                            elvec[row_index] = evaluate_at_node(prob.bc_func[var.index, node_bid][compo], node_id, face_id, t, grid);
+                            elvec[row_index] = evaluate_at_node(prob.bc_func[var[vi].index, node_bid][compo], node_id, face_id, t, grid);
                         end
+                        
                     elseif bc_type == NEUMANN
                         elvec[row_index] = 0;
-                        if !bdry_done[node_id]
+                        if (bdry_done[node_id] == 0 || bdry_done[node_id] == eid)
                             # elvec row is value
-                            elvec[row_index] = evaluate_at_node(prob.bc_func[var.index, node_bid][compo], node_id, face_id, t, grid);
+                            elvec[row_index] = evaluate_at_node(prob.bc_func[var[vi].index, node_bid][compo], node_id, face_id, t, grid);
                         end
                     elseif bc_type == ROBIN
                         printerr("Robin BCs not ready.");
@@ -559,12 +503,16 @@ function apply_boundary_conditions_elemental_rhs(var::Union{Variable, Vector{Var
                         printerr("Unsupported boundary condition type: "*bc_type);
                     end
                     
-                    row_index += nnodes;
+                    if component > 0 && var[vi].total_components > 1
+                        row_index += nnodes #* (var[vi].total_components-component + 1);
+                    else
+                        row_index += nnodes;
+                    end
                 end
             end
             
             # Set the flag to done
-            bdry_done[node_id] = true;
+            bdry_done[node_id] = eid;
         end
     end
 end

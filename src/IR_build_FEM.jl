@@ -18,25 +18,29 @@ build mat
     solve+place
 )
 =#
-function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, time_stepper)
+function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config, prob, time_stepper)
     dimension = config.dimension;
     # Count variables, dofs, and store offsets
     multivar = typeof(var) <:Array;
     varcount = 1;
     dofsper = 0;
+    dofsper_loop = 0;
     offset_ind = [0];
     if multivar
         varcount = length(var);
         offset_ind = zeros(Int, varcount);
-        dofsper = length(var[1].symvar);
+        dofsper = var[1].total_components;
+        dofsper_loop = length(var[1].symvar);
         for i=2:length(var)
             offset_ind[i] = dofsper;
-            dofsper = dofsper + length(var[i].symvar);
+            dofsper = dofsper + var[i].total_components;
+            dofsper_loop = dofsper_loop + length(var[i].symvar);
         end
     else
         var = [var]; # put it in an array for consistency
         offset_ind = zeros(Int, 1);
-        dofsper = length(var[1].symvar);
+        dofsper = var[1].total_components;
+        dofsper_loop = length(var[1].symvar);
     end
     
     IRtypes = IR_entry_types();
@@ -98,24 +102,24 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
     
     # Allocate the elemental matrix and vector
     push!(allocate_block.parts, IR_comment_node("Allocate elemental matrix and vector."));
-    elementmat = IR_data_node(IRtypes.float_64_data, :element_matrix, [:dofs_per_element, :dofs_per_element], []);
+    elementmat = IR_data_node(IRtypes.float_64_data, :element_matrix, [:local_system_size, :local_system_size], []);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         elementmat,
-        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_per_element, :dofs_per_element])
+        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :local_system_size, :local_system_size])
         ]));
     
-    elementvec = IR_data_node(IRtypes.float_64_data, :element_vector, [:dofs_per_element], []);
+    elementvec = IR_data_node(IRtypes.float_64_data, :element_vector, [:local_system_size], []);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         elementvec,
-        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_per_element])
+        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :local_system_size])
         ]));
     
     # bdry done flag for each node
     push!(allocate_block.parts, IR_comment_node("Boundary done flag for each node."));
-    bdry_done = IR_data_node(IRtypes.boolean_data, :bdry_done, [:nnodes_global], []);
+    bdry_done = IR_data_node(IRtypes.int_64_data, :bdry_done, [:nnodes_global], []);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         bdry_done,
-        IR_operation_node(IRtypes.allocate_op, [IRtypes.boolean_data, :nnodes_global])
+        IR_operation_node(IRtypes.allocate_op, [IRtypes.int_64_data, :nnodes_global])
         ]));
     
     # coefficient prep
@@ -208,15 +212,12 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
     end
     
     # bdry block 
-    # apply_boundary_conditions_elemental(var, eid, grid, refel, geo_facs, prob, t, elmat, elvec)
     push!(bdry_block.parts, IR_comment_node("Apply boundary conditions."));
-    push!(bdry_block.parts, IR_operation_node(IRtypes.function_op, [
-        IR_operation_node(IRtypes.member_op, [:CGSolver, :apply_boundary_conditions_elemental]), 
-        :var, :eid, :mesh, :refel, :geometric_factors, :prob, :t, :element_matrix, :element_vector, :bdry_done]));
+    push!(bdry_block.parts, IR_operation_node(IRtypes.function_op, [:apply_boundary_conditions_elemental, 
+        :var, :eid, :mesh, :refel, :geometric_factors, :prob, :t, :element_matrix, :element_vector, :bdry_done, :index_offset]));
     push!(time_bdry_block.parts, IR_comment_node("Apply boundary conditions."));
-    push!(time_bdry_block.parts, IR_operation_node(IRtypes.function_op, [
-        IR_operation_node(IRtypes.member_op, [:CGSolver, :apply_boundary_conditions_elemental_rhs]), 
-        :var, :eid, :mesh, :refel, :geometric_factors, :prob, :t, :element_vector, :bdry_done]));
+    push!(time_bdry_block.parts, IR_operation_node(IRtypes.function_op, [:apply_boundary_conditions_elemental_rhs, 
+        :var, :eid, :mesh, :refel, :geometric_factors, :prob, :t, :element_vector, :bdry_done, :index_offset]));
     
     # add to global sysem
     push!(toglobal_block.parts, IR_comment_node("Place elemental parts in global system."));
@@ -227,8 +228,6 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
     push!(time_toglobal_block.parts, IR_operation_node(IRtypes.named_op, [:LOCAL2GLOBAL_VEC, dofsper]));
     
     # assembly loop
-    indices = [];
-    # check for indexed variables TODO
     assembly_loop = generate_assembly_loop_fem(var, indices);
     rhs_assembly_loop = generate_assembly_loop_fem(var, indices);
     
@@ -241,21 +240,21 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
     end
     
     # fill the loop
-    inner_loop.body = IR_block_node([
+    append!(inner_loop.body.parts, [
         prepare_block,
         derivmat_block,
         wrap_in_timer(:el_matrix, matrix_block),
         wrap_in_timer(:el_vector, vector_block),
         wrap_in_timer(:bdry_cond, bdry_block),
         toglobal_block
-    ], "inner assembly")
-    rhs_inner_loop.body = IR_block_node([
+    ])
+    append!(rhs_inner_loop.body.parts, [
         time_prepare_block,
         time_derivmat_block,
         wrap_in_timer(:el_vector, vector_block),
         wrap_in_timer(:bdry_cond, time_bdry_block),
         time_toglobal_block
-    ], "inner assembly")
+    ])
     
     # Package it all in one piece to add to master
     if prob.time_dependent
@@ -288,7 +287,7 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, config, prob, t
             zero_el_vec = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY,
                 IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], []), 0, :dofs_global]);
             zero_bdry_done = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY,
-                IR_data_node(IRtypes.boolean_data, :bdry_done, [:nnodes_global], []), :false, :nnodes_global]);
+                IR_data_node(IRtypes.int_64_data, :bdry_done, [:nnodes_global], []), 0, :nnodes_global]);
             push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
                 oldsolvec,
                 IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])
@@ -527,7 +526,34 @@ function prepare_coefficient_values(entities, var, dimension, counts; rhs_only=f
                 push!(coef_part, IR_operation_node(IRtypes.assign_op,[
                     IR_data_node(IRtypes.float_64_data, Symbol(cname), [], []), cval]))
                 
-            elseif ctype == 2 # a coefficient function
+            elseif ctype == 2 || ctype == 4 # a coefficient function or indexed coefficient function
+                # Build the index IR
+                if typeof(entities[i].index) <: Array
+                    # It is an indexed variable
+                    if length(entities[i].index) == 1
+                        indstr = "INDEX_VAL_"*entities[i].index[1];
+                        index_IR = Symbol(indstr);
+                    else
+                        # There is more than one index. Need to form an expression for it.
+                        indstr = "(INDEX_VAL_"*entities[i].index[1];
+                        index_IR = Symbol(indstr);
+                        indices = variables[cval].indexer;
+                        for indi=2:length(entities[i].index)
+                            indstr *= " + ("*string(length(indices[indi-1].range))*"*(INDEX_VAL_"*entities[i].index[indi]*"-1)";
+                            this_ind = "INDEX_VAL_"*entities[i].index[indi];
+                            index_IR = IR_operation_node(IRtypes.math_op, [:+, index_IR,
+                                IR_operation_node(IRtypes.math_op, [:*, length(indices[indi-1].range),
+                                    IR_operation_node(IRtypes.math_op, [:-, Symbol(this_ind), 1])])]);
+                        end
+                        for indi=1:length(entities[i].index)
+                            indstr *= ")";
+                        end
+                    end
+                    
+                else
+                    indstr = string(entities[i].index);
+                    index_IR = entities[i].index;
+                end
                 if vors == "volume"
                     need_vol_interp_loop = true;
                     need_vol_coef_loop = true;
@@ -548,7 +574,7 @@ function prepare_coefficient_values(entities, var, dimension, counts; rhs_only=f
                     
                     push!(coef_loop_body, IR_operation_node(IRtypes.assign_op,[
                         IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [np_allocate], [:ni]),
-                        IR_operation_node(IRtypes.named_op, [:COEF_EVAL, coef_index, entities[i].index, :x, :y, :z, :t, :nodeID])]));
+                        IR_operation_node(IRtypes.named_op, [:COEF_EVAL, coef_index, index_IR, :x, :y, :z, :t, :nodeID])]));
                     # Apply any needed derivative operators. Interpolate at quadrature points.
                     if length(entities[i].derivs) > 0
                         quad_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(cname), [nqp_allocate], [:col]);
@@ -590,6 +616,33 @@ function prepare_coefficient_values(entities, var, dimension, counts; rhs_only=f
                 end
                 
             elseif ctype == 3 # a known variable value
+                # Build the index IR
+                if typeof(entities[i].index) <: Array
+                    # It is an indexed variable
+                    if length(entities[i].index) == 1
+                        indstr = "INDEX_VAL_"*entities[i].index[1];
+                        index_IR = Symbol(indstr);
+                    else
+                        # There is more than one index. Need to form an expression for it.
+                        indstr = "(INDEX_VAL_"*entities[i].index[1];
+                        index_IR = Symbol(indstr);
+                        indices = variables[cval].indexer;
+                        for indi=2:length(entities[i].index)
+                            indstr *= " + ("*string(length(indices[indi-1].range))*"*(INDEX_VAL_"*entities[i].index[indi]*"-1)";
+                            this_ind = "INDEX_VAL_"*entities[i].index[indi];
+                            index_IR = IR_operation_node(IRtypes.math_op, [:+, index_IR,
+                                IR_operation_node(IRtypes.math_op, [:*, length(indices[indi-1].range),
+                                    IR_operation_node(IRtypes.math_op, [:-, Symbol(this_ind), 1])])]);
+                        end
+                        for indi=1:length(entities[i].index)
+                            indstr *= ")";
+                        end
+                    end
+                    
+                else
+                    indstr = string(entities[i].index);
+                    index_IR = entities[i].index;
+                end
                 if vors == "volume"
                     need_vol_interp_loop = true;
                     need_vol_coef_loop = true;
@@ -608,7 +661,7 @@ function prepare_coefficient_values(entities, var, dimension, counts; rhs_only=f
                     
                     push!(coef_loop_body, IR_operation_node(IRtypes.assign_op,[
                         IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [np_allocate], [:ni]),
-                        IR_operation_node(IRtypes.named_op, [:KNOWN_VAR, cval, entities[i].index, :nodeID])]));
+                        IR_operation_node(IRtypes.named_op, [:KNOWN_VAR, cval, index_IR, :nodeID])]));
                     # Apply any needed derivative operators. Interpolate at quadrature points.
                     if length(entities[i].derivs) > 0
                         quad_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(cname), [nqp_allocate], [:col]);
@@ -636,7 +689,7 @@ function prepare_coefficient_values(entities, var, dimension, counts; rhs_only=f
                 else # surface
                     # TODO
                 end
-            elseif ctype == 4 # an indexed coefficient
+            # elseif ctype == 4 # an indexed coefficient
                 # TODO
             end
         end # if coefficient
@@ -947,7 +1000,9 @@ function generate_term_calculation_fem(term, var, lorr, vors)
     return (test_part, trial_part, coef_part, test_ind, trial_ind);
 end
 
-# This part inserts the elemental matrix and vector into the global one
+# This part inserts the elemental matrix and vector into the global one.
+# Since this is target dependent, it should not be generated automatically,
+# but rather through a named operation.
 function generate_local_to_global_fem(dofs_per_node; vec_only=false)
     IRtypes = IR_entry_types();
     result_block = IR_block_node([]);
@@ -972,10 +1027,8 @@ function generate_local_to_global_fem(dofs_per_node; vec_only=false)
             push!(result_block.parts, IR_operation_node(IRtypes.assign_op, [
                 :next_ind,
                 IR_operation_node(IRtypes.math_op, [:+, 1,
-                    IR_operation_node(IRtypes.math_op, [:*,
-                        IR_operation_node(IRtypes.math_op, [:*, 
-                            IR_operation_node(IRtypes.math_op, [:-, :eid, 1]), :nodes_per_element]),
-                            :nodes_per_element])])
+                    IR_operation_node(IRtypes.math_op, [:*, 
+                        IR_operation_node(IRtypes.math_op, [:-, :eid, 1]), :nodes_per_element, :nodes_per_element])])
             ]));
         end
         
@@ -1020,16 +1073,16 @@ function generate_local_to_global_fem(dofs_per_node; vec_only=false)
         push!(result_block.parts, toglobal_loop)
         
     else
-        # next_ind = +(1, *(*(-(eid, 1), dofs_per_element), dofs_per_element));
+        # next_ind = +(1, *(*(-(eid, 1), dofs_per_element), dofs_per_element)) + nodes_per_element*nodes_per_element*index_offset;
         # for ni = 1:nodes_per_element
         #     glb_i = mesh.loc2glb[ni, eid];
         #     for di = 1:dofs_per_node
-        #         glb_dofi = (glb_i - 1)*dofs_per_node + di;
+        #         glb_dofi = (glb_i - 1)*dofs_per_node + di + index_offset;
         #         global_vector[glb_dofi] = +(global_vector[glb_dofi], element_vector[(di-1)*nodes_per_element + ni]);
         #         for nj = 1:nodes_per_element
         #             glb_j = mesh.loc2glb[nj, eid];
         #             for dj = 1:dofs_per_node
-        #                 glb_dofj = (glb_j - 1)*dofs_per_node + dj;
+        #                 glb_dofj = (glb_j - 1)*dofs_per_node + dj + index_offset;
         #                 global_matrix_I[next_ind] = glb_dofi;
         #                 global_matrix_J[next_ind] = glb_dofj;
         #                 global_matrix_V[next_ind] = element_matrix[(di-1)*nodes_per_element + ni, (dj-1)*nodes_per_element + nj];
@@ -1046,10 +1099,10 @@ function generate_local_to_global_fem(dofs_per_node; vec_only=false)
             push!(result_block.parts, IR_operation_node(IRtypes.assign_op, [
                 :next_ind,
                 IR_operation_node(IRtypes.math_op, [:+, 1,
-                    IR_operation_node(IRtypes.math_op, [:*,
-                        IR_operation_node(IRtypes.math_op, [:*, 
-                            IR_operation_node(IRtypes.math_op, [:-, :eid, 1]), :dofs_per_element]),
-                            :dofs_per_element])])
+                    IR_operation_node(IRtypes.math_op, [:*, 
+                        IR_operation_node(IRtypes.math_op, [:-, :eid, 1]), :dofs_per_element, :dofs_per_element]),
+                    IR_operation_node(IRtypes.math_op, [:*, :nodes_per_element, :nodes_per_element, :index_offset])
+                ])
             ]));
         end
         
@@ -1059,7 +1112,7 @@ function generate_local_to_global_fem(dofs_per_node; vec_only=false)
         ]));
         push!(vector_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
             :glb_dofi,
-            generate_the_one_pattern(:glb_i, 1, :dofs_per_node, :di)
+            generate_the_one_pattern(:glb_i, 1, :dofs_per_node, IR_operation_node(IRtypes.math_op, [:+, :di, :index_offset]))
         ]));
         push!(vector_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
             IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], [:glb_dofi]),
@@ -1076,7 +1129,7 @@ function generate_local_to_global_fem(dofs_per_node; vec_only=false)
             ]));
             push!(matrix_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
                 :glb_dofj,
-                generate_the_one_pattern(:glb_j, 1, :dofs_per_node, :dj)
+                generate_the_one_pattern(:glb_j, 1, :dofs_per_node, IR_operation_node(IRtypes.math_op, [:+, :dj, :index_offset]))
             ]));
             push!(matrix_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
                 IR_data_node(IRtypes.int_64_data, :global_matrix_I, [:allocated_nonzeros], [:next_ind]),
@@ -1097,11 +1150,11 @@ function generate_local_to_global_fem(dofs_per_node; vec_only=false)
                 IR_operation_node(IRtypes.math_op, [:+, :next_ind, 1])
             ]));
             
-            push!(matrix_loop_body.parts, IR_loop_node(IRtypes.space_loop, :nodes, :dj, 1, :dofs_per_node, matrix_dof_loop_body));
+            push!(matrix_loop_body.parts, IR_loop_node(IRtypes.space_loop, :nodes, :dj, 1, :dofs_per_loop, matrix_dof_loop_body));
             push!(vector_dof_loop_body.parts, IR_loop_node(IRtypes.space_loop, :nodes, :nj, 1, :nodes_per_element, matrix_loop_body));
         end
         
-        push!(vector_loop_body.parts, IR_loop_node(IRtypes.space_loop, :nodes, :di, 1, :dofs_per_node, vector_dof_loop_body));
+        push!(vector_loop_body.parts, IR_loop_node(IRtypes.space_loop, :nodes, :di, 1, :dofs_per_loop, vector_dof_loop_body));
         toglobal_loop = IR_loop_node(IRtypes.space_loop, :nodes, :ni, 1, :nodes_per_element, vector_loop_body);
         push!(result_block.parts, toglobal_loop)
         
@@ -1112,10 +1165,10 @@ function generate_local_to_global_fem(dofs_per_node; vec_only=false)
 end
 
 # Generate the assembly loop structures and insert the content
-function generate_assembly_loop_fem(var, indices=[])
+function generate_assembly_loop_fem(var, indices)
     IRtypes = IR_entry_types();
-    # Each of the indices must be passed to the functions in a named tuple.
-    # Pass all defined indexers.
+    
+    # Make names for all of the index variables like INDEX_VAL_something
     index_names = [];
     elements_included = false;
     ind_shift = 0;
@@ -1124,7 +1177,7 @@ function generate_assembly_loop_fem(var, indices=[])
             elements_included = true;
             push!(index_names, "elements");
         else
-            push!(index_names, IR_data_node(IRtypes.int_64_data, Symbol("index_val_"*string(indices[i].symbol))));
+            push!(index_names, IR_data_node(IRtypes.int_64_data, Symbol("INDEX_VAL_"*string(indices[i].symbol))));
         end
     end
     
@@ -1134,8 +1187,32 @@ function generate_assembly_loop_fem(var, indices=[])
         ind_shift = 1;
     end
     
+    # Make an offset that is set at the beginning of the loop body
+    # We have to assume that unknown variables have the same set of indices.
+    # If they don't, we need much more complicated logic.
+    index_offset = 0; # offset in variable values for this index
+    if var[1].indexer === nothing
+        # no indexer. 
+    else
+        # coul be in an array, or just a single indexer
+        if typeof(var[1].indexer) <: Array
+            index_offset = Symbol("INDEX_VAL_"*string(var[1].indexer[1].symbol));
+            prev_ind = length(var[1].indexer[1].range);
+            for i=2:length(var_indices)
+                index_offset = IR_operation_node(IRtypes.math_op, [:+, index_offset,
+                    IR_operation_node(IRtypes.math_op, [:*, prev_ind, 
+                        IR_operation_node(IRtypes.math_op, [:-, Symbol("INDEX_VAL_"*string(var[1].indexer[i].symbol)), 1])])]);
+                prev_ind *= length(var[1].indexer[i].range);
+            end
+        else
+            index_offset = IR_operation_node(IRtypes.math_op, [:-, Symbol("INDEX_VAL_"*string(var[1].indexer.symbol)), 1]);
+        end
+    end
+    
     # Placeholder computation that will be replaced by the actual one
-    placeholder = IR_block_node([]);
+    placeholder = IR_block_node([
+        IR_operation_node(IRtypes.assign_op, [:index_offset, index_offset]);
+    ]);
     
     # generate the loop structures
     if length(index_names) > 0
@@ -1149,9 +1226,9 @@ function generate_assembly_loop_fem(var, indices=[])
         
         # work outwards nesting assembly_loop
         for i=(length(index_names)-1):-1:1
-            if index_names[end] == "elements"
+            if index_names[i] == "elements"
                 assembly_loop = IR_loop_node(IRtypes.space_loop, :elements, :eid, 1, :num_elements, assembly_loop);
-            else
+            elseif i > ind_shift
                 assembly_loop = IR_loop_node(IRtypes.index_loop, indices[i-ind_shift].symbol, 
                                 index_names[i].label, indices[i-ind_shift].range[1], 
                                 indices[i-ind_shift].range[i-ind_shift], assembly_loop);
@@ -1171,7 +1248,7 @@ function generate_time_stepping_loop_fem(stepper, assembly)
     zero_el_vec = IR_operation_node(IRtypes.named_op, [
         :FILL_ARRAY, IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], []), 0, :dofs_global]);
     zero_bdry_done = IR_operation_node(IRtypes.named_op, [
-        :FILL_ARRAY, IR_data_node(IRtypes.boolean_data, :bdry_done, [:nnodes_global], []), :false, :nnodes_global]);
+        :FILL_ARRAY, IR_data_node(IRtypes.int_64_data, :bdry_done, [:nnodes_global], []), 0, :nnodes_global]);
     if stepper.stages < 2
         # # This part would be used if the solution is updated like sol = sol + dt*()
         # sol_i = IR_data_node(IRtypes.array_data, :solution, [:update_i]);
@@ -1206,7 +1283,7 @@ function generate_time_stepping_loop_fem(stepper, assembly)
             ])
         ];
         
-        time_loop = IR_loop_node(IRtypes.time_loop, :time, :t, 1, stepper.Nsteps, tloop_body);
+        time_loop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper.Nsteps, tloop_body);
         
     else # multistage explicit steppers
         # LSRK4 is a special case, low storage
@@ -1278,15 +1355,12 @@ function generate_time_stepping_loop_fem(stepper, assembly)
                 # solve
                 wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
                 # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, zero_vals=true);
-                IR_operation_node(IRtypes.function_op, [
-                    IR_operation_node(IRtypes.member_op, [:CGSolver, :copy_bdry_vals_to_variables]), 
+                IR_operation_node(IRtypes.function_op, [:copy_bdry_vals_to_variables, 
                     :var, :solution, :mesh, :dofs_per_node, IR_operation_node(IRtypes.assign_op, [:zero_vals, :true])]),
                 # update tmppi and tmpki
                 piki_condition,
                 # copy_bdry_vals_to_vector(var, tmppi, grid_data, dofs_per_node);
-                IR_operation_node(IRtypes.function_op, [
-                    IR_operation_node(IRtypes.member_op, [:CGSolver, :copy_bdry_vals_to_vector]), 
-                    :var, :tmppi, :mesh, :dofs_per_node]),
+                IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :tmppi]),
                 wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :tmppi]))
             ]);
             stage_loop = IR_loop_node(IRtypes.time_loop, :stages, :rki, 1, stepper.stages, stage_loop_body);
@@ -1304,7 +1378,7 @@ function generate_time_stepping_loop_fem(stepper, assembly)
                     tmp_ki,
                     IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])]),
                     
-                IR_loop_node(IRtypes.time_loop, :time, :t, 1, stepper.Nsteps, tloop_body)
+                IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper.Nsteps, tloop_body)
             ]);
         else
             # Explicit multi-stage methods: 
@@ -1358,9 +1432,7 @@ function generate_time_stepping_loop_fem(stepper, assembly)
                 IR_block_node([
                     update_ki_loop_one,
                     # copy_bdry_vals_to_vector(var, tmpresult, grid_data, dofs_per_node);
-                    IR_operation_node(IRtypes.function_op, [
-                        IR_operation_node(IRtypes.member_op, [:CGSolver, :copy_bdry_vals_to_vector]), 
-                        :var, :tmpresult, :mesh, :dofs_per_node]),
+                    IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :tmpresult]),
                     # place_sol_in_vars(var, tmpresult, stepper);
                     wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :tmpresult]))
                 ]),
@@ -1382,8 +1454,7 @@ function generate_time_stepping_loop_fem(stepper, assembly)
                 # solve
                 wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
                 # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, zero_vals=true);
-                IR_operation_node(IRtypes.function_op, [
-                    IR_operation_node(IRtypes.member_op, [:CGSolver, :copy_bdry_vals_to_variables]), 
+                IR_operation_node(IRtypes.function_op, [:copy_bdry_vals_to_variables, 
                     :var, :solution, :mesh, :dofs_per_node, IR_operation_node(IRtypes.assign_op, [:zero_vals, :true])]),
                 # update tmpki
                 update_ki_condition
@@ -1412,9 +1483,7 @@ function generate_time_stepping_loop_fem(stepper, assembly)
             push!(tloop_body.parts, stage_loop);
             push!(tloop_body.parts, combine_loop);
             # copy_bdry_vals_to_vector(var, last_result, grid_data, dofs_per_node);
-            push!(tloop_body.parts, IR_operation_node(IRtypes.function_op, [
-                    IR_operation_node(IRtypes.member_op, [:CGSolver, :copy_bdry_vals_to_vector]), 
-                    :var, :last_result, :mesh, :dofs_per_node]));
+            push!(tloop_body.parts, IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :last_result]))
             # place_sol_in_vars(var, last_result, stepper);
             push!(tloop_body.parts, wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :last_result])));
             # update time
@@ -1431,7 +1500,7 @@ function generate_time_stepping_loop_fem(stepper, assembly)
                     tmp_ki,
                     IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global, stepper.stages])]),
                     
-                IR_loop_node(IRtypes.time_loop, :time, :t, 1, stepper.Nsteps, tloop_body)
+                IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper.Nsteps, tloop_body)
             ]);
         end
     end

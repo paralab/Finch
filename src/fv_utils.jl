@@ -232,3 +232,236 @@ function FV_reconstruct_value_left_right(leftx, rightx, leftu, rightu, x; limite
     
     return (left, right);
 end
+
+# Returns arrays of left and right cells
+function get_left_right_cells(patch, face, maps, dim, order)
+    # Provide all of the cells that can be used for this face in a particular order.
+    # Make two arrays, one for left one for right, starting from the nearest neighbor.
+    left_cells = [];
+    right_cells = [];
+    if dim == 1
+        left_cell_table_1d = [
+            [ # children=1
+                [2],
+                [1, 2]
+            ],
+            [ # children=2
+                [4, 3],
+                [1, 4, 3],
+                [2, 1, 4, 3]
+            ],
+            [ # children=3
+                [6, 5, 4],
+                [1, 6, 5, 4],
+                [2, 1, 6, 5, 4],
+                [3, 2, 1, 6, 5, 4]
+            ],
+            [ # children=4
+                [8, 7, 6, 5],
+                [1, 8, 7, 6, 5],
+                [2, 1, 8, 7, 6, 5],
+                [3, 2, 1, 8, 7, 6, 5],
+                [4, 3, 2, 1, 8, 7, 6, 5],
+            ]
+        ]
+        right_cell_table_1d = [
+            [ # children=1
+                [1, 3],
+                [3]
+            ],
+            [ # children=2
+                [1, 2, 5, 6],
+                [2, 5, 6],
+                [5, 6]
+            ],
+            [ # children=3
+                [1, 2, 3, 7, 8, 9],
+                [2, 3, 7, 8, 9],
+                [3, 7, 8, 9],
+                [7, 8, 9]
+            ],
+            [ # children=4
+                [1, 2, 3, 4, 9, 10, 11, 12],
+                [2, 3, 4, 9, 10, 11, 12],
+                [3, 4, 9, 10, 11, 12],
+                [4, 9, 10, 11, 12],
+                [9, 10, 11, 12]
+            ]
+        ]
+        nchildren = size(maps.parent2child,1);
+        left_cells = left_cell_table_1d[nchildren][face];
+        right_cells = right_cell_table_1d[nchildren][face];
+        
+    elseif dim == 2
+        if size(maps.parent2neighbor,1) == 3 # triangles
+            # Triangle parents have 9 faces, patches have 16 cells
+            # Here Left means toward the center of the central parent
+            left_cell_table_triangle = [
+                [1, 4, 3, 15, 16, 13, 2],
+                [2, 4, 3, 9, 12, 11, 1],
+                [2, 4, 1, 7, 8, 5, 3],
+                [3, 4, 1, 13, 16, 15, 2],
+                [3, 4, 2, 11, 12, 9, 1],
+                [1, 4, 2, 5, 8, 7, 3],
+                [4, 2, 3, 9, 11, 12],
+                [4, 1, 3, 15, 13, 16],
+                [4, 1, 2, 5, 7, 8]
+            ]
+            right_cell_table_triangle = [
+                [5, 8, 6, 7],
+                [7, 8, 6, 5],
+                [9, 12, 10, 11],
+                [11, 12, 10, 9],
+                [13, 16, 14, 15],
+                [15, 16, 14, 13],
+                [1, 5, 15, 8, 16],
+                [2, 7, 9, 8, 12],
+                [3, 11, 13, 12, 16]
+            ]
+            left_cells = left_cell_table_triangle[face];
+            right_cells = right_cell_table_triangle[face];
+        else # quads
+            # Quad parents have 12 faces, patches have 20 cells
+            # Here Left means toward the center of the central parent
+            left_cell_table_quad = [
+                [1, 4, 2, 16, 15, 3, 13, 14],
+                [2, 3, 1, 13, 14, 4, 16, 15],
+                [2, 1, 3, 20, 19, 4, 17, 18],
+                [3, 4, 2, 17, 18, 1, 20, 19],
+                [3, 2, 4, 8, 7, 1, 5, 6],
+                [4, 1, 3, 5, 6, 2, 8, 7],
+                [4, 3, 1, 12, 11, 2, 9, 10],
+                [1, 2, 4, 9, 10, 3, 12, 11],
+                [1, 20, 4, 19, 17, 18, 5],
+                [2, 8, 1, 7, 5, 6, 9],
+                [3, 12, 2, 11, 9, 10, 13],
+                [4, 16, 3, 15, 13, 14, 17]
+            ]
+            right_cell_table_quad = [
+                [5, 6, 8, 7],
+                [8, 7, 5, 6],
+                [9, 10, 12, 11],
+                [12, 11, 9, 10],
+                [13, 14, 16, 15],
+                [16, 15, 13, 14],
+                [17, 18, 20, 19],
+                [20, 19, 17, 18],
+                [2, 9, 3, 10, 12, 11],
+                [3, 13, 4, 14, 16, 15],
+                [4, 17, 1, 18, 20, 19],
+                [1, 5, 2, 6, 8, 7]
+            ]
+            left_cells = left_cell_table_quad[face];
+            right_cells = right_cell_table_quad[face];
+        end
+        
+    elseif dim == 3
+        #TODO
+    end
+    
+    if length(left_cells) > order
+        left_cells = left_cells[1:order];
+    end
+    if length(right_cells) > order
+        right_cells = right_cells[1:order];
+    end
+    
+    return (patch[left_cells], patch[right_cells]);
+end
+
+# Set the i,j indices in the ai and aj vectors for building the sparse matrix
+function set_matrix_indices!(ai, aj, dofs_per_node)
+    dofs_squared = dofs_per_node*dofs_per_node;
+    nel = fv_grid.nel_owned;
+    nfaces = size(fv_grid.face2element, 2);
+    face_done = fill(false, nfaces);
+    
+    # Elemental loop
+    for ei=1:nel
+        eid = elemental_order[ei]; # The index of this element
+        first_ind = (eid-1)*dofs_per_node + 1; # First global index for this element
+        last_ind = eid*dofs_per_node; # last global index
+        
+        # Diagonal blocks for each cell
+        for di = 1:dofs_per_node
+            first = (eid-1)*dofs_squared + (di-1)*dofs_per_node + 1;
+            last = first + dofs_per_node - 1;
+            ai[first:last] .= first_ind + di - 1;
+            aj[first:last] = first_ind:last_ind;
+        end
+        
+        # Diagonal and off diagonal blocks for each face
+        # Loop over this element's faces.
+        for i=1:refel.Nfaces
+            fid = fv_grid.element2face[i, eid];
+            
+            if !face_done[fid]
+                face_done[fid] = true;
+                (leftel, rightel) = fv_grid.face2element[:,fid];
+                neighborID = (rightel==eid ? leftel : rightel);
+                nfirst_ind = (neighborID-1)*dofs_per_node + 1;
+                nlast_ind = neighborID*dofs_per_node;
+                
+                for di = 1:dofs_per_node
+                    # The eid components
+                    first = nel * dofs_squared + (fid-1)*dofs_squared*4 + (di-1)*dofs_per_node + 1;
+                    last = first + dofs_per_node - 1;
+                    ai[first:last] .= first_ind + di - 1;
+                    aj[first:last] = first_ind:last_ind;
+                    
+                    # The neighborID components
+                    if neighborID > 0
+                        first += dofs_squared;
+                        last += dofs_squared;
+                        ai[first:last] .= first_ind + di - 1;
+                        aj[first:last] = nfirst_ind:nlast_ind;
+                    end
+                end
+                
+                # While we're here, set the components for the neighborID rows as well.
+                if neighborID > 0
+                    for di = 1:dofs_per_node
+                        # The eid components
+                        first = nel * dofs_squared + (fid-1)*dofs_squared*4 + dofs_squared*2 + (di-1)*dofs_per_node + 1;
+                        last = first + dofs_per_node - 1;
+                        ai[first:last] .= nfirst_ind + di - 1;
+                        aj[first:last] = first_ind:last_ind;
+                        
+                        # The neighborID components
+                        first += dofs_squared;
+                        last += dofs_squared;
+                        ai[first:last] .= nfirst_ind + di - 1;
+                        aj[first:last] = nfirst_ind:nlast_ind;
+                    end
+                end
+                
+            else
+                # already done
+            end
+        end# face loop
+    end# element loop
+    
+    # Some indices may be zero due to boundaries. set those all to [1,1] (not the most efficient, but it's consistent)
+    # Since the av part will be zero, this won't change the matrix.
+    for i=1:length(ai)
+        if ai[i]<1 || aj[i]<1
+            ai[i] = 1;
+            aj[i] = 1;
+        end
+    end
+end
+
+# Returns a copy of a with zeros removed.
+function remove_zero_cells(a)
+    b = similar(a);
+    nnz = 0;
+    for ai in a
+        if !(ai == 0)
+            nnz += 1;
+            b[nnz] = ai;
+        end
+    end
+    b = b[1:nnz];
+    
+    return b;
+end

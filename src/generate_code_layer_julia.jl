@@ -63,7 +63,7 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     qnodes_per_element = refel.Nqp;
     faces_per_element = refel.Nfaces;
     dofs_per_element = dofs_per_node * nodes_per_element;
-    
+    local_system_size = dofs_per_loop * nodes_per_element;
     
     "
     
@@ -271,7 +271,7 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         code = "evaluate_coefficient(coefficients[" * string(IR.args[2]) * "], " * string(IR.args[3]) * ", x, y, z, t, nodeID)";
         
     elseif op === :KNOWN_VAR
-        code = "variables[" * string(IR.args[2]) * "].values["*string(IR.args[3])*", "*string(IR.args[4])*"]";
+        code = "variables[" * string(IR.args[2]) * "].values["*generate_from_IR_julia(IR.args[3], IRtypes)*", "*string(IR.args[4])*"]";
         
     elseif op === :ROWCOL_TO_INDEX
         # code = string(IR.args[2]) * " + (" * string(IR.args[3]) * "-1)*" * string(IR.args[4]);
@@ -299,16 +299,22 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         # place variable arrays in solution vector
         code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = get_var_vals(var);";
         
-    elseif op === :SCATTER_SOLUTION
-        # place solution in variable arrays
+    elseif op === :BDRY_TO_VECTOR
         # FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
-        # place_sol_in_vars(var, sol, stepper);
         if length(IR.args) < 3
-            code = indent * "copy_bdry_vals_to_vector(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *", mesh, dofs_per_node);\n";
-            code *= indent * "place_sol_in_vars(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *");";
+            code = indent * "copy_bdry_vals_to_vector(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *", mesh, dofs_per_node);";
         else
             code = indent * "copy_bdry_vals_to_vector("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* 
-                            generate_from_IR_julia(IR.args[2], IRtypes) *", mesh, dofs_per_node);\n";
+                            generate_from_IR_julia(IR.args[2], IRtypes) *", mesh, dofs_per_node);";
+        end
+        
+    elseif op === :SCATTER_SOLUTION
+        # place solution in variable arrays
+        
+        # place_sol_in_vars(var, sol, stepper);
+        if length(IR.args) < 3
+            code = indent * "place_sol_in_vars(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *");";
+        else
             code = indent * "place_sol_in_vars("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* 
                             generate_from_IR_julia(IR.args[2], IRtypes) *");";
         end

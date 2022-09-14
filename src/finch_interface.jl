@@ -735,9 +735,9 @@ function weakForm(var, wf)
     
     # change symbolic layer into IR
     if length(result_exprs) == 4
-        full_IR = build_IR_fem(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, var, config, prob, time_stepper);
+        full_IR = build_IR_fem(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, var, ordered_indexers, config, prob, time_stepper);
     else
-        full_IR = build_IR_fem(lhs_symexpr, nothing, rhs_symexpr, nothing, var, config, prob, time_stepper);
+        full_IR = build_IR_fem(lhs_symexpr, nothing, rhs_symexpr, nothing, var, ordered_indexers, config, prob, time_stepper);
     end
     log_entry("Weak form IR: \n"*repr_IR(full_IR),3);
     
@@ -831,9 +831,9 @@ function conservationForm(var, cf)
     
     # change symbolic layer into IR
     if length(result_exprs) == 4
-        full_IR = build_IR_fvm(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, var, config, prob, time_stepper, fv_info);
+        full_IR = build_IR_fvm(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, var, ordered_indexers, config, prob, time_stepper, fv_info);
     else
-        full_IR = build_IR_fvm(lhs_symexpr, nothing, rhs_symexpr, nothing, var, config, prob, time_stepper, fv_info);
+        full_IR = build_IR_fvm(lhs_symexpr, nothing, rhs_symexpr, nothing, var, ordered_indexers, config, prob, time_stepper, fv_info);
     end
     log_entry("Conservation form IR: "*repr_IR(full_IR),3);
     
@@ -980,6 +980,7 @@ function assemblyLoops(var, indices, parallel_type=[])
         parallel_type = fill("none", length(indices));
     end
     # find the associated indexer objects
+    # and reorder ordered_indexers
     indexer_list = [];
     for i=1:length(indices)
         if typeof(indices[i]) == String
@@ -996,23 +997,9 @@ function assemblyLoops(var, indices, parallel_type=[])
         elseif typeof(indices[i]) == Indexer
             push!(indexer_list, indices[i]);
         end
-        
     end
-    
-    (loop_string, loop_code) = generate_assembly_loops(var, indexer_list, config.solver_type, language, parallel_type);
-    log_entry("assembly loop function: \n\t"*string(loop_string));
-    
-    if language == JULIA || language == 0
-        if config.solver_type == FV
-            args = "var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; is_explicit=true";
-        elseif config.solver_type == CG
-            args = "var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; rhs_only=false";
-        end
-        makeFunction(args, string(loop_code));
-        set_assembly_loops(var, loop_string);
-    else
-        set_assembly_loops(var, loop_code);
-    end
+    set_ordered_indexers(indexer_list);
+    return nothing;
 end
 
 """
@@ -1096,7 +1083,7 @@ function importCode(filename)
             if func_string == ""
                 log_entry("While importing, nothing was found for "*var);
             else
-                set_code(variables[i], func_string);
+                set_code(variables[i], func_string, IR_comment_node("Code imported from file, no IR available"));
             end
             
         end # vars loop
