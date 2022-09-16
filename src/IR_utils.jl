@@ -85,44 +85,25 @@ function wrap_in_timer(label::Symbol, content::IR_part)
     return IR_operation_node(IRtypes.named_op, [:TIMER, label, content]);
 end
 
-function extract_entities(symex::Array, multivar::Bool)
+function extract_entities(symex::Array)
     # symex is an array of arrays of SymExpressions which are Expr trees with SymEntities as leaves. (array for variable components, terms)
     # In the case of muliple variables, it's an array of arrays of arrays. (variables, components, terms)
     # The Symexpression contains a list of all leaves that need to be evaluated before combining.
     # First collect all of them and eliminate identical ones.
     entities = []
-    if multivar
-        for vi=1:length(symex)
-            for ci=1:length(symex[vi])
-                for ti=1:length(symex[vi][ci])
-                    for i=1:length(symex[vi][ci][ti].entities) # loop over entities for this variable/component
-                        entity_present = false;
-                        for j=1:length(entities) # check against existing entities
-                            if is_same_entity(symex[vi][ci][ti].entities[i], entities[j])
-                                entity_present = true;
-                                break;
-                            end
-                        end
-                        if !entity_present
-                            push!(entities, symex[vi][ci][ti].entities[i]); # add it if unique
-                        end
-                    end
-                end
-            end
-        end
-    else # same thing as above, but for symex rather than symex[vi]
-        for ci=1:length(symex)
-            for ti=1:length(symex[ci])
-                for i=1:length(symex[ci][ti].entities) # loop over entities for this variable/component
+    for vi=1:length(symex)
+        for ci=1:length(symex[vi])
+            for ti=1:length(symex[vi][ci])
+                for i=1:length(symex[vi][ci][ti].entities) # loop over entities for this variable/component
                     entity_present = false;
                     for j=1:length(entities) # check against existing entities
-                        if is_same_entity(symex[ci][ti].entities[i], entities[j])
+                        if is_same_entity(symex[vi][ci][ti].entities[i], entities[j])
                             entity_present = true;
                             break;
                         end
                     end
                     if !entity_present
-                        push!(entities, symex[ci][ti].entities[i]); # add it if unique
+                        push!(entities, symex[vi][ci][ti].entities[i]); # add it if unique
                     end
                 end
             end
@@ -130,6 +111,21 @@ function extract_entities(symex::Array, multivar::Bool)
     end
     
     return entities;
+end
+
+# Check if this is just an empty set of arrays
+function is_empty_expression(ex)
+    if typeof(ex) <: Array
+        for i=1:length(ex)
+            if !(is_empty_expression(ex[i]))
+                return false;
+            end
+        end
+    else # this must be some object in the array
+        return false;
+    end
+    # If we get here, ex was an empty array
+    return true;
 end
 
 # They are the same if all parts of them are the same.

@@ -21,12 +21,11 @@ build mat
 function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config, prob, time_stepper)
     dimension = config.dimension;
     # Count variables, dofs, and store offsets
-    multivar = typeof(var) <:Array;
     varcount = 1;
     dofsper = 0;
     dofsper_loop = 0;
     offset_ind = [0];
-    if multivar
+    if typeof(var) <:Array
         varcount = length(var);
         offset_ind = zeros(Int, varcount);
         dofsper = var[1].total_components;
@@ -130,14 +129,14 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     
     # LHS volume
     if !(lhs_vol === nothing)
-        entities = extract_entities(lhs_vol, multivar);
+        entities = extract_entities(lhs_vol);
         append!(all_entities, entities);
         counts[1] = length(entities);
     end
     
     # RHS volume
     if !(rhs_vol === nothing)
-        entities = extract_entities(rhs_vol, multivar);
+        entities = extract_entities(rhs_vol);
         append!(all_entities, entities);
         append!(rhs_entities, entities);
         counts[2] = length(entities);
@@ -145,14 +144,14 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     
     # LHS surface
     if !(lhs_surf === nothing)
-        entities = extract_entities(lhs_surf, multivar);
+        entities = extract_entities(lhs_surf);
         append!(all_entities, entities);
         counts[3] = length(entities);
     end
     
     # RHS surface
     if !(rhs_surf === nothing)
-        entities = extract_entities(rhs_surf, multivar);
+        entities = extract_entities(rhs_surf);
         append!(all_entities, entities);
         append!(rhs_entities, entities);
         counts[4] = length(entities);
@@ -243,16 +242,16 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     append!(inner_loop.body.parts, [
         prepare_block,
         derivmat_block,
-        wrap_in_timer(:el_matrix, matrix_block),
-        wrap_in_timer(:el_vector, vector_block),
-        wrap_in_timer(:bdry_cond, bdry_block),
+        el_matrix, matrix_block,
+        el_vector, vector_block,
+        bdry_block,
         toglobal_block
     ])
     append!(rhs_inner_loop.body.parts, [
         time_prepare_block,
         time_derivmat_block,
-        wrap_in_timer(:el_vector, vector_block),
-        wrap_in_timer(:bdry_cond, time_bdry_block),
+        vector_block,
+        time_bdry_block,
         time_toglobal_block
     ])
     
