@@ -93,7 +93,9 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
         IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])
         ]));
         
-    # I and J should be initialized to 1
+    # I and J should be initialized to 1 for julia
+    # How about c++ ?? do we need a named op for init of IJV?
+    push!(allocate_block.parts, IR_comment_node("I and J vectors should init as ones"));
     push!(allocate_block.parts, IR_operation_node(IRtypes.named_op, [
         :FILL_ARRAY, globalmat_I, 1, :allocated_nonzeros]));
     push!(allocate_block.parts, IR_operation_node(IRtypes.named_op, [
@@ -242,8 +244,8 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     append!(inner_loop.body.parts, [
         prepare_block,
         derivmat_block,
-        el_matrix, matrix_block,
-        el_vector, vector_block,
+        matrix_block,
+        vector_block,
         bdry_block,
         toglobal_block
     ])
@@ -1355,7 +1357,7 @@ function generate_time_stepping_loop_fem(stepper, assembly)
                 # solve
                 wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
                 # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, true);
-                IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution, :true]),
+                IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution, :var, :true]),
                 # update tmppi and tmpki
                 piki_condition,
                 # copy_bdry_vals_to_vector(var, tmppi, grid_data, dofs_per_node);
@@ -1456,7 +1458,7 @@ function generate_time_stepping_loop_fem(stepper, assembly)
                 # solve
                 wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
                 # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, true);
-                IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution, :true]),
+                IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution, :var, :true]),
                 # update tmpki
                 update_ki_condition
             ]);

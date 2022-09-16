@@ -1,13 +1,9 @@
 #=
-Functions for building an IR from the DSL for FVM type problems.
-These consist of assembling a global matrix/vector from local ones.
-Quadrature is done with matrices from the refel.
+Functions for building an IR from the symbolic expressions for FVM type problems.
 
 allocate
 first loop
-    init all
     matrix (if implicit)
-    vector
 build mat (if implicit)
 
 time stepper
@@ -62,32 +58,40 @@ function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     
     # Allocate the global matrix and vector
     if need_matrix
-        # push!(allocate_block.parts, IR_comment_node("Allocate global matrix(IJV form)"));
-        # allocatedNZ = IR_data_node(IRtypes.int_64_data, :allocated_nonzeros, [], []);
-        # push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
-        #     allocatedNZ,
-        #     IR_operation_node(IRtypes.math_op, [:*, :num_elements, :dofs_per_element, :dofs_per_element])
-        #     ]));
-        # globalmat_I = IR_data_node(IRtypes.int_64_data, :global_matrix_I, [:allocated_nonzeros], []);
-        # push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
-        #     globalmat_I,
-        #     IR_operation_node(IRtypes.allocate_op, [IRtypes.int_64_data, :allocated_nonzeros])
-        #     ]));
-        # globalmat_J = IR_data_node(IRtypes.int_64_data, :global_matrix_J, [:allocated_nonzeros], []);
-        # push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
-        #     globalmat_J,
-        #     IR_operation_node(IRtypes.allocate_op, [IRtypes.int_64_data, :allocated_nonzeros])
-        #     ]));
-        # globalmat_V = IR_data_node(IRtypes.float_64_data, :global_matrix_V, [:allocated_nonzeros], []);
-        # push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
-        #     globalmat_V,
-        #     IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :allocated_nonzeros])
-        #     ]));
-        # # I and J should be initialized to 1
-        # push!(allocate_block.parts, IR_operation_node(IRtypes.named_op, [
-        #     :FILL_ARRAY, globalmat_I, 1, :allocate_nonzeros]));
-        # push!(allocate_block.parts, IR_operation_node(IRtypes.named_op, [
-        #     :FILL_ARRAY, globalmat_J, 1, allocated_nonzeros]));
+        push!(allocate_block.parts, IR_comment_node("Allocate global matrix(IJV form)"));
+        # allocated size of nonzeros is dofs*dofs*(nel + nfaces*4)
+        allocatedNZ = IR_data_node(IRtypes.int_64_data, :allocated_nonzeros, [], []);
+        push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
+            allocatedNZ,
+            IR_operation_node(IRtypes.math_op, [:*, :dofs_per_node, :dofs_per_node,
+                IR_operation_node(IRtypes.math_op, [:+, :num_elements, IR_operation_node(IRtypes.math_op, [:*, :num_faces,4])])
+            ])
+        ]));
+        globalmat_I = IR_data_node(IRtypes.int_64_data, :global_matrix_I, [:allocated_nonzeros], []);
+        push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
+            globalmat_I,
+            IR_operation_node(IRtypes.allocate_op, [IRtypes.int_64_data, :allocated_nonzeros])
+            ]));
+        globalmat_J = IR_data_node(IRtypes.int_64_data, :global_matrix_J, [:allocated_nonzeros], []);
+        push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
+            globalmat_J,
+            IR_operation_node(IRtypes.allocate_op, [IRtypes.int_64_data, :allocated_nonzeros])
+            ]));
+        globalmat_V = IR_data_node(IRtypes.float_64_data, :global_matrix_V, [:allocated_nonzeros], []);
+        push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
+            globalmat_V,
+            IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :allocated_nonzeros])
+            ]));
+        # I and J should be initialized to 1 for julia
+        # How about c++ ?? do we need a named op for init of IJV?
+        push!(allocate_block.parts, IR_comment_node("I and J vectors should be ones"));
+        push!(allocate_block.parts, IR_operation_node(IRtypes.named_op, [
+            :FILL_ARRAY, globalmat_I, 1, :allocated_nonzeros]));
+        push!(allocate_block.parts, IR_operation_node(IRtypes.named_op, [
+            :FILL_ARRAY, globalmat_J, 1, allocated_nonzeros]));
+        #
+        # I and J indices only need to be set once, so init them here
+        
     end
     
     # Global vectors
@@ -1426,7 +1430,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly)
             # solve
             wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
             # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, true);
-            IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution, :true]),
+            IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution, :var, :true]),
             # update tmppi and tmpki
             piki_condition,
             # copy_bdry_vals_to_vector(var, tmppi, grid_data, dofs_per_node);
@@ -1574,7 +1578,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly)
             # solve
             wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
             # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, true);
-            IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution, :true]),
+            IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution, :var, :true]),
             # update tmpki
             update_ki_condition
         ]);
