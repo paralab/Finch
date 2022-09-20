@@ -529,17 +529,17 @@ function apply_boundary_conditions_face(var::Vector{Variable}, eid::Int, fid::In
                 # Qvec = Qvec ./ fv_geo_factors.area[fid];
                 # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
                 flux_vec[dofind] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
-                # if !is_explicit
-                #     bflux = bflux .* dt;
+                # for i=1:size(flux_mat,2)
+                #     flux_mat[dofind, i] = 0;
                 # end
                 
             elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
                 # Set variable array and handle after the face loop
                 var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
-                # If implicit, this needs to be handled before solving
-                # if !is_explicit
-                #     #TODO
+                # for i=1:size(flux_mat,2)
+                #     flux_mat[dofind, i] = 0;
                 # end
+                
             else
                 printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
             end

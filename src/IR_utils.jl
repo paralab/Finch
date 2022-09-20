@@ -303,6 +303,44 @@ function get_face_side_info(ent)
     return side;
 end
 
+# Determine if this expression has an unknown variable entity
+# If so, return it's index.
+# If not, return -1.
+function get_first_var_index(ex, var)
+    result = -1;
+    if typeof(ex) == Expr
+        # recursively check
+        for i=1:length(ex.args)
+            tmp = get_first_var_index(ex.args[i], var);
+            if tmp > 0
+                return tmp;
+            end
+        end
+        
+    elseif typeof(ex) == SymEntity
+        numind = ex.index;
+        if typeof(numind) <: Array
+            numind = 1;
+        end
+        if typeof(var) <: Array
+            tmpind = 0;
+            for vi=1:length(var)
+                if is_unknown_var(ex,var[vi])
+                    result = tmpind + numind;
+                else
+                    tmpind += length(var[vi].symvar);
+                end
+            end
+        else
+            if is_unknown_var(ex,var)
+                result = numind;
+            end
+        end
+    end
+    
+    return result;
+end
+
 # Assume the term looks like a*b*c or a*(b*c) or something similar.
 function separate_factors(ex, var=nothing)
     test_part = nothing;
@@ -345,17 +383,26 @@ function separate_factors(ex, var=nothing)
                 end
             end
             if length(tmpcoef) > 1
-                coef_part = :(a.*b);
-                coef_part.args = [:.*];
+                coef_part = :(a*b);
+                coef_part.args = [:*];
                 append!(coef_part.args, tmpcoef);
             elseif length(tmpcoef) == 1
                 coef_part = tmpcoef[1];
             end
             
-        else # It is an Expr, but not -() or * (note: at this point a/b is a*(1/b) )
-            # This simplification may cause trouble somewhere. Revisit if needed.
-            coef_part = ex;
+        else# It is an Expr, but not -() or * (note: at this point a/b is a*(1/b) )
+            # It could be a function like conditional_function.
+            # Search for unknown variables within and use the first one found for the index.
+            # If non are found, treat as coefficient part
+            tmp_index = get_first_var_index(ex, var)
+            if tmp_index > 0
+                trial_ind = tmp_index;
+                trial_part = ex;
+            else
+                coef_part = ex;
+            end
         end
+        
     elseif typeof(ex) == SymEntity
         numind = ex.index;
         if typeof(numind) <: Array
@@ -385,12 +432,6 @@ function separate_factors(ex, var=nothing)
     else # a number?
         coef_part = ex;
     end
-    
-    # println(ex)
-    # println(test_part)
-    # println(trial_part)
-    # println(coef_part)
-    # println("")
     
     return (test_part, trial_part, coef_part, test_ind, trial_ind);
 end

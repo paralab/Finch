@@ -289,6 +289,11 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         # args[2] is the array, args[3] is the value
         code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " .= " * string(IR.args[3]);
         
+    elseif op === :INIT_MATRIX_IJ_FV
+        # args[2] is the I matrix, args[3] is the J matrix
+        code = indent * "set_matrix_indices!(" * generate_from_IR_julia(IR.args[2], IRtypes) * ", " * 
+                    generate_from_IR_julia(IR.args[3], IRtypes) * ", dofs_per_node, mesh)";
+        
     elseif op === :GLOBAL_FINALIZE
         # This will eventually be more complicated, but let's do the default for now
         code = indent * "global_matrix = sparse(global_matrix_I, global_matrix_J, global_matrix_V);"
@@ -366,6 +371,41 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
             
             content = generate_from_IR_julia(comp, IRtypes);
             code *= indent * "$vecname[$row_index] = $content;\n";
+        end
+        
+        if blocksize > 1
+            # end # loop over blocksize
+        end
+    
+    elseif op === :LINALG_MAT_BLOCKS
+        # This sets blocks of a matrix
+        n_blocks = IR.args[2];
+        blocksize = IR.args[3];
+        vecname = generate_from_IR_julia(IR.args[4], IRtypes);
+        
+        init_lines = "";
+        compute_lines = "";
+        code = "";
+        if blocksize > 1
+            # loop over blocksize TODO
+        end
+        
+        for blk = 1:n_blocks
+            r_ind = IR.args[4 + (blk-1)*3 + 1];
+            c_ind = IR.args[4 + (blk-1)*3 + 2];
+            comp  = IR.args[4 + (blk-1)*3 + 3];
+            
+            if blocksize > 1
+                # TODO block loop : row_index = r_ind > 1 ? (string(r_ind-1)*"*"*string(blocksize)*" + row") : "row";
+                row_index = generate_from_IR_julia(r_ind, IRtypes);
+                col_index = generate_from_IR_julia(c_ind, IRtypes);
+            else # blocksize == 1
+                row_index = generate_from_IR_julia(r_ind, IRtypes);
+                col_index = generate_from_IR_julia(c_ind, IRtypes);
+            end
+            
+            content = generate_from_IR_julia(comp, IRtypes);
+            code *= indent * "$vecname[$row_index, $col_index] = $content;\n";
         end
         
         if blocksize > 1

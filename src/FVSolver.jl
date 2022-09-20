@@ -397,6 +397,7 @@ function linear_solve_implicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                 if config.num_partitions > 1 exchange_ghosts(var, grid, i); end
                 pre_step_function();
                 
+                # Note that this does  lhsmatV 
                 b = assemble(var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node, dofs_per_loop, t, stepper.dt, assemble_loops=assemble_func, is_explicit=false);
                 # Need to add var values to b for u(-) + dt*rhs
                 # Need to add identity to A for u(+) + dt*lhs
