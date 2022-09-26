@@ -10,8 +10,6 @@ using LinearAlgebra, SparseArrays, CUDA
 # See finch_import_symbols.jl for a list of all imported symbols.
 import ..Finch: @import_finch_symbols
 @import_finch_symbols()
-import ..Finch: @timeit
-
 
 include("fe_boundary.jl");
 include("nonlinear.jl")
@@ -398,7 +396,6 @@ end
 
 # assembles the A and b in Au=b
 function assemble(var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; assemble_loops=nothing, rhs_only = false)
-    @timeit timer_output "assemble" begin
     # If an assembly loop function was provided, use it
     if !(assemble_loops === nothing)
         return assemble_loops.func(var, bilinear, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt; rhs_only=rhs_only);
@@ -496,8 +493,6 @@ function assemble(var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_p
         (A, b) = @level_bench Level1 apply_boundary_conditions_lhs_rhs(var, A, b, t);
     end
     bc_time = Base.Libc.time() - bc_time;
-    
-    end # timer
     
     if rhs_only
         return b;
