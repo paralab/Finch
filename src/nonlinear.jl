@@ -22,19 +22,19 @@ function init_nonlinear(nl,var,nlvar,bi,li);
 	nl.linear = li;
 end
 
-function eval_jac(nl, formjac, t, dt)
-	 (nl.jac, b) = formjac(nl.var, nl.bilinear, nl.linear, t, dt);
+function eval_jac(nl, formjac, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt)
+	 (nl.jac, b) = formjac(nl.var, nl.bilinear, nl.linear, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt);
 end
 
-function eval_res(nl, formfunc, t, dt)
-	b = formfunc(nl.var, nl.linear, t, dt);
+function eval_res(nl, formfunc, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt)
+	b = formfunc(nl.var, nl.linear, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt);
 	nl.res = b;#A*nl.var.values - b;
 	#@show A;
 end
 
-function newton(nl,formjac, formfunc, nlvar, t=0, dt=0)
+function newton(nl,formjac, formfunc, allocated_vecs, nlvar, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0)
 	debug = true;
-	eval_res(nl, formfunc, t, dt);
+	eval_res(nl, formfunc, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt);
 	init_res = norm(nl.res);
 	if (init_res < nl.atol)
 		if debug print("\ninitial residual = ", init_res, ", already converged\n"); end
@@ -44,7 +44,7 @@ function newton(nl,formjac, formfunc, nlvar, t=0, dt=0)
 
 	i = 0;
 	while (i < nl.max_iter)
-		eval_jac(nl, formjac, t, dt);
+		eval_jac(nl, formjac, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt);
 		delta = - nl.jac \ nl.res;
 		
 		#@show nl.jac
@@ -94,7 +94,7 @@ function newton(nl,formjac, formfunc, nlvar, t=0, dt=0)
 		nlvar = nl.nlvar;
 		#@show(nlvar.values)
 		i = i+1;
-		eval_res(nl, formfunc, t, dt);
+		eval_res(nl, formfunc, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt);
 		curr_res = norm(nl.res);
 		if debug print(i,"th iteration residual = ", curr_res, "\n");end
 		if (curr_res < nl.atol || curr_res/init_res < nl.rtol)
