@@ -10,6 +10,7 @@ using LinearAlgebra, SparseArrays, CUDA
 # See finch_import_symbols.jl for a list of all imported symbols.
 import ..Finch: @import_finch_symbols
 @import_finch_symbols()
+import ..Finch: @timeit
 
 
 include("fe_boundary.jl");
@@ -306,17 +307,43 @@ function linear_solve(var, bilinear, linear, stepper=nothing; assemble_func=noth
         
         log_entry("Assembly took "*string(assemble_t)*" seconds");
         log_entry("Linear solve took "*string(sol_t)*" seconds");
-        # display(A);
+        # display(Array(A));
         # display(b);
         # display(sol);
         return sol;
     end
 end
 
-function nonlinear_solve(var, nlvar, bilinear, linear, stepper=nothing; assemble_loops=nothing)
-    if config.num_pertitions > 1
+function nonlinear_solve(var, nlvar, bilinear, linear, stepper=nothing; assemble_func=nothing)
+    if config.num_partitions > 1
         printerr("nonlinear solver is not ready for partitioned meshes. sorry.", fatal=true);
     end
+    # If more than one variable
+    if typeof(var) <: Array
+        # multiple variables being solved for simultaneously
+        dofs_per_node = 0;
+        dofs_per_loop = 0;
+        for vi=1:length(var)
+            dofs_per_loop += length(var[vi].symvar);
+            dofs_per_node += var[vi].total_components;
+        end
+    else
+        # one variable
+        dofs_per_loop = length(var.symvar);
+        dofs_per_node = var.total_components;
+    end
+    N1 = size(grid_data.allnodes,2);
+    Nn = dofs_per_node * N1;
+    Np = refel.Np;
+    nel = size(grid_data.loc2glb,2);
+    
+    # Allocate arrays that will be used by assemble
+    rhsvec = zeros(Nn);
+    lhsmatI = zeros(Int, nel*dofs_per_node*Np*dofs_per_node*Np);
+    lhsmatJ = zeros(Int, nel*dofs_per_node*Np*dofs_per_node*Np);
+    lhsmatV = zeros(nel*dofs_per_node*Np*dofs_per_node*Np);
+    allocated_vecs = [rhsvec, lhsmatI, lhsmatJ, lhsmatV];
+    
     if prob.time_dependent && !(stepper === nothing)
         #TODO time dependent coefficients
         
@@ -327,7 +354,7 @@ function nonlinear_solve(var, nlvar, bilinear, linear, stepper=nothing; assemble
         init_nonlinear(nl, var, nlvar, bilinear, linear);
         for i=1:stepper.Nsteps
 			println("solve for time step ", i);
-			newton(nl, assemble, assemble_rhs_only, nlvar, t, stepper.dt);
+			newton(nl, assemble, assemble_rhs_only, allocated_vecs, nlvar, dofs_per_node, dofs_per_loop, t, stepper.dt);
             t += stepper.dt;
 			nlvar[4].values = copy(nlvar[1].values);
 			nlvar[5].values = copy(nlvar[2].values);
@@ -359,7 +386,7 @@ function nonlinear_solve(var, nlvar, bilinear, linear, stepper=nothing; assemble
         start_t = Base.Libc.time();
         nl = nonlinear(100, 1e-12, 1e-12);
         init_nonlinear(nl, var, nlvar, bilinear, linear);
-        newton(nl, assemble, assemble_rhs_only, nlvar);
+        newton(nl, assemble, assemble_rhs_only, allocated_vecs, nlvar, dofs_per_node, dofs_per_loop);
         end_t = Base.Libc.time();
 
         log_entry("Solve took "*string(end_t-start_t)*" seconds");
@@ -371,6 +398,7 @@ end
 
 # assembles the A and b in Au=b
 function assemble(var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; assemble_loops=nothing, rhs_only = false)
+    @timeit timer_output "assemble" begin
     # If an assembly loop function was provided, use it
     if !(assemble_loops === nothing)
         return assemble_loops.func(var, bilinear, linear, allocated_vecs, dofs_per_node, dofs_per_loop, t, dt; rhs_only=rhs_only);
@@ -468,6 +496,8 @@ function assemble(var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_p
         (A, b) = @level_bench Level1 apply_boundary_conditions_lhs_rhs(var, A, b, t);
     end
     bc_time = Base.Libc.time() - bc_time;
+    
+    end # timer
     
     if rhs_only
         return b;
