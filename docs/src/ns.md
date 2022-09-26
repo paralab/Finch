@@ -4,7 +4,7 @@
 <img src="../assets/images/nsplot.png" alt="NS" width="400">
 ```
 
-The script file: [example-NS.jl](https://github.com/paralab/Finch/blob/master/Finch/examples/example-NS.jl)
+The script file: [example-NS.jl](https://github.com/paralab/Finch/blob/master/src/examples/example-NS.jl)
 
 A 2D Navier Stokes simulation of a driven lid problem. This demonstrates the nonlinear solver capability, multiple variables, and parameter entities.
 
