@@ -790,7 +790,7 @@ function add_boundary_condition(var, bid, type, ex, nfuns)
             nbid = 1;
         end
         
-        tmp1 = fill("", var_count, nbid);
+        tmp1 = fill(NO_BC, var_count, nbid);
         tmp2 = Array{Any,2}(undef, (var_count, nbid)); # need to keep this array open to any type
         fill!(tmp2, 0);
         tmp3 = zeros(Int, (var_count, nbid));

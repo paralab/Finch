@@ -206,10 +206,10 @@ function replace_symbols_in_conditions(ex)
                 ex = newex;
             elseif c_index > 0
                 if coefficients[c_index].type == SCALAR
-                    newex = :(evaluate_coefficient(Finch.coefficients[$c_index], 1, [x,y,z], t, node_index, face_index));
+                    newex = :(evaluate_coefficient(Finch.coefficients[$c_index], 1, x, y, z, t, node_index, face_index));
                 else
                     num_comps = length(Finch.coefficients[c_index].value);
-                    newex = :([evaluate_coefficient(Finch.coefficients[$c_index], comp, [x,y,z], t, node_index, face_index) for comp in 1:$num_comps]);
+                    newex = :([evaluate_coefficient(Finch.coefficients[$c_index], comp, x, y, z, t, node_index, face_index) for comp in 1:$num_comps]);
                 end
                 ex = newex;
             elseif i_index > 0

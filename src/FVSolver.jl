@@ -153,7 +153,8 @@ function linear_solve_explicit(var, source_lhs, source_rhs, flux_lhs, flux_rhs, 
                     # u = p5
                     
                     tmppi = get_var_vals(var, tmppi);
-                    tmpki = zeros(size(sol));
+                    # tmpki = zeros(size(sol));
+                    tmpki .= 0;
                     for rki=1:stepper.stages
                         rktime = t + stepper.c[rki]*stepper.dt;
                         # p(i-1) is currently in u

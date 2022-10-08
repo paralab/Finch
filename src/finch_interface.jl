@@ -613,7 +613,7 @@ Set a function to be called before each time step, or stage for multi-stage
 steppers.
 """
 function preStepFunction(fun)
-    solver.set_pre_step(fun);
+    prob.pre_step_function = fun;
 end
 
 """
@@ -623,7 +623,7 @@ Set a function to be called after each time step, or stage for multi-stage
 steppers.
 """
 function postStepFunction(fun)
-    solver.set_post_step(fun);
+    prob.post_step_function = fun;
 end
 
 """
@@ -676,12 +676,26 @@ function weakForm(var, wf)
     end
     solver_type = var[1].discretization;
     
-    # If nonlinear iteration is used, need to make copies of variables for previous step
+    # If nonlinear iteration is used, need to make copies of variables for DELTA versions
+    # if prob.nonlinear
+    #     deltavar = [];
+    #     for i=1:length(var)
+    #         deltaname = "DELTA"*string(var[i].symbol);
+    #         push!(deltavar, variable(deltaname, type=var[i].type, location=var[i].location, method=var[i].discretization, index=var[i].indexer));
+    #         # need to add zero dirichlet BC for every bid
+    #         nbids = size(prob.bid, 2);
+    #         for bid=1:nbids
+    #             boundary(deltavar[end], prob.bid[1,bid], DIRICHLET, 0);
+    #         end
+    #     end
+        
+    # else
+    #     deltavar = var;
+    # end
     if prob.nonlinear
-        oldvar = [];
         for i=1:length(var)
             oldname = "OLD"*string(var[i].symbol);
-            push!(oldvar, variable(oldname, type=var[i].type, location=var[i].location, method=var[i].discretization, index=var[i].index));
+            variable(oldname, type=var[i].type, location=var[i].location, method=var[i].discretization, index=var[i].indexer);
         end
     end
     
@@ -694,6 +708,8 @@ function weakForm(var, wf)
         (lhs_symexpr, rhs_symexpr, lhs_surf_symexpr, rhs_surf_symexpr) = result_exprs;
     else
         (lhs_symexpr, rhs_symexpr) = result_exprs;
+        lhs_surf_symexpr = nothing;
+        rhs_surf_symexpr = nothing;
     end
     
     # Here we set a SymExpression for each of the pieces. 
@@ -734,11 +750,8 @@ function weakForm(var, wf)
     end
     
     # change symbolic layer into IR
-    if length(result_exprs) == 4
-        full_IR = build_IR_fem(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, var, ordered_indexers, config, prob, time_stepper);
-    else
-        full_IR = build_IR_fem(lhs_symexpr, nothing, rhs_symexpr, nothing, var, ordered_indexers, config, prob, time_stepper);
-    end
+    full_IR = build_IR_fem(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, 
+                            var, ordered_indexers, config, prob, time_stepper);
     log_entry("Weak form IR: \n"*repr_IR(full_IR),3);
     
     # Generate code from IR
@@ -1222,12 +1235,13 @@ iterative solution. Set the parameters for the iteration.
 The tolerances are for the infinity norm of the change between 
 iterations (u(i) - u(i-1)).
 """
-function nonlinear(;maxIters=100, relativeTol=1e-5, absoluteTol=1e-5, derivative="AD")
+function nonlinear(;maxIters=100, relativeTol=1e-5, absoluteTol=1e-5, relaxation=1, derivative="AD")
     prob.nonlinear = true;
     prob.derivative_type = derivative;
     prob.max_iters = maxIters;
     prob.relative_tol = relativeTol;
     prob.absolute_tol = absoluteTol;
+    prob.relaxation = relaxation;
 end
 
 """
@@ -1282,14 +1296,27 @@ function solve(var)
             assemblyLoops(var, ["elements"; var_indexers]);
         end
         
-        # If nonlinear, a matching set of variables should have been created. find them
+        # # If nonlinear, a matching set of variables should have been created. find them
+        # if prob.nonlinear
+        #     deltavar = Vector{Variable}(undef, 0);
+        #     for i=1:length(var)
+        #         deltaname = Symbol("DELTA"*string(var[i].symbol));
+        #         for v in variables
+        #             if deltaname === v.symbol
+        #                 push!(deltavar, v);
+        #                 v.values .= var[i].values; # copy initial conditions
+        #                 break;
+        #             end
+        #         end
+        #     end
+        # end
         if prob.nonlinear
-            oldvar = [];
+            nl_var = Vector{Variable}(undef, 0);
             for i=1:length(var)
                 oldname = Symbol("OLD"*string(var[i].symbol));
                 for v in variables
                     if oldname === v.symbol
-                        push!(oldvar, v);
+                        push!(nl_var, v);
                         v.values .= var[i].values; # copy initial conditions
                         break;
                     end
@@ -1302,7 +1329,7 @@ function solve(var)
             func = solve_function[varind];
             
             if prob.nonlinear
-                t = @elapsed(result = CGSolver.nonlinear_solve(var, oldvar, func, time_stepper));
+                t = @elapsed(result = CGSolver.nonlinear_solve(var, nl_var, func, time_stepper));
             else
                 t = @elapsed(result = CGSolver.solve(var, func, time_stepper));
             end
@@ -1324,7 +1351,7 @@ function solve(var)
             func = solve_function[varind];
             
             if prob.nonlinear
-                t = @elapsed(result = FVSolver.nonlinear_solve(var, oldvar, func, time_stepper));
+                t = @elapsed(result = FVSolver.nonlinear_solve(var, nl_var, func, time_stepper));
             else
                 t = @elapsed(result = FVSolver.solve(var, func, time_stepper));
             end

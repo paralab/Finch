@@ -71,8 +71,8 @@ include("symbolic_stepper_reformat.jl");
 @funs(islessthan)
 @funs(indexing_operator)
 
-# a special operator for dealing with scalar multiplication when the scalar is in an array
-import Base.*
+import Base.*, Base./, Base.+, Base.-
+# a special operator for dealing with scalars when the scalar is in an array
 function *(a::Array{Basic,1}, b::Array{Basic,1})
     if size(a) == (1,)
         return b.*a[1];
@@ -85,6 +85,25 @@ function *(a::Array{Basic,1}, b::Array{Basic,1})
         return SymEngine.*(a,b);
     end
 end
+function /(a::Array{Basic,1}, b::Array{Basic,1})
+    if size(a) == (1,)
+        return a[1]./b;
+    elseif size(b) == (1,)
+        return a./b[1];
+    else
+        return SymEngine./(a,b);
+    end
+end
+# operators for dealing with numbers and Basic arrays
+function *(a::Number, b::Array{Basic,1}) return a.*b; end
+function +(a::Number, b::Array{Basic,1}) return a.+b; end
+function -(a::Number, b::Array{Basic,1}) return a.-b; end
+function /(a::Number, b::Array{Basic,1}) return a./b; end
+function *(a::Array{Basic,1}, b::Number) return a.*b; end
+function +(a::Array{Basic,1}, b::Number) return a.+b; end
+function -(a::Array{Basic,1}, b::Number) return a.-b; end
+function /(a::Array{Basic,1}, b::Number) return a./b; end
+function -(a::Array{Basic,1}) return .-a; end
 
 # Adds a single custom operator
 function add_custom_op(s, handle)
@@ -304,10 +323,16 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
                     old_nlv = apply_old_to_symbol(nlv[vi][1][i]);
                     old_term = subs(nlt[vi][1][i], (nlv[vi][1][i], old_nlv));
                     deriv_term = create_deriv_func(old_term, old_nlv, prob.derivative_type);
+                    
+                    expanded_deriv_terms = get_sym_terms(deriv_term);
+                    
                     # println("old: "*string(old_term))
                     push!(rhs[vi][1], -old_term);
-                    push!(rhs[vi][1], deriv_term * old_nlv);
-                    push!(lhs[vi][1], deriv_term * nlv[vi][1][i]);
+                    for ti=1:length(expanded_deriv_terms)
+                        push!(rhs[vi][1], expanded_deriv_terms[ti] * old_nlv);
+                        push!(lhs[vi][1], expanded_deriv_terms[ti] * nlv[vi][1][i]);
+                    end
+                    
                 end
             end
         else
@@ -338,34 +363,12 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
             if stepper_type == MIXED_STEPPER && typeof(time_stepper) <: Array
                 stepper_type = time_stepper[2].type;
             end
-            # There is an assumed Dt(u) added which is the only time derivative.
-            # if is_flux
-            #     log_entry("flux, before modifying for time: "*string(lhs)*" - "*string(rhs));
-            #     (newlhs, newrhs) = reformat_for_stepper_fv_flux(lhs, rhs, stepper_type);
-            #     log_entry("flux, modified for time stepping: "*string(newlhs)*" + "*string(newrhs));
-            # else # source
-            #     log_entry("source, before modifying for time: "*string(lhs)*" - "*string(rhs));
-            #     (newlhs, newrhs) = reformat_for_stepper_fv_source(lhs, rhs, stepper_type);
-            #     log_entry("source, modified for time stepping: "*string(newlhs)*" + "*string(newrhs));
-            # end
             log_entry("flux, before modifying for time: "*string(surflhs)*" - "*string(surfrhs));
-            (newsurflhs, newsurfrhs) = reformat_for_stepper_fv_flux(surflhs, surfrhs, stepper_type);
+            (newsurflhs, newsurfrhs) = reformat_for_stepper_fv_flux(stepper_type, surflhs, surfrhs);
             log_entry("flux, modified for time stepping: "*string(newsurflhs)*" + "*string(newsurfrhs));
             log_entry("source, before modifying for time: "*string(lhs)*" - "*string(rhs));
-            (newlhs, newrhs) = reformat_for_stepper_fv_source(lhs, rhs, stepper_type);
+            (newlhs, newrhs) = reformat_for_stepper_fv_source(stepper_type, lhs, rhs,);
             log_entry("source, modified for time stepping: "*string(newlhs)*" + "*string(newrhs));
-            
-            # Parse Basic->Expr and insert placeholders
-            newlhs = basic_to_expr_and_place(newlhs, placeholders)
-            newrhs = basic_to_expr_and_place(newrhs, placeholders)
-            newsurflhs = basic_to_expr_and_place(newsurflhs, placeholders)
-            newsurfrhs = basic_to_expr_and_place(newsurfrhs, placeholders)
-            # Build a SymExpression for each of the pieces. 
-            (lhs_symexpr, rhs_symexpr, lhs_surf_symexpr, rhs_surf_symexpr) = build_symexpressions(var, newlhs, newrhs, newsurflhs, newsurfrhs, remove_zeros=true);
-            lhs = lhs_symexpr;
-            rhs = rhs_symexpr;
-            surflhs = lhs_surf_symexpr;
-            surfrhs = rhs_surf_symexpr;
             
         else # FE
             if stepper_type == MIXED_STEPPER && typeof(time_stepper) <: Array
@@ -373,37 +376,137 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
             end
             if has_surface
                 log_entry("Weak form, before modifying for time: Dt("*string(dtlhs)*") + "*string(lhs)*" + surface("*string(surflhs)*") = "*string(rhs)*" + surface("*string(surfrhs)*")");
-                (newlhs, newrhs, newsurflhs, newsurfrhs) = reformat_for_stepper((dtlhs, lhs), rhs, surflhs, surfrhs, stepper_type);
+                (newlhs, newrhs, newsurflhs, newsurfrhs, newnlt) = reformat_for_stepper(stepper_type, (dtlhs, lhs), rhs, surflhs, surfrhs, nlt);
                 log_entry("Weak form, modified for time stepping: "*string(newlhs)*" + surface("*string(newsurflhs)*") = "*string(newrhs)*" + surface("*string(newsurfrhs)*")");
-                # Parse Basic->Expr and insert placeholders
-                newlhs = basic_to_expr_and_place(newlhs, placeholders)
-                newrhs = basic_to_expr_and_place(newrhs, placeholders)
-                newsurflhs = basic_to_expr_and_place(newsurflhs, placeholders)
-                newsurfrhs = basic_to_expr_and_place(newsurfrhs, placeholders)
-                # Build a SymExpression for each of the pieces. 
-                (lhs_symexpr, rhs_symexpr, lhs_surf_symexpr, rhs_surf_symexpr) = build_symexpressions(var, newlhs, newrhs, newsurflhs, newsurfrhs, remove_zeros=true);
-                lhs = lhs_symexpr;
-                rhs = rhs_symexpr;
-                surflhs = lhs_surf_symexpr;
-                surfrhs = rhs_surf_symexpr;
+                
             else # no surface
                 log_entry("Weak form, before modifying for time: Dt("*string(dtlhs)*") + "*string(lhs)*" = "*string(rhs));
-                (newlhs, newrhs) = reformat_for_stepper((dtlhs, lhs), rhs, stepper_type);
+                (newlhs, newrhs, newnlt) = reformat_for_stepper(stepper_type, (dtlhs, lhs), rhs, nothing, nothing, nlt);
                 log_entry("Weak form, modified for time stepping: "*string(newlhs)*" = "*string(newrhs));
-                # Parse Basic->Expr and insert placeholders
-                newlhs = basic_to_expr_and_place(newlhs, placeholders)
-                newrhs = basic_to_expr_and_place(newrhs, placeholders)
-                # Build a SymExpression for each of the pieces. 
-                (lhs_symexpr, rhs_symexpr) = build_symexpressions(var, newlhs, newrhs, remove_zeros=true);
-                lhs = lhs_symexpr;
-                rhs = rhs_symexpr;
             end
         end
         
-    else #FE with no time derivative or surface
-        # Parse Basic->Expr and insert placeholders
-        lhs = basic_to_expr_and_place(lhs, placeholders)
-        rhs = basic_to_expr_and_place(rhs, placeholders)
+    else # no time stepper
+        newlhs = lhs;
+        newrhs = rhs;
+        newnlt = nlt;
+        if has_surface
+            newsurflhs = surflhs;
+            newsurfrhs = surfrhs;
+        end
+    end
+    
+    # # Linearize any nonlinear terms and generate derivative functions
+    # if has_nonlinear
+    #     log_entry("SP NONLINEAR = "*string(newnlt), 3);
+    #     # If nlt[i] is a nonlinear Basic expression, put it in RHS and change sign.
+    #     # Note that u is no longer the unknown being solved for. DELTAu is unknown
+    #     # Create a derivative of nlt[i] by:
+    #     #  1) generate a function for nlt[i] and use AD to generate a derivative of it,
+    #     #     create a callback function for the derivative. insert that callback function in
+    #     #     the expression
+    #     # OR
+    #     #  2) Use SymEngine.diff to make a symbolic derivative
+    #     # Then multiply the derivative term by DELTAu and place in LHS.
+    #     #
+    #     # For all linear LHS terms, make a copy, substitute u->DELTAu in the copy, 
+    #     # u terms go to RHS and change sign, DELTAu stay on LHS
+    #     # 
+    #     # Linear RHS terms change sign
+    #     #
+    #     # the test function part must be kept separate for this process.
+    #     if typeof(var) <: Array
+    #         for vi=1:length(var)
+    #             for ci=1:length(newlhs[vi])
+    #                 # # change sign of all RHS parts
+    #                 # for ti=1:length(newrhs[vi][ci])
+    #                 #     newrhs[vi][ci][ti] = -newrhs[vi][ci][ti];
+    #                 # end
+                    
+    #                 # copy all linear LHS terms and put in RHS and change sign
+    #                 for ti=1:length(newlhs[vi][ci])
+    #                     push!(newrhs[vi][ci], -copy(newlhs[vi][ci][ti]));
+    #                 end
+                    
+    #                 # Do this for each NL term
+    #                 for i=1:length(newnlt[vi][ci])
+    #                     delta_nlv = apply_delta_to_symbol(nlv[vi][ci][i]);
+    #                     new_nl_term = copy(newnlt[vi][ci][i]);
+    #                     Jdu_term = create_deriv_func(new_nl_term, nlv[vi][ci][i], prob.derivative_type);
+    #                     Jdu_term = Jdu_term * delta_nlv;
+                        
+    #                     expanded_deriv_terms = get_sym_terms(Jdu_term);
+                        
+    #                     # put nl term in RHS and change sign
+    #                     push!(newrhs[vi][ci], -newnlt[vi][ci][i]);
+                        
+    #                     # for LHS terms, substitute u->DELTAu and leave in LHS
+    #                     for ti=1:length(newlhs[vi][ci])
+    #                         # newlhs[vi][ci][ti] = subs(newlhs[vi][ci][ti], (nlv[vi][ci][i], delta_nlv));
+    #                         newlhs[vi][ci][ti] = apply_delta_to_symbols_in_expression(newlhs[vi][ci][ti], nlv[vi][ci][i]);
+    #                     end
+                        
+    #                     # add the expanded deriv terms to LHS
+    #                     append!(newlhs[vi][ci], expanded_deriv_terms);
+    #                 end
+    #             end
+    #         end
+    #     else
+    #         for ci=1:length(newlhs[vi])
+    #             # copy all linear LHS terms and put in RHS
+    #             for ti=1:length(newlhs[ci])
+    #                 push!(newrhs[ci], copy(newlhs[ci][ti]));
+    #             end
+                
+    #             # Do this for each NL term
+    #             for i=1:length(newnlt[ci])
+    #                 delta_nlv = apply_delta_to_symbol(nlv[ci][i]);
+    #                 new_nl_term = copy(newnlt[ci][i]);
+    #                 Jdu_term = create_deriv_func(new_nl_term, nlv[ci][i], prob.derivative_type);
+    #                 Jdu_term = Jdu_term * delta_nlv;
+                    
+    #                 expanded_deriv_terms = get_sym_terms(Jdu_term);
+                    
+    #                 # put nl term in RHS note that it changes sign twice, so no negative
+    #                 push!(newrhs[ci], newnlt[ci][i]);
+                    
+    #                 # for LHS terms, substitute u->DELTAu and leave in LHS
+    #                 # Note that this is not a simple substitution
+    #                 # All symbols that contain _u_ need to change to _DELTAu_
+    #                 for ti=1:length(newlhs[ci])
+    #                     # newlhs[ci][ti] = subs(newlhs[ci][ti], (nlv[ci][i], delta_nlv));
+    #                     newlhs[ci][ti] = apply_delta_to_symbols_in_expression(newlhs[ci][ti], nlv[ci][i]);
+    #                 end
+                    
+    #                 # add the expanded deriv terms to LHS
+    #                 append!(newlhs[ci], expanded_deriv_terms);
+    #             end
+    #         end
+    #     end
+        
+    #     if has_surface
+    #         log_entry("Linearized: "*string(newlhs)*" + surface("*string(newsurflhs)*") = "*string(newrhs)*" + surface("*string(newsurfrhs)*")");
+    #     else
+    #         log_entry("Linearized: "*string(newlhs)*" = "*string(newrhs));
+    #     end
+    # end
+    
+    # Parse Basic->Expr and insert placeholders
+    if is_FV || has_surface
+        newlhs = basic_to_expr_and_place(newlhs, placeholders)
+        newrhs = basic_to_expr_and_place(newrhs, placeholders)
+        newsurflhs = basic_to_expr_and_place(newsurflhs, placeholders)
+        newsurfrhs = basic_to_expr_and_place(newsurfrhs, placeholders)
+        # Build a SymExpression for each of the pieces. 
+        (lhs_symexpr, rhs_symexpr, lhs_surf_symexpr, rhs_surf_symexpr) = build_symexpressions(var, newlhs, newrhs, newsurflhs, newsurfrhs, remove_zeros=true);
+        lhs = lhs_symexpr;
+        rhs = rhs_symexpr;
+        surflhs = lhs_surf_symexpr;
+        surfrhs = rhs_surf_symexpr;
+        
+    else #FE with no surface
+        lhs = basic_to_expr_and_place(newlhs, placeholders)
+        rhs = basic_to_expr_and_place(newrhs, placeholders)
         # Build a SymExpression for each of the pieces. 
         (lhs_symexpr, rhs_symexpr) = build_symexpressions(var, lhs, rhs, remove_zeros=true);
         lhs = lhs_symexpr;
@@ -1178,6 +1281,35 @@ function apply_flag_to_all_symbols(flag, ex)
     return ex;
 end
 
+function get_root_symbol(s)
+    str = string(s);
+    # Find _u_ in FLAG_FLAG__u_n
+    # Does it have any flags?
+    st = 1;
+    if str[1] == '_' # no flags
+        st = 1;
+        
+    else # skip until "__"
+        for i=2:length(str)
+            tmp = st;
+            if str[i-1] == '_' && str[i] == '_'
+                st = i;
+                break;
+            end
+        end
+    end
+    # find the end index
+    en = st+1;
+    for i=(st+1):length(str)
+        tmp = st;
+        if str[i] == '_'
+            en = i;
+            break;
+        end
+    end
+    return Symbol(str[st:en]); # should be something like _u_
+end
+
 # Adds "OLD" to the variable symbol
 function apply_old_to_symbol(ex)
     str = string(ex);
@@ -1205,6 +1337,52 @@ function apply_old_to_symbol(ex)
     end
     
     return symbols(newstr);
+end
+# Adds "DELTA" to the variable symbol
+function apply_delta_to_symbol(ex)
+    str = string(ex);
+    # Find u in FLAG_FLAG__u_n
+    # Does it have any flags?
+    st = 1;
+    if str[1] == '_' # no flags
+        st = 2;
+        
+    else # skip until "__"
+        for i=2:length(str)
+            tmp = st;
+            if str[i-1] == '_' && str[i] == '_'
+                st = i+1;
+                break;
+            end
+        end
+    end
+    
+    if st > 1
+        newstr = str[1:(st-1)] * "DELTA" * str[st:end];
+    else
+        newstr = str;
+        printerr("Applying DELTA to a misformed symbol? " * str)
+    end
+    
+    return symbols(newstr);
+end
+function apply_delta_to_symbols_in_expression(ex, var_symbol)
+    root_symbol = get_root_symbol(var_symbol);
+    
+    new_ex = ex;
+    if typeof(ex) == Basic
+        # Extract a list of all symbols from ex
+        allsymbols = SymEngine.free_symbols(ex);
+        new_ex = copy(ex);
+        
+        # look for symbols containing the root symbol
+        for s in allsymbols
+            if get_root_symbol(s) === root_symbol
+                new_ex = subs(new_ex, (s, apply_delta_to_symbol(s)))
+            end
+        end
+    end
+    return new_ex;
 end
 
 # Given a Basic term and variable, generate a function for the term.

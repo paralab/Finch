@@ -17,7 +17,11 @@ mutable struct Finch_prob
     # Time dependence info
     time_dependent::Bool            # Is this problem time dependent
     end_time::Float64               # If so, what is the final time
-    initial::Array{Any,1}           # An array of initial condition GenFunctions, one for each variable, vector vars can have an array of functions
+    initial::Vector{Any}            # An array of initial condition GenFunctions or values, one for each variable, vector vars can have an array of functions
+    
+    # pre and post-step functions
+    pre_step_function               # user provided function to be called before
+    post_step_function              # or after eash time step (initially nothing)
     
     # Nonlinear iteration info
     nonlinear::Bool                 # Is there a nonlinear iteration
@@ -25,6 +29,7 @@ mutable struct Finch_prob
     max_iters::Int                  # Max iterations
     relative_tol::Float64           # Relative tolerance for change between iterations (u(i) - u(i-1))
     absolute_tol::Float64           # Absolute tolerance
+    relaxation::Float64             # Relaxation parameter
     
     # Constructor builds an empty prob.
     Finch_prob() = new(
@@ -35,9 +40,12 @@ mutable struct Finch_prob
         false, 
         0, 
         Array{Any,1}(undef,(0)),
+        nothing,
+        nothing,
         false,
         "AD",
         1,
+        1.0,
         1.0,
         1.0
     );

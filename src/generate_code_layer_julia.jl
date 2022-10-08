@@ -33,7 +33,7 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     end
     
     # static piece
-    args = "(var, mesh, refel, geometric_factors, config, coefficients, variables, test_functions, indexers, prob, time_stepper, oldvar=nothing)";
+    args = "(var, mesh, refel, geometric_factors, config, coefficients, variables, test_functions, indexers, prob, time_stepper, nl_var=nothing)";
     if wrap_in_function
         code = "function generated_solve_function_for_"*string(var[1].symbol) * args * "\n";
     end
@@ -44,6 +44,10 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     wg = refel.wg;
     
     # Useful symbols for FVM
+    
+    # pre/post step functions if defined
+    pre_step_function = prob.pre_step_function;
+    post_step_function = prob.post_step_function;
     
     # Prepare some useful numbers
     dofs_per_node = "*string(dofs_per_node)*";
@@ -304,7 +308,12 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         
     elseif op === :GATHER_SOLUTION
         # place variable arrays in solution vector
-        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = get_var_vals(var, "* generate_from_IR_julia(IR.args[2], IRtypes) * ");";
+        if length(IR.args) < 3
+            code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = get_var_vals(var, "* generate_from_IR_julia(IR.args[2], IRtypes) * ");";
+        else
+            code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * 
+                " = get_var_vals("* generate_from_IR_julia(IR.args[3], IRtypes) * ", "* generate_from_IR_julia(IR.args[2], IRtypes) * ");";
+        end
         
     elseif op === :BDRY_TO_VECTOR
         # FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
@@ -344,6 +353,20 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
     elseif op === :LOCAL2GLOBAL_VEC
         # put elemental vector in global system
         code = generate_from_IR_julia(IntermediateRepresentation.generate_local_to_global_fem(IR.args[2], vec_only=true), IRtypes, indent);
+        
+    elseif op === :ADD_GLOBAL_VECTOR_AND_NORM
+        # u = u + du 
+        # and find absolute and relative norms of du
+        # args are: u, du, abs_residual, rel_residual
+        code = generate_from_IR_julia(IntermediateRepresentation.generate_residual_norms_and_update(
+            IR.args[2], IR.args[3], IR.args[4], IR.args[5]), IRtypes, indent);
+        
+    elseif op === :UPDATE_GLOBAL_VECTOR_AND_NORM
+        # b = a
+        # and find absolute and relative norms of (a-b)
+        # args are: a, b, abs_residual, rel_residual
+        code = generate_from_IR_julia(IntermediateRepresentation.generate_difference_norms_and_update(
+            IR.args[2], IR.args[3], IR.args[4], IR.args[5]), IRtypes, indent);
         
     elseif op === :LINALG_VEC_BLOCKS
         # This sets blocks of a vector
