@@ -276,13 +276,13 @@ function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
         push!(face_loop_body.parts, IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(>), :fbid, 0]),
             IR_block_node([IR_operation_node(IRtypes.function_op, [
                 :apply_boundary_conditions_face, 
-                :var, :eid, :fid, :fbid, :mesh, :refel, :geometric_factors, :prob, :t, :flux_mat_tmp, :flux_tmp, :bdry_done, :index_offset])
+                :var, :eid, :fid, :fbid, :mesh, :refel, :geometric_factors, :fv_info, :prob, :t, :flux_mat_tmp, :flux_tmp, :bdry_done, :index_offset])
             ])));
     else
         push!(face_loop_body.parts, IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(>), :fbid, 0]),
             IR_block_node([IR_operation_node(IRtypes.function_op, [
                 :apply_boundary_conditions_face_rhs, 
-                :var, :eid, :fid, :fbid, :mesh, :refel, :geometric_factors, :prob, :t, :flux_tmp, :bdry_done, :index_offset])
+                :var, :eid, :fid, :fbid, :mesh, :refel, :geometric_factors, :fv_info, :prob, :t, :flux_tmp, :bdry_done, :index_offset])
             ])));
     end
     
@@ -412,6 +412,7 @@ function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
         if need_matrix # implicit steppers
             step_loop = generate_time_stepping_loop_fvm(time_stepper, assembly_loop, prob);
             compute_block = IR_block_node([
+                IR_operation_node(IRtypes.named_op, [:EXCHANGE_GHOSTS_FV]),
                 IR_operation_node(IRtypes.named_op, [:GATHER_SOLUTION, solvec]),
                 IR_operation_node(IRtypes.assign_op, [:t, 0]),
                 IR_operation_node(IRtypes.assign_op, [:dt, time_stepper.dt]),
@@ -423,6 +424,7 @@ function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
         else # explicit steppers (no matrix)
             step_loop = generate_time_stepping_loop_fvm(time_stepper, assembly_loop, prob);
             compute_block = IR_block_node([
+                IR_operation_node(IRtypes.named_op, [:EXCHANGE_GHOSTS_FV]),
                 IR_operation_node(IRtypes.named_op, [:GATHER_SOLUTION, solvec]),
                 IR_operation_node(IRtypes.assign_op, [:t, 0]),
                 IR_operation_node(IRtypes.assign_op, [:dt, time_stepper.dt]),
@@ -1794,6 +1796,9 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
         :FILL_ARRAY,
         IR_data_node(IRtypes.int_64_data, :face_flux_done, [:num_faces], []),
         :false, :num_faces]);
+    # Exchange ghosts if needed
+    ghost_exchange = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(>), :num_partitions, 0]),
+                        IR_block_node([IR_operation_node(IRtypes.named_op, [:GHOST_EXCHANGE_FV])]));
     # If pre or post-step functions have been set, include those
     if !(prob.pre_step_function === nothing)
         pre_step_call = IR_operation_node(IRtypes.function_op, [:pre_step_function]);
@@ -1820,6 +1825,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
         tloop_body.parts = [
             zero_bdry_done,
             zero_flux_done,
+            ghost_exchange,
             pre_step_call,
             wrap_in_timer(:step_assembly, assembly),
             # before updating the bdry vals may need to be put in vars and zeroed in solution
@@ -1937,6 +1943,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
             # assemble
             zero_bdry_done,
             zero_flux_done,
+            ghost_exchange,
             pre_step_call,
             wrap_in_timer(:step_assembly, assembly),
             # update tmppi and tmpki
@@ -2089,6 +2096,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
             # assemble
             zero_bdry_done,
             zero_flux_done,
+            ghost_exchange,
             pre_step_call,
             wrap_in_timer(:step_assembly, assembly),
             # update tmpki
@@ -2169,9 +2177,10 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
         tloop_body.parts = [
             zero_bdry_done,
             zero_flux_done,
+            ghost_exchange,
             pre_step_call,
             wrap_in_timer(:step_assembly, assembly),
-            IR_operation_node(IRtypes.named_op, [:GLOBAL_FINALIZE]),
+            IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
             wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
             IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution]),
             wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :solution])),

@@ -275,17 +275,15 @@ end
 # - the value of constant BCs
 # - evaluate a genfunction.func for BCs defined by strings->genfunctions
 # - evaluate a function for BCs defined by callback functions
-function FV_evaluate_bc(val, eid, fid, t)
+function FV_evaluate_bc(val, eid, fid, facex, t)
     dim = config.dimension;
     if typeof(val) <: Number
         result = val;
         
     elseif typeof(val) == Coefficient 
-        facex = fv_info.faceCenters[:,fid];
         result = evaluate_coefficient(val, 1, facex, t, eid, fid);
         
     elseif typeof(val) == GenFunction
-        facex = fv_info.faceCenters[:,fid];
         if dim == 1
             result=val.func(facex[1],0,0,t,eid,fid);
         elseif dim == 2
@@ -295,7 +293,6 @@ function FV_evaluate_bc(val, eid, fid, t)
         end
         
     elseif typeof(val) == CallbackFunction
-        facex = fv_info.faceCenters[:,fid];
         #form a dict for the arguments. x,y,z,t are always included
         arg_list = [];
         append!(arg_list, [("x", facex[1]),
@@ -507,11 +504,14 @@ function apply_boundary_conditions_elemental_rhs(var::Vector{Variable}, eid::Int
     end
 end
 
+# Apply boundary condition for FV
+# Modify flux_mat and flux_vec
 function apply_boundary_conditions_face(var::Vector{Variable}, eid::Int, fid::Int, fbid::Int, mesh::Grid, refel::Refel, 
-                                        geometric_factors::GeometricFactors, prob::Finch_prob, t::Union{Int,Float64}, 
+                                        geometric_factors::GeometricFactors, fv_info::FVInfo, prob::Finch_prob, t::Union{Int,Float64}, 
                                         flux_mat::Matrix{Float64}, flux_vec::Vector{Float64}, bdry_done::Vector{Int}, 
                                         component::Int = 0)
     dofind = 0;
+    facex = fv_info.faceCenters[:,fid];
     for vi=1:length(var)
         if !(var[1].indexer === nothing)
             compo_range = component + 1;
@@ -525,17 +525,14 @@ function apply_boundary_conditions_face(var::Vector{Variable}, eid::Int, fid::In
                 # do nothing
             elseif prob.bc_type[var[vi].index, fbid] == FLUX
                 # compute the value and add it to the flux directly
-                # Qvec = (refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, refel.face2local[fv_grid.faceRefelInd[1,fid]]]
-                # Qvec = Qvec ./ fv_geo_factors.area[fid];
-                # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
-                flux_vec[dofind] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
+                flux_vec[dofind] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, facex, t);
                 # for i=1:size(flux_mat,2)
                 #     flux_mat[dofind, i] = 0;
                 # end
                 
             elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
                 # Set variable array and handle after the face loop
-                var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
+                var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, facex, t);
                 # for i=1:size(flux_mat,2)
                 #     flux_mat[dofind, i] = 0;
                 # end
@@ -550,9 +547,10 @@ end
 # A RHS only version of above
 # Modify the flux vector
 function apply_boundary_conditions_face_rhs(var::Vector{Variable}, eid::Int, fid::Int, fbid::Int, mesh::Grid, refel::Refel, 
-                                            geometric_factors::GeometricFactors, prob::Finch_prob, t::Union{Int,Float64}, 
+                                            geometric_factors::GeometricFactors, fv_info::FVInfo, prob::Finch_prob, t::Union{Int,Float64}, 
                                             flux::Vector{Float64}, bdry_done::Vector{Int}, component::Int = 0)
     dofind = 0;
+    facex = fv_info.faceCenters[:,fid];
     for vi=1:length(var)
         if !(var[1].indexer === nothing)
             compo_range = component + 1;
@@ -566,21 +564,13 @@ function apply_boundary_conditions_face_rhs(var::Vector{Variable}, eid::Int, fid
                 # do nothing
             elseif prob.bc_type[var[vi].index, fbid] == FLUX
                 # compute the value and add it to the flux directly
-                # Qvec = (refel.surf_wg[fv_grid.faceRefelInd[1,fid]] .* fv_geo_factors.face_detJ[fid])' * (refel.surf_Q[fv_grid.faceRefelInd[1,fid]])[:, refel.face2local[fv_grid.faceRefelInd[1,fid]]]
-                # Qvec = Qvec ./ fv_geo_factors.area[fid];
-                # bflux = FV_flux_bc_rhs_only(prob.bc_func[var[vi].index, fbid][compo], facex, Qvec, t, dofind, dofs_per_node) .* fv_geo_factors.area[fid];
-                flux[dofind] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
-                # if !is_explicit
-                #     bflux = bflux .* dt;
-                # end
+                flux[dofind] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, facex, t);
                 
             elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
                 # Set variable array and handle after the face loop
-                var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, t);
+                var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, facex, t);
                 # If implicit, this needs to be handled before solving
-                # if !is_explicit
-                #     #TODO
-                # end
+                
             else
                 printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
             end

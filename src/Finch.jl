@@ -26,7 +26,6 @@ output_dir = pwd();
 language = 0;
 gen_framework = 0;
 generate_external = false;
-solver = nothing;
 codegen_params = nothing;
 #log
 use_log = false;
@@ -208,7 +207,6 @@ function set_solver(stype, backend)
     config.linalg_backend = backend;
     if typeof(stype) <: Array
         config.solver_type = MIXED;
-        global solver = MixedSolver;
         for s in stype
             if s == CG
                 global needed_grid_types[1] = true;
@@ -220,20 +218,16 @@ function set_solver(stype, backend)
         end
     elseif stype == DG
         config.solver_type = stype;
-        global solver = DGSolver;
         global needed_grid_types[2] = true;
     elseif stype == CG
         config.solver_type = stype;
-        global solver = CGSolver;
         global needed_grid_types[1] = true;
     elseif stype == FV
         config.solver_type = stype;
-        global solver = FVSolver;
         global needed_grid_types[3] = true;
     end
-    solver.init_solver();
     
-    if backend == PETSC_SOLVER
+    if backend == PETSC_SOLVER && !(PETSc===nothing)
         # Initialize using the first available library.
         # This should have been set up beforehand.
         if length(PETSc.petsclibs) == 0

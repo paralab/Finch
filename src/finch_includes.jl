@@ -126,6 +126,7 @@ catch e
         end
     else
         println("Continuing without PETSc.")
+        PETSc = nothing;
     end
     
 end
@@ -216,6 +217,7 @@ include("grid_parent_child.jl");
 include("polyharmonic_interp.jl");
 include("solver_utils.jl");
 include("boundary_utils.jl");
+include("parallel_utils.jl");
 
 include("output_data.jl");
 
@@ -232,11 +234,3 @@ include("IntermediateRepresentation.jl")
 using .IntermediateRepresentation
 include("CodeGenerator.jl");
 using .CodeGenerator
-include("DGSolver.jl");
-using .DGSolver
-include("CGSolver.jl");
-using .CGSolver
-include("FVSolver.jl");
-using .FVSolver
-include("MixedSolver.jl");
-using .MixedSolver

@@ -257,6 +257,12 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
         time_toglobal_block
     ])
     
+    # For partitioned meshes
+    gather_system = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(>), :num_partitions, 0]),
+        IR_block_node([IR_operation_node(IRtypes.named_op, [:GLOBAL_GATHER_SYSTEM])]));
+    distribute_solution = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(>), :num_partitions, 0]),
+        IR_block_node([IR_operation_node(IRtypes.named_op, [:GLOBAL_DISTRIBUTE_VECTOR, :solution])]));
+    
     # Package it all in one piece to add to master
     if prob.time_dependent
         if prob.nonlinear
@@ -312,7 +318,8 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
                 IR_operation_node(IRtypes.assign_op, [:dt, time_stepper.dt]),
                 IR_comment_node("Initial loop to build matrix"),
                 wrap_in_timer(:first_assembly, assembly_loop),
-                IR_operation_node(IRtypes.named_op, [:GLOBAL_FINALIZE]),
+                IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
+                gather_system,
                 IR_operation_node(IRtypes.named_op, [:GATHER_SOLUTION, oldsolvec, :nl_var]),
                 
                 IR_comment_node("###############################################"),
@@ -329,7 +336,8 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
                 IR_operation_node(IRtypes.assign_op, [:dt, time_stepper.dt]),
                 IR_comment_node("Initial loop to build matrix"),
                 wrap_in_timer(:first_assembly, assembly_loop),
-                IR_operation_node(IRtypes.named_op, [:GLOBAL_FINALIZE]),
+                IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
+                gather_system,
                 IR_operation_node(IRtypes.named_op, [:GATHER_SOLUTION, solvec]),
                 
                 IR_comment_node("###############################################"),
@@ -376,7 +384,8 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
             #             zero_bdry_done,
             #             # compute
             #             wrap_in_timer(:assembly, assembly_loop),
-            #             IR_operation_node(IRtypes.named_op, [:GLOBAL_FINALIZE]),
+            #             IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
+            #             IR_operation_node(IRtypes.named_op, [:GLOBAL_GATHER_SYSTEM]),
             #             wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, solvec, :global_matrix, :global_vector])),
             #             wrap_in_timer(:update_vars, IR_block_node([
             #                 # oldsolvec = oldsolvec + solvec (u=u+du)
@@ -420,8 +429,10 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
                         zero_bdry_done,
                         # compute
                         wrap_in_timer(:assembly, assembly_loop),
-                        IR_operation_node(IRtypes.named_op, [:GLOBAL_FINALIZE]),
+                        IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
+                        gather_system,
                         wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, solvec, :global_matrix, :global_vector])),
+                        distribute_solution,
                         wrap_in_timer(:scatter, IR_block_node([
                             IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, solvec, :var]),
                             IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, solvec, :nl_var]),
@@ -439,8 +450,10 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
             compute_block = IR_block_node([
                 IR_operation_node(IRtypes.assign_op, [:t, 0]),
                 wrap_in_timer(:assembly, assembly_loop),
-                IR_operation_node(IRtypes.named_op, [:GLOBAL_FINALIZE]),
+                IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
+                gather_system,
                 wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, solvec, :global_matrix, :global_vector])),
+                distribute_solution,
                 wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, solvec])),
             ],"computation")
         end
@@ -1374,6 +1387,12 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
     else
         post_step_call = IR_comment_node("No post-step function specified");
     end
+    # For partitioned meshes
+    gather_vector = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(>), :num_partitions, 0]),
+        IR_block_node([IR_operation_node(IRtypes.named_op, [:GLOBAL_GATHER_VECTOR])]));
+        distribute_solution = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(>), :num_partitions, 0]),
+        IR_block_node([IR_operation_node(IRtypes.named_op, [:GLOBAL_DISTRIBUTE_VECTOR, :solution])]));
+    
     var_update = IR_comment_node("");
     allocate_block = IR_block_node([]);
     if stepper.stages < 2
@@ -1407,7 +1426,9 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
             zero_bdry_done,
             pre_step_call,
             wrap_in_timer(:step_assembly, assembly),
+            gather_vector,
             wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
+            distribute_solution,
             var_update,
             post_step_call,
             IR_operation_node(IRtypes.assign_op, [
@@ -1489,8 +1510,10 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
                 zero_bdry_done,
                 pre_step_call,
                 wrap_in_timer(:step_assembly, assembly),
+                gather_vector,
                 # solve
                 wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
+                distribute_solution,
                 # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, true);
                 IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution, :var, :true]),
                 # update tmppi and tmpki
@@ -1598,8 +1621,10 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
                 zero_bdry_done,
                 pre_step_call,
                 wrap_in_timer(:step_assembly, assembly),
+                gather_vector,
                 # solve
                 wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
+                distribute_solution,
                 # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, true);
                 IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution, :var, :true]),
                 # update tmpki

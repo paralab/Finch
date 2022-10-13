@@ -4,6 +4,48 @@ These will be called by the generated solve code
 so they should be made as efficient as possible.
 =#
 
+# Solves a sparse system
+function linear_system_solve(A::SparseMatrixCSC, b::Vector, config::Finch_config)
+    if config.num_procs > 1 && config.proc_rank > 0
+        # Other procs don't have the full A, just return b
+        return b;
+    end
+    
+    if config.linalg_backend == DEFAULT_SOLVER
+        return A\b;
+        
+    elseif config.linalg_backend == PETSC_SOLVER
+        # For now try this simple setup.
+        # There will be many options that need to be available to the user. TODO
+        # The matrix should really be constructed from the begninning as a PETSc one. TODO
+        
+        petsclib = PETSc.petsclibs[1]           #
+        inttype = PETSc.inttype(petsclib);      # These should maybe be kept in config
+        scalartype = PETSc.scalartype(petsclib);#
+        
+        (I, J, V) = findnz(A);
+        (n,n) = size(A);
+        nnz = zeros(inttype, n); # number of non-zeros per row
+        for i=1:length(I)
+            nnz[I[i]] += 1;
+        end
+        
+        petscA = PETSc.MatSeqAIJ{scalartype}(n,n,nnz);
+        for i=1:length(I)
+            petscA[I[i],J[i]] = V[i];
+        end
+        PETSc.assemble(petscA);
+        
+        ksp = PETSc.KSP(petscA; ksp_rtol=1e-8, pc_type="jacobi", ksp_monitor=false); # Options should be available to user
+        
+        return ksp\b;
+        
+    else
+        printerr("unsupported linear system solve type: "*string(config.linalg_backend)*" - using default");
+        return A\b;
+    end
+end
+
 # place the values from sol into the variable value arrays
 function place_sol_in_vars(var::Vector{Variable}, sol::Vector{Float64})
     tmp = 0;

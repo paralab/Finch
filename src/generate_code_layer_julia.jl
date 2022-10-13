@@ -32,19 +32,36 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
         end
     end
     
-    # static piece
-    args = "(var, mesh, refel, geometric_factors, config, coefficients, variables, test_functions, indexers, prob, time_stepper, nl_var=nothing)";
+    # 
+    if solver == CG || solver == DG
+        args = "(var, mesh, refel, geometric_factors, config, coefficients, variables, test_functions, indexers, prob, time_stepper, nl_var=nothing)";
+        disc_specific = "
+    # FEM specific pieces
+    Q = refel.Q;
+    wg = refel.wg;
+    
+    # For partitioned meshes
+    (partitioned_order, partitioned_sizes) = get_partitioned_ordering(dofs_per_node, mesh, config);
+    "
+        
+    elseif solver == FV
+        args = "(var, mesh, refel, geometric_factors, fv_info, config, coefficients, variables, test_functions, indexers, prob, time_stepper, nl_var=nothing)";
+        disc_specific = "
+    # FVM specific pieces
+    
+    "
+        
+    else
+        printerr("This colver type is not ready: "*solver);
+        args = "()";
+        disc_specific = "";
+    end
+    
     if wrap_in_function
         code = "function generated_solve_function_for_"*string(var[1].symbol) * args * "\n";
     end
     
     code *="
-    # Useful symbols for FEM
-    Q = refel.Q;
-    wg = refel.wg;
-    
-    # Useful symbols for FVM
-    
     # pre/post step functions if defined
     pre_step_function = prob.pre_step_function;
     post_step_function = prob.post_step_function;
@@ -62,6 +79,8 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     dofs_global = dofs_per_node * nnodes_global;
     fv_dofs_global = dofs_per_node * num_elements_global;
     dofs_partition = dofs_per_node * nnodes_partition;
+    num_partitions = config.num_partitions;
+    proc_rank = config.proc_rank;
     
     nodes_per_element = refel.Np;
     qnodes_per_element = refel.Nqp;
@@ -70,6 +89,7 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     local_system_size = dofs_per_loop * nodes_per_element;
     
     "
+    code *= disc_specific;
     
     # The assembly is taken from the IR
     code *= generate_from_IR_julia(IR);
@@ -298,13 +318,24 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         code = indent * "set_matrix_indices!(" * generate_from_IR_julia(IR.args[2], IRtypes) * ", " * 
                     generate_from_IR_julia(IR.args[3], IRtypes) * ", dofs_per_node, mesh)";
         
-    elseif op === :GLOBAL_FINALIZE
+    elseif op === :GLOBAL_FORM_MATRIX
         # This will eventually be more complicated, but let's do the default for now
-        code = indent * "global_matrix = sparse(global_matrix_I, global_matrix_J, global_matrix_V);"
+        code = indent * "global_matrix = sparse(global_matrix_I, global_matrix_J, global_matrix_V);\n"
+        
+    elseif op === :GLOBAL_GATHER_VECTOR
+        code = indent * "global_vector = gather_system(nothing, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config);"
+        
+    elseif op === :GLOBAL_GATHER_SYSTEM
+        code *= indent * "(global_matrix, global_vector) = gather_system(global_matrix, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config);"
+        
+    elseif op === :GHOST_EXCHANGE_FV
+        code *= indent * "exchange_ghosts_fv(var, mesh, dofs_per_node);"
         
     elseif op === :GLOBAL_SOLVE
-        # This will eventually be more complicated, but let's do the default for now
-        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " .= "* generate_from_IR_julia(IR.args[3], IRtypes) *" \\ "* generate_from_IR_julia(IR.args[4], IRtypes) *";"
+        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " .= linear_system_solve("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* generate_from_IR_julia(IR.args[4], IRtypes) *", config);"
+        
+    elseif op === :GLOBAL_DISTRIBUTE_VECTOR
+        code = indent * "distribute_solution("*generate_from_IR_julia(IR.args[2], IRtypes) * ", nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config);"
         
     elseif op === :GATHER_SOLUTION
         # place variable arrays in solution vector

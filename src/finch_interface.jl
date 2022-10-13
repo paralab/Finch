@@ -1262,6 +1262,12 @@ function solve(var)
     if typeof(var) == Variable
         var = [var];
     end
+    dofs_per_node = 0;
+    dofs_per_loop = 0;
+    for vi=1:length(var)
+        dofs_per_loop += length(var[vi].symvar);
+        dofs_per_node += var[vi].total_components;
+    end
     
     global time_stepper; # This should not be necessary. It will go away eventually
     
@@ -1325,40 +1331,48 @@ function solve(var)
         end
         
         # Use the appropriate solver
-        if config.solver_type == CG
+        if config.solver_type == CG # || config.solver_type == DG
             func = solve_function[varind];
             
             if prob.nonlinear
-                t = @elapsed(result = CGSolver.nonlinear_solve(var, nl_var, func, time_stepper));
+                TimerOutputs.@timeit timer_output "FE_solve" func.func(var, grid_data, refel, geo_factors, config, 
+                                            coefficients, variables, test_functions, indexers, prob, time_stepper, nl_var);
+                
             else
-                t = @elapsed(result = CGSolver.solve(var, func, time_stepper));
+                TimerOutputs.@timeit timer_output "FE_solve" func.func(var, grid_data, refel, geo_factors, config, 
+                                            coefficients, variables, test_functions, indexers, prob, time_stepper);
             end
             
-            log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
+            log_entry("Solved for "*varnames, 1);
             
         elseif config.solver_type == DG
+            println("DG is not ready yet. Please wait.")
             func = solve_function[varind];
             
             if prob.time_dependent
-                t = @elapsed(result = DGSolver.solve(var, func, time_stepper));
+                # t = @elapsed(result = DGSolver.solve(var, func, time_stepper));
             else
-                t = @elapsed(result = DGSolver.solve(var, func));
+                # t = @elapsed(result = DGSolver.solve(var, func));
             end
             
-            log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
+            log_entry("Solved for "*varnames, 1);
             
         elseif config.solver_type == FV
             func = solve_function[varind];
             
             if prob.nonlinear
-                t = @elapsed(result = FVSolver.nonlinear_solve(var, nl_var, func, time_stepper));
+                TimerOutputs.@timeit timer_output "FV_solve" func.func(var, grid_data, refel, geo_factors, fv_info, config, 
+                                            coefficients, variables, test_functions, indexers, prob, time_stepper, nl_var);
             else
-                t = @elapsed(result = FVSolver.solve(var, func, time_stepper));
+                TimerOutputs.@timeit timer_output "FV_solve" func.func(var, grid_data, refel, geo_factors, fv_info, config, 
+                                            coefficients, variables, test_functions, indexers, prob, time_stepper);
             end
             
-            log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
+            log_entry("Solved for "*varnames, 1);
             
         elseif config.solver_type == MIXED
+            println("Mixed solver is not ready. Please wait.");
+            
             # Need to determine the variable index for fe and fv
             fe_var_index = 0;
             fv_var_index = 0;
@@ -1441,7 +1455,7 @@ function solve(var)
                 	printerr("Nonlinear solver not ready for mixed solver");
                     return;
 				else
-                	t = @elapsed(result = solver.linear_solve(var, vol_lhs, vol_rhs, surf_lhs, surf_rhs, time_stepper, loop_func));
+                	t = @elapsed(result = MixedSolver.linear_solve(var, vol_lhs, vol_rhs, surf_lhs, surf_rhs, time_stepper, loop_func));
 				end
                 # result is already stored in variables
                 log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
