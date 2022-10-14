@@ -197,23 +197,35 @@ function output_values_vtk(vars, file, ascii)
     # Add values
     if typeof(vars) <: Array
         for vi=1:length(vars)
+            if vars[vi].location == CELL
+                range = 1:grid.nel_owned
+            else
+                range = 1:size(vars[vi].values,2);
+            end
+            
             if length(vars[vi].symvar) > 1
                 for ci=1:length(vars[vi].symvar)
                     compname = string(vars[vi].symbol) * "_" * string(ci);
-                    vtkfile[compname] = vars[vi].values[ci,:];
+                    vtkfile[compname] = vars[vi].values[ci,range];
                 end
             else
-                vtkfile[string(vars[vi].symbol)] = vars[vi].values[:];
+                vtkfile[string(vars[vi].symbol)] = vars[vi].values[range];
             end
         end
     else
+        if vars.location == CELL
+            range = 1:grid.nel_owned
+        else
+            range = 1:size(vars.values,2);
+        end
+        
         if length(vars.symvar) > 1
             for ci=1:length(vars.symvar)
                 compname = string(vars.symbol) * "_" * string(ci);
-                vtkfile[compname] = vars.values[ci,:];
+                vtkfile[compname] = vars.values[ci,range];
             end
         else
-            vtkfile[string(vars.symbol)] = vars.values[:];
+            vtkfile[string(vars.symbol)] = vars.values[range];
         end
     end
     

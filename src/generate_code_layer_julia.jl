@@ -74,11 +74,13 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     nnodes_global = nnodes_partition;
     num_elements = mesh.nel_owned;
     num_elements_global = mesh.nel_global;
+    num_elements_ghost = mesh.nel_ghost;
     num_faces = mesh.nface_owned + mesh.nface_ghost;
     
     dofs_global = dofs_per_node * nnodes_global;
     fv_dofs_global = dofs_per_node * num_elements_global;
     dofs_partition = dofs_per_node * nnodes_partition;
+    fv_dofs_partition = dofs_per_node * (num_elements + num_elements_ghost);
     num_partitions = config.num_partitions;
     proc_rank = config.proc_rank;
     
@@ -287,6 +289,35 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
     return code;
 end
 
+#=
+A list of named ops that really needs to be shortened:
+COEF_EVAL
+KNOWN_VAR
+ROWCOL_TO_INDEX
+TIMER
+FILL_ARRAY
+INIT_MATRIX_IJ_FV
+GLOBAL_FORM_MATRIX
+GLOBAL_GATHER_VECTOR
+GLOBAL_GATHER_SYSTEM
+GHOST_EXCHANGE_FV
+GLOBAL_SOLVE
+GLOBAL_DISTRIBUTE_VECTOR
+GATHER_VARS
+BDRY_TO_VECTOR
+BDRY_TO_VAR
+SCATTER_VARS
+LOCAL2GLOBAL
+LOCAL2GLOBAL_VEC
+ADD_GLOBAL_VECTOR_AND_NORM
+UPDATE_GLOBAL_VECTOR_AND_NORM
+LINALG_VEC_BLOCKS
+LINALG_MAT_BLOCKS
+LINALG_MATMAT_BLOCKS
+LINALG_MATVEC_BLOCKS
+LINALG_TDM
+LINALG_Tv
+=#
 function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types, Nothing} = nothing, indent="")
     code = "";
     
@@ -329,16 +360,16 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         code *= indent * "(global_matrix, global_vector) = gather_system(global_matrix, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config);"
         
     elseif op === :GHOST_EXCHANGE_FV
-        code *= indent * "exchange_ghosts_fv(var, mesh, dofs_per_node);"
+        code *= indent * "exchange_ghosts_fv(var, mesh, dofs_per_node, ti);"
         
     elseif op === :GLOBAL_SOLVE
-        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " .= linear_system_solve("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* generate_from_IR_julia(IR.args[4], IRtypes) *", config);"
+        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = linear_system_solve("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* generate_from_IR_julia(IR.args[4], IRtypes) *", config);"
         
     elseif op === :GLOBAL_DISTRIBUTE_VECTOR
-        code = indent * "distribute_solution("*generate_from_IR_julia(IR.args[2], IRtypes) * ", nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config);"
+        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = distribute_solution("*generate_from_IR_julia(IR.args[2], IRtypes) * ", nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config);"
         
-    elseif op === :GATHER_SOLUTION
-        # place variable arrays in solution vector
+    elseif op === :GATHER_VARS
+        # place variable arrays in global vector
         if length(IR.args) < 3
             code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = get_var_vals(var, "* generate_from_IR_julia(IR.args[2], IRtypes) * ");";
         else
@@ -366,9 +397,8 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
                             ", mesh, dofs_per_node, "* generate_from_IR_julia(IR.args[3], IRtypes) *");";
         end
         
-    elseif op === :SCATTER_SOLUTION
-        # place solution in variable arrays
-        
+    elseif op === :SCATTER_VARS
+        # place global vector in variable arrays
         # place_sol_in_vars(var, sol, stepper);
         if length(IR.args) < 3
             code = indent * "place_sol_in_vars(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *");";

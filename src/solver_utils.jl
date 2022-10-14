@@ -385,7 +385,7 @@ function set_matrix_indices!(ai::Vector{Int}, aj::Vector{Int}, dofs_per_node::In
     
     # Elemental loop
     for ei=1:nel
-        eid = elemental_order[ei]; # The index of this element
+        eid = grid.elemental_order[ei]; # The index of this element
         first_ind = (eid-1)*dofs_per_node + 1; # First global index for this element
         last_ind = eid*dofs_per_node; # last global index
         

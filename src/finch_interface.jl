@@ -1558,15 +1558,17 @@ function finalize_finch()
     if use_cachesim
         CachesimOut.finalize();
     end
-    # timeroutput
-    show(timer_output)
-    # log
-    close_log();
-    # # mpi
-    # if config.use_mpi
-    #     MPI.Finalize(); # If MPI is finalized, it cannot be reinitialized without restarting Julia
-    # end
+    
+    # mpi
+    if config.use_mpi
+        MPI.Finalize(); # If MPI is finalized, it cannot be reinitialized without restarting Julia
+    end
+    
     if config.proc_rank == 0
+        # timeroutput
+        show(timer_output)
+        # log
+        close_log();
         println("Finch has completed.");
     end
 end
@@ -1610,7 +1612,7 @@ griddim is an array representing the elemental grid size: like [n,n] for 2D or
 """
 function mortonElements(griddim) morton_elements(griddim) end
 function morton_elements(griddim)
-    global elemental_order = get_recursive_order(MORTON_ORDERING, config.dimension, griddim);
+    grid_data.elemental_order = get_recursive_order(MORTON_ORDERING, config.dimension, griddim);
     log_entry("Reordered elements to Morton.", 2);
     ef_nodes();
 end
@@ -1641,7 +1643,7 @@ griddim is an array representing the elemental grid size: like [n,n] for 2D or
 """
 function hilbertElements(griddim) hilbert_elements(griddim) end
 function hilbert_elements(griddim)
-    global elemental_order = get_recursive_order(HILBERT_ORDERING, config.dimension, griddim);
+    grid_data.elemental_order = get_recursive_order(HILBERT_ORDERING, config.dimension, griddim);
     log_entry("Reordered elements to Hilbert.", 2);
     ef_nodes();
 end
@@ -1674,7 +1676,7 @@ tiledim is the desired tile dimensions such as [4,4] for a 4x4 tile in 2D.
 """
 function tiledElements(griddim, tiledim) tiled_elements(griddim, tiledim) end
 function tiled_elements(griddim, tiledim)
-    global elemental_order = get_tiled_order(config.dimension, griddim, tiledim, true);
+    grid_data.elemental_order = get_tiled_order(config.dimension, griddim, tiledim, true);
     log_entry("Reordered elements to tiled("*string(tiledim)*").", 2);
     ef_nodes();
 end
@@ -1688,7 +1690,7 @@ nodes are ordered according to the reference element.
 """
 function elementFirstNodes() ef_nodes() end
 function ef_nodes()
-    t = @elapsed(global grid_data = reorder_grid_element_first!(grid_data, config.basis_order_min, elemental_order));
+    t = @elapsed(global grid_data = reorder_grid_element_first!(grid_data, config.basis_order_min));
     log_entry("Reordered nodes to EF. Took "*string(t)*" sec.", 2);
 end
 
@@ -1712,7 +1714,7 @@ The seed is for making results reproducible.
 """
 function randomElements(seed = 17) random_elements(seed) end
 function random_elements(seed = 17)
-    global elemental_order = random_order(size(grid_data.loc2glb,2), seed);
+    grid_data.elemental_order = random_order(size(grid_data.loc2glb,2), seed);
     log_entry("Reordered elements to random.", 2);
     random_nodes(seed);
 end

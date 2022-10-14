@@ -4,22 +4,22 @@
 =#
 export reorder_grid_element_first!
 
-function reorder_grid_element_first!(grid, porder, elorder)
+function reorder_grid_element_first!(grid, porder)
     dim = size(grid.allnodes,1);
-    new_node_order= element_first_order_map(grid, porder, elorder, dim, true);
+    new_node_order= element_first_order_map(grid, porder, dim, true);
     reorder_grid_nodes!(grid, new_node_order);
     return grid;
 end
 
-function element_first_order_map(grid, porder, elorder, dim, invert = true)
+function element_first_order_map(grid, porder, dim, invert = true)
     nnodes = size(grid.allnodes,2);
     eforder = zeros(Int, nnodes); # The ordering
     node_done = zeros(Int, nnodes);
     
-    # Loop over the elements in elorder, filling in the eforder as we go
+    # Loop over the elements in elemental_order, filling in the eforder as we go
     l2g = grid.loc2glb;
     efind = 0;
-    for ei=elorder
+    for ei=grid.elemental_order
         for ni=1:size(grid.loc2glb,1)
             # node's old index
             old_ind = grid.loc2glb[ni,ei];

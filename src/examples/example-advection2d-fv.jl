@@ -33,10 +33,11 @@ if use_tri
     add_boundary_ID(4, (x,y) -> (y >= 0.3));
     finiteVolumeOrder(2);
 else
-    timeStepper(RK4)
-    n = 10
+    timeStepper(EULER_EXPLICIT)
+    setSteps(0.000278, 1800)
+    n = 30
     mesh(QUADMESH, elsperdim=n, bids=4)
-    finiteVolumeOrder(2);
+    # finiteVolumeOrder(2);
 end
 
 # Variables and BCs
@@ -52,34 +53,30 @@ boundary(u, 3, NO_BC) # y=0
 boundary(u, 4, NO_BC) # y=1
 
 # Time interval and initial condition
-T = 1;
+T = 0.5;
 timeInterval(T)
 initial(u, "0")
 
-# The flux and source terms of the conservation equation
-# F and S in the following equation:
-# Dt(int(u dx)) = int(S dx) - int(F.n ds)
+# Coefficients
 if use_tri
     coefficient("a", ["0.1*cos(pi*x/2/0.1)","0.3*sin(pi*x/2/0.1)"], type=VECTOR) # advection velocity
 else
     coefficient("a", ["cos(pi*x/2)","sin(pi*x/2)"], type=VECTOR) # advection velocity
 end
 coefficient("s", ["sin(pi*x)^4 * sin(pi*y)^4"]) # source
+
 # The "upwind" function applies upwinding to the term (a.n)*u with flow velocity a.
 # The optional third parameter is for tuning. Default upwind = 0, central = 1. Choose something between these.
-flux(u, "upwind(a,u)") 
-# source(u, "0.1 * s")
+conservationForm(u, "0.1 * s + surface(upwind(a,u))");
 
-# exportCode("fvad2dcode") # uncomment to export generated code to a file
+exportCode("fvad2dcodeout") # uncomment to export generated code to a file
 # importCode("fvad2dcode") # uncomment to import code from a file
 
 solve(u)
 
-finalize_finch()
+# outputValues(u, "fvad2d", format="vtk");
 
-# output to file
-# output_values(u, "fvad2d", format="csv");
-#output_values(u, "fvad2d", format="vtk");
+finalizeFinch()
 
 ##### Uncomment below to plot
 

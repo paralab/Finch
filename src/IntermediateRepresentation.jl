@@ -19,7 +19,15 @@ There are different types of nodes:
 module IntermediateRepresentation
 
 # Implement AbstractTrees for plotting/printing/using other tools if desired
-using AbstractTrees
+# using AbstractTrees
+try
+    using AbstractTrees
+catch e
+    println("AbstractTrees package is not yet installed. Installing now.");
+    using Pkg
+    Pkg.add("AbstractTrees")
+    using AbstractTrees
+end
 
 export IR_entry_types, IR_string, print_IR, repr_IR
 export IR_part, IR_data_node, IR_data_access, IR_operation_node, IR_block_node, IR_loop_node, IR_conditional_node, IR_comment_node

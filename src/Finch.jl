@@ -33,7 +33,6 @@ log_file = "";
 log_line_index = 1;
 #mesh
 mesh_data = nothing;    # The basic element information as read from a MSH file or generated here.
-elemental_order = [];   # Determines the order of the elemental loops
 needed_grid_types = [false, false, false]; # [CG, DG, FV] true if that type is needed
 # FEM specific
 grid_data = nothing;    # The full collection of nodes(including internal nodes) and other mesh info in the actual DOF ordering.
@@ -116,7 +115,6 @@ function init_finch(name="unnamedProject")
     global fv_info = nothing;
     global refel = nothing;
     global fv_refel = nothing;
-    global elemental_order = [];
     global parent_maps = nothing;
     global fv_grid = nothing;
     global fv_geo_factors = nothing;
@@ -287,7 +285,6 @@ function add_mesh(mesh; partitions=0)
     global geo_factors;
     global fv_geo_factors;
     global fv_info;
-    global elemental_order;
     
     # If no method has been specified, assume CG
     if !(needed_grid_types[1] || needed_grid_types[2] || needed_grid_types[3])
@@ -399,9 +396,6 @@ function add_mesh(mesh; partitions=0)
     else
         log_entry("Full grid has "*string(size(grid_data.allnodes,2))*" nodes.", 2);
     end
-    
-    # Set elemental loop ordering to match the order from the grid for now.
-    elemental_order = 1:grid_data.nel_owned;
 end
 
 # Write the mesh to a MSH file
@@ -751,7 +745,6 @@ function eval_initial_conditions()
                 if variables[vind].location == CELL
                     nel = size(this_grid_data.loc2glb, 2);
                     for ei=1:nel
-                        # e = elemental_order[ei];
                         e = ei;
                         glb = this_grid_data.loc2glb[:,e];
                         vol = this_geo_factors.volume[e];

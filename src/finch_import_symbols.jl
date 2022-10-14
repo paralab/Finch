@@ -31,14 +31,14 @@ finch_symbols_to_import = [
     #Data
     :config, :prob, :variables, :coefficients, :parameters, :test_functions, :indexers, :variable_transforms,
     :mesh_data, :grid_data, :refel, :time_stepper, :language, :gen_framework,
-    :elemental_order, :genfunctions, :callback_functions, :geo_factors, :use_cachesim, :custom_gen_funcs,
+    :genfunctions, :callback_functions, :geo_factors, :use_cachesim, :custom_gen_funcs,
     
     #Specific to FV
     :FVInfo, :fv_info, :FV_cell_to_node, :FV_node_to_cell, :FV_reconstruct_value_left_right,
     :ParentMaps, :parent_maps, :fv_grid, :fv_refel, :fv_geo_factors, :build_local_patch,
     
     # Packages? should this be done here?
-    :MPI, :PETSc, :TimerOutputs, :Zygote
+    :MPI, :TimerOutputs, :Zygote
 ];
 
 macro import_finch_symbols()

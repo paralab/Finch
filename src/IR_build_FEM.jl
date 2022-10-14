@@ -303,7 +303,7 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
                             # and find absolute and relative norms of solvec
                             IR_operation_node(IRtypes.named_op, [:ADD_GLOBAL_VECTOR_AND_NORM, oldsolvec, solvec, nl_change_abs, nl_change_rel]),
                             # put the updated values into vars
-                            IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, oldsolvec, :nl_var]),
+                            IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, oldsolvec, :nl_var]),
                         ]))
                     ])
                 ))
@@ -320,7 +320,7 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
                 wrap_in_timer(:first_assembly, assembly_loop),
                 IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
                 gather_system,
-                IR_operation_node(IRtypes.named_op, [:GATHER_SOLUTION, oldsolvec, :nl_var]),
+                IR_operation_node(IRtypes.named_op, [:GATHER_VARS, oldsolvec, :nl_var]),
                 
                 IR_comment_node("###############################################"),
                 IR_comment_node("Time stepping loop"),
@@ -338,7 +338,7 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
                 wrap_in_timer(:first_assembly, assembly_loop),
                 IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
                 gather_system,
-                IR_operation_node(IRtypes.named_op, [:GATHER_SOLUTION, solvec]),
+                IR_operation_node(IRtypes.named_op, [:GATHER_VARS, solvec]),
                 
                 IR_comment_node("###############################################"),
                 IR_comment_node("Time stepping loop"),
@@ -369,7 +369,7 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
             #     IR_operation_node(IRtypes.assign_op, [nl_change_abs, 1]),
             #     IR_operation_node(IRtypes.assign_op, [nl_change_rel, 1]),
             #     # build vector from existing sol vars for initial guess
-            #     IR_operation_node(IRtypes.named_op, [:GATHER_SOLUTION, oldsolvec, :nl_var]),
+            #     IR_operation_node(IRtypes.named_op, [:GATHER_VARS, oldsolvec, :nl_var]),
                 
             #     # The nonlinear iteration
             #     wrap_in_timer(:nonlinear_iteration, IR_loop_node(IRtypes.while_loop, :while_loop, :nl_iter, 0, 
@@ -392,7 +392,7 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
             #                 # and find absolute and relative norms of solvec
             #                 IR_operation_node(IRtypes.named_op, [:ADD_GLOBAL_VECTOR_AND_NORM, oldsolvec, solvec, nl_change_abs, nl_change_rel]),
             #                 # put the updated values into vars
-            #                 IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, oldsolvec, :nl_var]),
+            #                 IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, oldsolvec, :nl_var]),
             #             ]))
             #         ])
             #     ))
@@ -434,8 +434,8 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
                         wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, solvec, :global_matrix, :global_vector])),
                         distribute_solution,
                         wrap_in_timer(:scatter, IR_block_node([
-                            IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, solvec, :var]),
-                            IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, solvec, :nl_var]),
+                            IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, solvec, :var]),
+                            IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, solvec, :nl_var]),
                         ])),
                         # norm of change and update old
                         # generate_difference_norms_and_update(solvec, oldsolvec, nl_change_abs, nl_change_rel))
@@ -454,7 +454,7 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
                 gather_system,
                 wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, solvec, :global_matrix, :global_vector])),
                 distribute_solution,
-                wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, solvec])),
+                wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, solvec])),
             ],"computation")
         end
     end
@@ -1336,16 +1336,19 @@ function generate_assembly_loop_fem(var, indices)
         end
     end
     
+    el_order = IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_64_data, :elemental_order, [:num_elements], [:ei])]);
+    
     # Placeholder computation that will be replaced by the actual one
     placeholder = IR_block_node([
-        IR_operation_node(IRtypes.assign_op, [:index_offset, index_offset]);
+        IR_operation_node(IRtypes.assign_op, [:eid, el_order]),
+        IR_operation_node(IRtypes.assign_op, [:index_offset, index_offset])
     ]);
     
     # generate the loop structures
     if length(index_names) > 0
         # The innermost loop holds placeholder
         if index_names[end] == "elements"
-            assembly_loop = IR_loop_node(IRtypes.space_loop, :elements, :eid, 1, :num_elements, placeholder);
+            assembly_loop = IR_loop_node(IRtypes.space_loop, :elements, :ei, 1, :num_elements, placeholder);
         else
             assembly_loop = IR_loop_node(IRtypes.index_loop, indices[end].symbol, 
                             index_names[end].label, indices[end].range[1], indices[end].range[end], placeholder);
@@ -1354,7 +1357,7 @@ function generate_assembly_loop_fem(var, indices)
         # work outwards nesting assembly_loop
         for i=(length(index_names)-1):-1:1
             if index_names[i] == "elements"
-                assembly_loop = IR_loop_node(IRtypes.space_loop, :elements, :eid, 1, :num_elements, assembly_loop);
+                assembly_loop = IR_loop_node(IRtypes.space_loop, :elements, :ei, 1, :num_elements, assembly_loop);
             elseif i > ind_shift
                 assembly_loop = IR_loop_node(IRtypes.index_loop, indices[i-ind_shift].symbol, 
                                 index_names[i].label, indices[i-ind_shift].range[1], 
@@ -1362,7 +1365,7 @@ function generate_assembly_loop_fem(var, indices)
             end
         end
     else # only an element loop
-        assembly_loop = IR_loop_node(IRtypes.space_loop, :elements, :eid, 1, :num_elements, placeholder);
+        assembly_loop = IR_loop_node(IRtypes.space_loop, :elements, :ei, 1, :num_elements, placeholder);
     end
     
     return assembly_loop
@@ -1397,7 +1400,7 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
     allocate_block = IR_block_node([]);
     if stepper.stages < 2
         if include_var_update
-            var_update = wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :solution]));
+            var_update = wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, :solution]));
         end
         
         # # This part would be used if the solution is updated like sol = sol + dt*()
@@ -1413,7 +1416,7 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
         #     wrap_in_timer(:step_assembly, assembly),
         #     wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :d_solution, :global_matrix, :global_vector])),
         #     wrap_in_timer(:update_sol, update_loop),
-        #     wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :solution])),
+        #     wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, :solution])),
         #     IR_operation_node(IRtypes.assign_op, [
         #         :t,
         #         IR_operation_node(IRtypes.math_op, [:+, :t, stepper.dt])
@@ -1448,7 +1451,7 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
             #   pi = p(i-1) + bi*ki
             # u = p5
             if include_var_update
-                var_update = wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :tmppi]));
+                var_update = wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, :tmppi]));
             end
             na = length(stepper.a);
             nb = length(stepper.b);
@@ -1525,7 +1528,7 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
             ]);
             stage_loop = IR_loop_node(IRtypes.time_loop, :stages, :rki, 1, stepper.stages, stage_loop_body);
             
-            push!(tloop_body.parts, IR_operation_node(IRtypes.named_op, [:GATHER_SOLUTION, :tmppi]));
+            push!(tloop_body.parts, IR_operation_node(IRtypes.named_op, [:GATHER_VARS, :tmppi]));
             push!(tloop_body.parts, IR_operation_node(IRtypes.assign_op, [:last_t, :t]));
             push!(tloop_body.parts, stage_loop);
             push!(tloop_body.parts, IR_operation_node(IRtypes.assign_op, [:t, IR_operation_node(IRtypes.math_op, [:+, :last_t, :dt])]));
@@ -1545,8 +1548,8 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
             # x = x + dt*sum(bi*ki)
             # ki = rhs(t+ci*dt, x+dt*sum(aij*kj)))   j < i
             if include_var_update
-                var_update = wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :tmpresult]));
-                var_update2 = wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_SOLUTION, :last_result]));
+                var_update = wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, :tmpresult]));
+                var_update2 = wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, :last_result]));
             else
                 var_update2 = IR_comment_node("");
             end
@@ -1650,7 +1653,7 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
             ])
             combine_loop = IR_loop_node(IRtypes.space_loop, :dofs, :k, 1, :dofs_global, combine_loop_body);
             
-            push!(tloop_body.parts, IR_operation_node(IRtypes.named_op, [:GATHER_SOLUTION, :last_result]));
+            push!(tloop_body.parts, IR_operation_node(IRtypes.named_op, [:GATHER_VARS, :last_result]));
             push!(tloop_body.parts, IR_operation_node(IRtypes.assign_op, [:last_t, :t]));
             push!(tloop_body.parts, stage_loop);
             push!(tloop_body.parts, combine_loop);
