@@ -747,6 +747,7 @@ function weakForm(var, wf)
             time_stepper.dt = specified_dt;
             time_stepper.Nsteps = specified_Nsteps;
         end
+        share_time_step_info(time_stepper, config);
     end
     
     # change symbolic layer into IR
@@ -840,6 +841,7 @@ function conservationForm(var, cf)
             time_stepper.dt = specified_dt;
             time_stepper.Nsteps = specified_Nsteps;
         end
+        share_time_step_info(time_stepper, config);
     end
     
     # change symbolic layer into IR
@@ -1443,12 +1445,14 @@ function solve(var)
                         time_stepper[2].dt = min_dt;
                         time_stepper[2].Nsteps = max_Nsteps;
                     end
+                    share_time_step_info(time_stepper, config);
                 else
                     time_stepper = init_stepper(grid_data.allnodes, time_stepper);
                     if use_specified_steps
                         time_stepper.dt = specified_dt;
                         time_stepper.Nsteps = specified_Nsteps;
                     end
+                    share_time_step_info(time_stepper, config);
                 end
                 
 				if (prob.nonlinear)

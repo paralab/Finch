@@ -265,6 +265,7 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     
     # Package it all in one piece to add to master
     if prob.time_dependent
+        stepper_dt = IR_operation_node(IRtypes.member_op, [:time_stepper, :dt]);
         if prob.nonlinear
             # The time stepping loop to be altered
             (t_allocate, step_loop) = generate_time_stepping_loop_fem(time_stepper, rhs_assembly_loop, false);
@@ -315,7 +316,7 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
             
             compute_block = IR_block_node([
                 IR_operation_node(IRtypes.assign_op, [:t, 0]),
-                IR_operation_node(IRtypes.assign_op, [:dt, time_stepper.dt]),
+                IR_operation_node(IRtypes.assign_op, [:dt, stepper_dt]),
                 IR_comment_node("Initial loop to build matrix"),
                 wrap_in_timer(:first_assembly, assembly_loop),
                 IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
@@ -333,7 +334,7 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
             push!(allocate_block.parts, t_allocate);
             compute_block = IR_block_node([
                 IR_operation_node(IRtypes.assign_op, [:t, 0]),
-                IR_operation_node(IRtypes.assign_op, [:dt, time_stepper.dt]),
+                IR_operation_node(IRtypes.assign_op, [:dt, stepper_dt]),
                 IR_comment_node("Initial loop to build matrix"),
                 wrap_in_timer(:first_assembly, assembly_loop),
                 IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
@@ -1375,6 +1376,7 @@ end
 function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=true)
     IRtypes = IR_entry_types();
     tloop_body = IR_block_node([]);
+    stepper_nsteps = IR_operation_node(IRtypes.member_op, [:time_stepper, :Nsteps]);
     zero_el_vec = IR_operation_node(IRtypes.named_op, [
         :FILL_ARRAY, IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], []), 0, :dofs_global]);
     zero_bdry_done = IR_operation_node(IRtypes.named_op, [
@@ -1440,7 +1442,7 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
             ])
         ];
         
-        time_loop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper.Nsteps, tloop_body);
+        time_loop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper_nsteps, tloop_body);
         
     else # multistage explicit steppers
         # LSRK4 is a special case, low storage
@@ -1541,7 +1543,7 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
                     tmp_ki,
                     IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])]),
             ]);
-            time_loop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper.Nsteps, tloop_body);
+            time_loop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper_nsteps, tloop_body);
             
         else
             # Explicit multi-stage methods: 
@@ -1676,7 +1678,7 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
                     tmp_ki,
                     IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global, stepper.stages])])
             ]);
-            time_loop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper.Nsteps, tloop_body);
+            time_loop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper_nsteps, tloop_body);
             
         end
     end

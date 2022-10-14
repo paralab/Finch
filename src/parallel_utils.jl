@@ -6,6 +6,9 @@ Utilities for distributed parallel.
 # FE tools
 ######################################################################################
 # For partitioned meshes
+# Returns (b_order, b_sizes) only for proc 0
+# b_order is the global indices of each proc's vector
+# b_sizes is the size of each proc's vector
 function get_partitioned_ordering(dofs_per_node::Int, grid_data::Grid, config::Finch_config)
     if config.num_procs > 1
         nnodes = size(grid_data.allnodes,2);
@@ -48,6 +51,22 @@ function get_partitioned_ordering(dofs_per_node::Int, grid_data::Grid, config::F
         
     else
         return (zeros(Int,0), zeros(Int,0));
+    end
+end
+
+# Share time stepper step size and number so that all procs are the same.
+function share_time_step_info(stepper::Stepper, config::Finch_config)
+    if config.num_procs > 1
+        # gather a list of Nsteps for each proc
+        send_buf = [stepper.Nsteps];
+        recv_buf = zeros(Int, config.num_procs);
+        MPI.Allgather!(send_buf, recv_buf, MPI.COMM_WORLD);
+        
+        # All procs use the maximal Nsteps and recalculate dt
+        max_nsteps = maximum(recv_buf);
+        end_time = stepper.dt * stepper.Nsteps;
+        stepper.Nsteps = max_nsteps;
+        stepper.dt = end_time / max_steps;
     end
 end
 

@@ -409,13 +409,14 @@ function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     # time loop
     need_time_loop = prob.time_dependent; # This should be true for FV
     if need_time_loop
+        stepper_dt = IR_operation_node(IRtypes.member_op, [:time_stepper, :dt]);
         if need_matrix # implicit steppers
             step_loop = generate_time_stepping_loop_fvm(time_stepper, assembly_loop, prob);
             compute_block = IR_block_node([
                 IR_operation_node(IRtypes.named_op, [:EXCHANGE_GHOSTS_FV]),
                 IR_operation_node(IRtypes.named_op, [:GATHER_VARS, solvec]),
                 IR_operation_node(IRtypes.assign_op, [:t, 0]),
-                IR_operation_node(IRtypes.assign_op, [:dt, time_stepper.dt]),
+                IR_operation_node(IRtypes.assign_op, [:dt, stepper_dt]),
                 IR_comment_node("###############################################"),
                 IR_comment_node("Time stepping loop"),
                 wrap_in_timer(:time_steps, step_loop)
@@ -427,7 +428,7 @@ function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
                 IR_operation_node(IRtypes.named_op, [:EXCHANGE_GHOSTS_FV]),
                 IR_operation_node(IRtypes.named_op, [:GATHER_VARS, solvec]),
                 IR_operation_node(IRtypes.assign_op, [:t, 0]),
-                IR_operation_node(IRtypes.assign_op, [:dt, time_stepper.dt]),
+                IR_operation_node(IRtypes.assign_op, [:dt, stepper_dt]),
                 IR_comment_node("###############################################"),
                 IR_comment_node("Time stepping loop"),
                 wrap_in_timer(:time_steps, step_loop)
@@ -1791,6 +1792,7 @@ end
 function generate_time_stepping_loop_fvm(stepper, assembly, prob)
     IRtypes = IR_entry_types();
     tloop_body = IR_block_node([]);
+    stepper_nsteps = IR_operation_node(IRtypes.member_op, [:time_stepper, :Nsteps]);
     zero_bdry_done = IR_operation_node(IRtypes.named_op, [
         :FILL_ARRAY,
         IR_data_node(IRtypes.int_64_data, :bdry_done, [:num_faces], []),
@@ -1854,7 +1856,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
         #     ])
         # ];
         
-        time_loop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper.Nsteps, tloop_body);
+        time_loop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper_nsteps, tloop_body);
        
         # multistage explicit steppers
     elseif stepper.type == LSRK4
@@ -1971,7 +1973,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
                 tmp_ki,
                 IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :fv_dofs_partition])]),
                 
-            IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper.Nsteps, tloop_body)
+            IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper_nsteps, tloop_body)
         ]);
     elseif stepper.stages > 1
         # Explicit multi-stage methods: 
@@ -2149,7 +2151,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
                 tmp_ki,
                 IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :fv_dofs_partition, stepper.stages])]),
                 
-            IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper.Nsteps, tloop_body)
+            IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper_nsteps, tloop_body)
         ]);
         
     elseif stepper.type == EULER_IMPLICIT || stepper.type == CRANK_NICHOLSON
@@ -2194,7 +2196,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
             ])
         ];
         
-        time_loop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper.Nsteps, tloop_body);
+        time_loop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper_nsteps, tloop_body);
     end
     
     return time_loop;
