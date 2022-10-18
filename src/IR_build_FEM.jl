@@ -41,17 +41,30 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
         dofsper = var[1].total_components;
         dofsper_loop = length(var[1].symvar);
     end
+    # Is jacobian constant?
+    if ((config.geometry == SQUARE && config.mesh_type == UNIFORM_GRID) ||
+        config.dimension == 1 ||
+        (config.dimension == 2 && refel.Nfaces == 3) ||
+        (config.dimension == 3 && refel.Nfaces == 4) )
+        constantJ = true;
+    else
+        constantJ = false;
+    end
     
     IRtypes = IR_entry_types();
     
     # These will hold the IR
     allocate_block = IR_block_node([],"allocation");
-    prepare_block = IR_block_node([],"prepare");
+    coefficient_block = IR_block_node([],"prepare");
+    face_coefficient_block = IR_block_node([],"prepare face");
     derivmat_block = IR_block_node([],"deriv mat");
-    time_prepare_block = IR_block_node([], "prepare");
+    time_coefficient_block = IR_block_node([], "prepare");
     time_derivmat_block = IR_block_node([], "deriv mat");
     matrix_block = IR_block_node([],"elemental matrix");
     vector_block = IR_block_node([],"elemental vector");
+    face_mat_block = IR_block_node([],"face matrix");
+    face_vec_block = IR_block_node([],"face vector");
+    face_block = IR_block_node([],"face block");
     bdry_block = IR_block_node([],"boundary");
     toglobal_block = IR_block_node([],"local to global");
     time_bdry_block = IR_block_node([],"boundary");
@@ -127,47 +140,69 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     # a list of all entities and rhs only ones
     all_entities = [];
     rhs_entities = [];
+    separate_entities = [[],[],[],[]];
     counts = zeros(Int,4); # how many entities for each piece 
     
     # LHS volume
     if !(lhs_vol === nothing)
-        entities = extract_entities(lhs_vol);
-        append!(all_entities, entities);
-        counts[1] = length(entities);
+        separate_entities[1] = extract_entities(lhs_vol);
+        append!(all_entities, separate_entities[1]);
+        counts[1] = length(separate_entities[1]);
     end
     
     # RHS volume
     if !(rhs_vol === nothing)
-        entities = extract_entities(rhs_vol);
-        append!(all_entities, entities);
-        append!(rhs_entities, entities);
-        counts[2] = length(entities);
+        separate_entities[2] = extract_entities(rhs_vol);
+        append!(all_entities, separate_entities[2]);
+        append!(rhs_entities, separate_entities[2]);
+        counts[2] = length(separate_entities[2]);
     end
     
     # LHS surface
     if !(lhs_surf === nothing)
-        entities = extract_entities(lhs_surf);
-        append!(all_entities, entities);
-        counts[3] = length(entities);
+        separate_entities[3] = extract_entities(lhs_surf);
+        append!(all_entities, separate_entities[3]);
+        counts[3] = length(separate_entities[3]);
     end
     
     # RHS surface
     if !(rhs_surf === nothing)
-        entities = extract_entities(rhs_surf);
-        append!(all_entities, entities);
-        append!(rhs_entities, entities);
-        counts[4] = length(entities);
+        separate_entities[4] = extract_entities(rhs_surf);
+        append!(all_entities, separate_entities[4]);
+        append!(rhs_entities, separate_entities[4]);
+        counts[4] = length(separate_entities[4]);
     end
     
-    # full loop
-    (allocate, coef) = prepare_coefficient_values(all_entities, var, dimension, counts);
+    # vol loop
+    (allocate, coef) = prepare_coefficient_values(separate_entities[1], var, dimension, 1); # LHS volume
     push!(allocate_block.parts, IR_comment_node("Allocate coefficient vectors."));
     append!(allocate_block.parts, allocate);
-    push!(prepare_block.parts, IR_comment_node("Evaluate coefficients."));
-    append!(prepare_block.parts, coef);
-    push!(prepare_block.parts, IR_operation_node(IRtypes.assign_op, [:detj, 
-        IR_operation_node(IRtypes.member_op, [:geometric_factors, 
-            IR_data_node(IRtypes.float_64_data, :detJ, [:?,:?],  [1, :eid])])]))
+    push!(coefficient_block.parts, IR_comment_node("Evaluate coefficients."));
+    append!(coefficient_block.parts, coef);
+    (allocate, coef) = prepare_coefficient_values(separate_entities[2], var, dimension, 2); # RHS volume
+    append!(allocate_block.parts, allocate);
+    append!(coefficient_block.parts, coef);
+    push!(time_coefficient_block.parts, IR_comment_node("Evaluate coefficients."));
+    append!(time_coefficient_block.parts, coef);
+    
+    if constantJ
+        detj = IR_data_node(IRtypes.float_64_data, :detj, [], []);
+        push!(coefficient_block.parts, IR_operation_node(IRtypes.assign_op, [detj, 
+            IR_operation_node(IRtypes.member_op, [:geometric_factors, 
+                IR_data_node(IRtypes.float_64_data, :detJ, [:?,:?],  [1, :eid])])]))
+        
+    else
+        detj = IR_data_node(IRtypes.float_64_data, :detj, [:qnodes_per_element], []);
+        detj_i = IR_data_node(IRtypes.float_64_data, :detj, [:qnodes_per_element], [:qnode_i]);
+        push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
+            detj,
+            IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :qnodes_per_element])]));
+        push!(coefficient_block.parts, IR_loop_node(IRtypes.index_loop, :qnodes, :qnode_i, 1, :qnodes_per_element, IR_block_node([
+            IR_operation_node(IRtypes.assign_op, [detj_i, 
+                IR_operation_node(IRtypes.member_op, [:geometric_factors, 
+                    IR_data_node(IRtypes.float_64_data, :detJ, [:?,:?],  [:qnode_i, :eid])])])
+        ])))
+    end
     
     # derivative matrix prep
     (allocate, deriv) = prepare_derivative_matrices(all_entities, counts, var);
@@ -178,21 +213,28 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
         derivmat_block.parts = deriv;
     end
     
-    # rhs only loop
-    counts[1] = 0; # no lhs entities
-    counts[3] = 0;
-    (allocate, rhscoef) = prepare_coefficient_values(rhs_entities, var, dimension, counts);
-    push!(time_prepare_block.parts, IR_comment_node("Evaluate coefficients."));
-    append!(time_prepare_block.parts, rhscoef);
-    push!(time_prepare_block.parts, IR_operation_node(IRtypes.assign_op, [:detj, 
+    # rhs only loop used in time steps
+    rhs_counts = copy(counts);
+    rhs_counts[1] = 0; # no lhs entities
+    rhs_counts[3] = 0;
+    push!(time_coefficient_block.parts, IR_operation_node(IRtypes.assign_op, [:detj, 
         IR_operation_node(IRtypes.member_op, [:geometric_factors, 
             IR_data_node(IRtypes.float_64_data, :detJ, [:?,:?],  [1, :eid])])]))
     
-    (allocate, rhsderiv) = prepare_derivative_matrices(rhs_entities, counts, var);
+    (allocate, rhsderiv) = prepare_derivative_matrices(rhs_entities, rhs_counts, var);
     if length(rhsderiv)>0 
         push!(rhsderiv, IR_comment_node("Prepare derivative matrices."));
         time_derivmat_block.parts = rhsderiv;
     end
+    
+    # surface coefficients
+    (allocate, coef) = prepare_coefficient_values(separate_entities[3], var, dimension, 3); # LHS surface
+    append!(allocate_block.parts, allocate);
+    push!(face_coefficient_block.parts, IR_comment_node("Evaluate coefficients."));
+    append!(face_coefficient_block.parts, coef);
+    (allocate, coef) = prepare_coefficient_values(separate_entities[4], var, dimension, 4); # RHS surface
+    append!(allocate_block.parts, allocate);
+    append!(face_coefficient_block.parts, coef);
     
     # computation
     if !(lhs_vol === nothing)
@@ -203,14 +245,147 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
         rhsvol_terms = process_terms(rhs_vol);
         push!(vector_block.parts, make_elemental_computation_fem(rhsvol_terms, var, dofsper, offset_ind, RHS, "volume"));
     end
-    if !(lhs_surf === nothing) 
-        lhssurf_terms = process_terms(lhs_surf);
-        push!(matrix_block.parts, make_elemental_computation_fem(lhssurf_terms, var, dofsper, offset_ind, LHS, "surface"));
+    # if !(lhs_surf === nothing) 
+    #     lhssurf_terms = process_terms(lhs_surf);
+    #     push!(matrix_block.parts, make_elemental_computation_fem(lhssurf_terms, var, dofsper, offset_ind, LHS, "surface"));
+    # end
+    # if !(rhs_surf === nothing)
+    #     rhssurf_terms = process_terms(rhs_surf);
+    #     push!(vector_block.parts, make_elemental_computation_fem(rhssurf_terms, var, dofsper, offset_ind, RHS, "surface"));
+    # end
+    
+    #############################################################################################################
+    ## The face loop is only included when needed
+    need_face_loop =  !(rhs_surf === nothing) && !is_empty_expression(rhs_surf) && 
+                      !(lhs_surf === nothing)  && !is_empty_expression(lhs_surf);
+    if need_face_loop
+        # surface block (includes face loop)
+        push!(face_block.parts, IR_comment_node("Surface integral terms in a face loop"));
+        fid = IR_data_node(IRtypes.int_64_data, :fid, [], []); # Face ID
+        fbid = IR_data_node(IRtypes.int_64_data, :fbid, [], []); # Face BID
+        leftel = IR_data_node(IRtypes.int_64_data, :left_el, [], []); # left element
+        rightel = IR_data_node(IRtypes.int_64_data, :right_el, [], []); # right element
+        face_loop_body = IR_block_node([
+            # fid = fv_grid.element2face[i, eid]; # face ID 
+            IR_operation_node(IRtypes.assign_op, [fid,
+                IR_operation_node(IRtypes.member_op, [:mesh, 
+                    IR_data_node(IRtypes.int_64_data, :element2face, [:faces_per_element, :num_elements], [:fi, :eid])])
+            ]),
+            # # Only compute face once for each face
+            # IR_conditional_node(IR_data_node(IRtypes.boolean_data, :face_face_done, [:num_faces], [:fid]),
+            #     IR_block_node([IR_operation_node(IRtypes.named_op, [:CONTINUE])])
+            # ),
+            # fbid = fv_grid.facebid[fid]; # BID of this face
+            IR_operation_node(IRtypes.assign_op, [fbid,
+                IR_operation_node(IRtypes.member_op, [:mesh, 
+                    IR_data_node(IRtypes.int_64_data, :facebid, [:num_faces], [:fid])])
+            ]),
+            # (leftel, rightel) = fv_grid.face2element[:,fid];
+            IR_operation_node(IRtypes.assign_op, [leftel,
+                IR_operation_node(IRtypes.member_op, [:mesh, 
+                    IR_data_node(IRtypes.int_64_data, :face2element, [2, :num_faces], [1, :fid])])
+            ]),
+            IR_operation_node(IRtypes.assign_op, [rightel,
+                IR_operation_node(IRtypes.member_op, [:mesh, 
+                    IR_data_node(IRtypes.int_64_data, :face2element, [2, :num_faces], [2, :fid])])
+            ]),
+            # if (eid == rightel || rightel == 0) (neighbor = leftel) else (neighbor = rightel)
+            IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(||), 
+                    IR_operation_node(IRtypes.math_op, [:(==), :eid, rightel]),
+                    IR_operation_node(IRtypes.math_op, [:(==), rightel, 0])]),
+                IR_block_node([IR_operation_node(IRtypes.assign_op, [:neighbor, leftel])]),
+                IR_block_node([IR_operation_node(IRtypes.assign_op, [:neighbor, rightel])])
+            )
+        ]);
+        
+        push!(face_loop_body.parts, face_coefficient_block);
+        push!(face_loop_body.parts, IR_comment_node("Compute surface integral"));
+        # first the vector(rhs)
+        if !(rhs_surf === nothing) && !is_empty_expression(rhs_surf)
+            rhssurf_terms = process_terms(rhs_surf);
+            push!(face_loop_body.parts, make_elemental_computation_fem(rhssurf_terms, var, dofsper, offset_ind, RHS, "surface"));
+        end
+        
+        # The matrix(lhs)
+        if !(lhs_surf === nothing)  && !is_empty_expression(lhs_surf)
+            lhssurf_terms = process_terms(lhs_surf);
+            push!(face_loop_body.parts, make_elemental_computation_fem(lhssurf_terms, var, dofsper, offset_ind, LHS, "surface"));
+        end
+        
+        # Add face_tmp to face for this element
+        face_mat_cols = :TODO_face_mat_cols;
+        face_mat_tmp_cols = :TODO_face_mat_tmp_cols;
+        if dofsper == 1
+            # add RHS face_tmp to face after handling BCs
+            push!(face_loop_body.parts, IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_64_data, :face, [:dofs_per_loop], [1]), 
+                IR_operation_node(IRtypes.math_op, [:+, IR_data_node(IRtypes.float_64_data, :face, [:dofs_per_loop], [1]), 
+                    IR_operation_node(IRtypes.math_op, [:*, IR_data_node(IRtypes.float_64_data, :face_tmp, [:dofs_per_loop], [1]), :area_over_volume])])]));
+                    
+            # add LHS face_tmp to face if needed
+            if !(lhs_surf === nothing)  && !is_empty_expression(lhs_surf)
+                push!(face_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
+                    IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [1, :fi]), 
+                    IR_operation_node(IRtypes.math_op, [:+, 
+                        IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [1, :fi]), 
+                        IR_operation_node(IRtypes.math_op, [:*, 
+                            IR_data_node(IRtypes.float_64_data, :face_mat_tmp, [:dofs_per_loop, face_mat_tmp_cols], [1, 1]), 
+                            :area_over_volume])])]));
+                face_mat_index = IR_operation_node(IRtypes.math_op, [:+, :faces_per_element, :fi]); 
+                push!(face_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
+                    IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [1, face_mat_index]), 
+                    IR_operation_node(IRtypes.math_op, [:+, 
+                        IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [1, face_mat_index]), 
+                        IR_operation_node(IRtypes.math_op, [:*, 
+                            IR_data_node(IRtypes.float_64_data, :face_mat_tmp, [:dofs_per_loop, face_mat_tmp_cols], [1, 2]), 
+                            :area_over_volume])])]));
+            end
+            
+        else # dofs > 1
+            push!(face_loop_body.parts, IR_loop_node(IRtypes.dof_loop, :dofs, :dofi, 1, :dofs_per_loop, IR_block_node([
+                IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_64_data, :face, [:dofs_per_loop], [:dofi]), 
+                IR_operation_node(IRtypes.math_op, [:+, IR_data_node(IRtypes.float_64_data, :face, [:dofs_per_loop], [:dofi]), 
+                    IR_operation_node(IRtypes.math_op, [:*, IR_data_node(IRtypes.float_64_data, :face_tmp, [:dofs_per_loop], [:dofi]), :area_over_volume])])])
+            ])));
+            # add LHS face_tmp to face if needed
+            if !(lhs_surf === nothing)  && !is_empty_expression(lhs_surf)
+                face_mat_index1 = IR_operation_node(IRtypes.math_op, [:+, :dofj,
+                    IR_operation_node(IRtypes.math_op, [:*, :dofs_per_loop, 
+                        IR_operation_node(IRtypes.math_op, [:-, :fi, 1])])
+                ]);
+                face_mat_index2 = IR_operation_node(IRtypes.math_op, [:+, :dofj,
+                    IR_operation_node(IRtypes.math_op, [:*, :dofs_per_loop, 
+                        IR_operation_node(IRtypes.math_op, [:-, :fi, 1])]),
+                    IR_operation_node(IRtypes.math_op, [:*, :faces_per_element, :dofs_per_loop])
+                ]);
+                dofjplus = IR_operation_node(IRtypes.math_op, [:+, :dofj, :dofs_per_loop]);
+                push!(face_loop_body.parts, IR_loop_node(IRtypes.dof_loop, :dofs, :dofi, 1, :dofs_per_loop, IR_block_node([
+                    IR_loop_node(IRtypes.dof_loop, :dofs, :dofj, 1, :dofs_per_loop, IR_block_node([
+                        IR_operation_node(IRtypes.assign_op, [
+                            IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [:dofi, face_mat_index1]), 
+                            IR_operation_node(IRtypes.math_op, [:+, 
+                                IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [:dofi, face_mat_index1]), 
+                                IR_operation_node(IRtypes.math_op, [:*, 
+                                    IR_data_node(IRtypes.float_64_data, :face_mat_tmp, [:dofs_per_loop, face_mat_tmp_cols], [:dofi, :dofj]), 
+                                    :area_over_volume])])]),
+                            IR_operation_node(IRtypes.assign_op, [
+                                IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [:dofi, face_mat_index2]), 
+                                IR_operation_node(IRtypes.math_op, [:+, 
+                                    IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [:dofi, face_mat_index2]), 
+                                    IR_operation_node(IRtypes.math_op, [:*, 
+                                        IR_data_node(IRtypes.float_64_data, :face_mat_tmp, [:dofs_per_loop, face_mat_tmp_cols], [:dofi, dofjplus]), 
+                                        :area_over_volume])])])
+                    ]))
+                ])));
+            end
+        end
+        
+        push!(face_block.parts, IR_loop_node(IRtypes.space_loop, :faces, :fi, 1, :faces_per_element, face_loop_body));
+    
+    else
+        push!(face_block.parts, IR_comment_node("No face loop needed."));
     end
-    if !(rhs_surf === nothing)
-        rhssurf_terms = process_terms(rhs_surf);
-        push!(vector_block.parts, make_elemental_computation_fem(rhssurf_terms, var, dofsper, offset_ind, RHS, "surface"));
-    end
+    ## end face loop block
+    ##########################################################################################################################
     
     # bdry block 
     push!(bdry_block.parts, IR_comment_node("Apply boundary conditions."));
@@ -243,16 +418,18 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     # fill the loop
     append!(inner_loop.body.parts, [
         derivmat_block,
-        prepare_block,
+        coefficient_block,
         matrix_block,
         vector_block,
+        face_block,
         bdry_block,
         toglobal_block
     ])
     append!(rhs_inner_loop.body.parts, [
         time_derivmat_block,
-        time_prepare_block,
+        time_coefficient_block,
         vector_block,
+        face_block,
         time_bdry_block,
         time_toglobal_block
     ])
@@ -537,7 +714,8 @@ function prepare_derivative_matrices(entities, counts, var)
 end
 
 # Allocate, compute, or fetch all needed values
-function prepare_coefficient_values(entities, var, dimension, counts; rhs_only=false)
+# group determines lhs_vol=1, rhs_vol=2, lhs_surf=3, rhs_surf=4
+function prepare_coefficient_values(entities, var, dimension, group)
     IRtypes = IR_entry_types();
     row_col_matrix_index = IR_operation_node(IRtypes.named_op, [:ROWCOL_TO_INDEX, :row, :col, :nodes_per_element]);
     col_row_matrix_index = IR_operation_node(IRtypes.named_op, [:ROWCOL_TO_INDEX, :col, :row, :nodes_per_element]);
@@ -545,7 +723,6 @@ function prepare_coefficient_values(entities, var, dimension, counts; rhs_only=f
     # These parts will be returned
     allocate_part = Vector{IR_part}(undef,0); # Allocations that are done outside of the loops
     coef_part = Vector{IR_part}(undef,0); # Coefficient evaluation/preparation inside elemental loop
-    deriv_part = Vector{IR_part}(undef,0); # Derivative matrix building inside elemental loop
     
     # coef_loop_body = Vector{IR_part}(undef,0); # Loop that evaluates coefficient values
     coef_init_loop_body = [];
@@ -608,18 +785,18 @@ function prepare_coefficient_values(entities, var, dimension, counts; rhs_only=f
         push!(coef_loop_body, IR_operation_node(IRtypes.assign_op, [:z, 0]));
     end
     
+    if group == 1 
+        lorr = LHS; vors = "volume";
+    elseif group == 2
+        lorr = RHS; vors = "volume";
+    elseif group == 3
+        lorr = LHS; vors = "surface";
+    else 
+        lorr = RHS; vors = "surface";
+    end
+    
     # Loop over entities to perpare for each one
     for i=1:length(entities)
-        if i <= counts[1] 
-            lorr = LHS; vors = "volume";
-        elseif i <= (counts[1]+counts[2]) 
-            lorr = RHS; vors = "volume";
-        elseif i <= (counts[1]+counts[2]+counts[3]) 
-            lorr = LHS; vors = "surface";
-        else 
-            lorr = RHS; vors = "surface";
-        end
-         
         if is_test_function(entities[i])
             # Do nothing
         elseif is_unknown_var(entities[i], var) && lorr == LHS
@@ -880,7 +1057,7 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
                 # Process the terms for this variable
                 for ci=1:length(terms[vi]) # components
                     for i=1:length(terms[vi][ci])
-                        (test_part, trial_part, coef_part, test_ind, trial_ind) = generate_term_calculation_fem(terms[vi][ci][i], var, lorr, vors);
+                        (test_part, trial_part, coef_part, test_ind, trial_ind) = generate_term_calculation_fem(terms[vi][ci][i], var, lorr, vors, config, refel);
                         
                         # Turn these three parts into an expression like A'DB or A'Dv = A'd
                         # Where D is a diagonal matrix specified by a vector in the IR
@@ -909,7 +1086,7 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
             # Process the terms for this variable
             for ci=1:length(terms) # components
                 for i=1:length(terms[ci])
-                    (test_part, trial_part, coef_part, test_ind, trial_ind) = generate_term_calculation_fem(terms[ci][i], var, lorr, vors);
+                    (test_part, trial_part, coef_part, test_ind, trial_ind) = generate_term_calculation_fem(terms[ci][i], var, lorr, vors, config, refel);
                     
                     # Turn these three parts into an expression like A'DB or A'Dv = A'd
                     # Where D is a diagonal matrix specified by a vector in the IR
@@ -1004,7 +1181,7 @@ function make_elemental_computation_fem(terms, var, dofsper, offset_ind, lorr, v
         
         #process each term
         for i=1:length(terms)
-            (test_part, trial_part, coef_part, test_ind, trial_ind) = generate_term_calculation_fem(terms[i], var, lorr, vors);
+            (test_part, trial_part, coef_part, test_ind, trial_ind) = generate_term_calculation_fem(terms[i], var, lorr, vors, config, refel);
             
             # Turn these three parts into an expression like A'DB or A'Dv = A'd
             # Where D is a diagonal matrix specified by a vector in the IR
@@ -1048,7 +1225,7 @@ end
 # This takes a term expression that should have a form like test_part * (coef_parts) * trial_part
 # The parts are separated, test and trial parts are translated into quadrature matrices (refel.Q or RQn)
 # and they are returned as IR_parts
-function generate_term_calculation_fem(term, var, lorr, vors)
+function generate_term_calculation_fem(term, var, lorr, vors, config, refel)
     IRtypes = IR_entry_types();
     
     if lorr == LHS
@@ -1074,23 +1251,58 @@ function generate_term_calculation_fem(term, var, lorr, vors)
     
     # Determine the matrix corresponding to test and trial
     if typeof(test_ex) == SymEntity
-        if length(test_ex.derivs) > 0
-            deriv_index = test_ex.derivs[1];
-            test_part = IR_data_node(IRtypes.float_64_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element], []);
-        else
-            # test_part = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element])]);
-            test_part = IR_data_node(IRtypes.float_64_data, :Q, [:qnodes_per_element, :nodes_per_element], []);
+        if vors == "volume"
+            if length(test_ex.derivs) > 0
+                deriv_index = test_ex.derivs[1];
+                test_part = IR_data_node(IRtypes.float_64_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element], []);
+            else
+                # test_part = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element])]);
+                test_part = IR_data_node(IRtypes.float_64_data, :Q, [:qnodes_per_element, :nodes_per_element], []);
+            end
+        else # surface
+            dgside = 0;
+            if "DGSIDE1" in test_ex.flags
+                dgside = 1;
+            elseif "DGSIDE2" in test_ex.flags
+                dgside = 2;
+            end
+            if length(test_ex.derivs) > 0
+                deriv_index = test_ex.derivs[1];
+                test_part = IR_data_node(IRtypes.float_64_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element], []);
+            else
+                # test_part = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element])]);
+                test_part = IR_data_node(IRtypes.float_64_data, :Q, [:qnodes_per_element, :nodes_per_element], []);
+            end
         end
+        
     else
         test_part = nothing;
     end
+    
     if typeof(trial_ex) == SymEntity
-        if length(trial_ex.derivs) > 0
-            deriv_index = trial_ex.derivs[1];
-            trial_part = IR_data_node(IRtypes.float_64_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element], []);
-        else
-            # trial_part = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element])]);
-            trial_part = IR_data_node(IRtypes.float_64_data, :Q, [:qnodes_per_element, :nodes_per_element], []);
+        if vors == "volume"
+            if length(trial_ex.derivs) > 0
+                deriv_index = trial_ex.derivs[1];
+                trial_part = IR_data_node(IRtypes.float_64_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element], []);
+            else
+                # trial_part = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element])]);
+                trial_part = IR_data_node(IRtypes.float_64_data, :Q, [:qnodes_per_element, :nodes_per_element], []);
+            end
+            
+        else # surface
+            dgside = 0;
+            if "DGSIDE1" in trial_ex.flags
+                dgside = 1;
+            elseif "DGSIDE2" in trial_ex.flags
+                dgside = 2;
+            end
+            if length(trial_ex.derivs) > 0
+                deriv_index = trial_ex.derivs[1];
+                trial_part = IR_data_node(IRtypes.float_64_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element], []);
+            else
+                # test_part = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element])]);
+                trial_part = IR_data_node(IRtypes.float_64_data, :Q, [:qnodes_per_element, :nodes_per_element], []);
+            end
         end
     else
         trial_part = nothing;
@@ -1098,11 +1310,21 @@ function generate_term_calculation_fem(term, var, lorr, vors)
     
     # Turn the coefficient part into IR
     wg_part = IR_data_node(IRtypes.float_64_data, :wg, [:qnodes_per_element], []);
-    if false # non-constant J
+    # When using simplex elements or squares jacobian is constant
+    if ((config.geometry == SQUARE && config.mesh_type == UNIFORM_GRID) ||
+        config.dimension == 1 ||
+        (config.dimension == 2 && refel.Nfaces == 3) ||
+        (config.dimension == 3 && refel.Nfaces == 4) )
+        constantJ = true;
+    else
+        constantJ = false;
+    end
+    if !constantJ
         detj_part = IR_data_node(IRtypes.float_64_data, :detj, [:qnodes_per_element], []);
     else
         detj_part = IR_data_node(IRtypes.float_64_data, :detj);
     end
+    
     if !(coef_ex === nothing)
         coef_part = arithmetic_expr_to_IR(coef_ex);
         if trial_negative || test_negative
