@@ -103,6 +103,60 @@ function get_directions_2d(n)
     return (dir_x, dir_y, reflect);
 end
 
+# Direction vectors
+# input: number of directions
+# output: (x_i, y_i) direction vector components
+function get_directions_3d(nphi, ntheta)
+    n = nphi * ntheta;
+    dir_x = zeros(n);
+    dir_y = zeros(n);
+    dir_z = zeros(n);
+    omega = zeros(n);
+    
+    dphi = 2*pi/nphi;
+    dtheta = pi/ntheta;
+    ind = 1;
+    for i=1:ntheta
+        theta = (i-0.5)*dtheta;
+        for j=1:nphi
+            anphi = (j-0.5)*dphi;
+            dir_x[ind] = sin(theta)*sin(anphi);
+            dir_y[ind] = sin(theta)*cos(anphi);
+            dir_z[ind] = cos(theta);
+            omega[ind] = 2*sin(theta)*sin(0.5*dtheta)*dphi;  
+            # inrmu[ind] = sin(anphi) * sin(dphi*0.5) * (dtheta - cos(2*theta)*sin(dtheta));
+            # inrxi[ind] = cos(anphi) * sin(dphi*0.5) * (dtheta - cos(2*theta)*sin(dtheta));
+            # inret[ind] = 0.5 * dphi * sin(2*theta) * sin(dtheta);
+            ind += 1;
+        end
+    end
+    return (dir_x, dir_y, dir_z, omega);
+end
+
+# For 3d the reflected direction is not so simple to store.
+# This computes it.
+function get_3d_reflection(dir_x, dir_y, dir_z, S, N)
+    sout = 0;
+    sdotn = S[1]*N[1] + S[2]*N[2] + S[3]*N[3];
+    
+    # ideal reflected direction
+    srx = S[1] - 2 * sdotn * N[1];
+    sry = S[2] - 2 * sdotn * N[2];
+    srz = S[3] - 2 * sdotn * N[3];
+    
+    # Find the direction that is closest to the reflected direction
+    min_off = 1e6;
+    for i = 1:length(dir_x)
+        sdots0 = dir_x[i]*srx + dir_y[i]*sry + dir_z[i]*srz;
+        if abs(sdots0 - 1) < min_off
+            sout = i;
+            min_off = abs(sdots0 - 1);
+        end
+    end
+    
+    return sout;
+end
+
 # Frequency bands
 # input: number of bands
 # output: centers of frequency bands, width of bands
@@ -254,6 +308,18 @@ function get_integrated_intensity!(int_intensity, intensity, ndirs, nbands)
         end
     end
 end
+function get_integrated_intensity_3d!(int_intensity, intensity, ndirs, nbands, omega)
+    n = size(intensity,2); # num cells
+    # Integrate over local bands and cells
+    for i=1:n
+        for j=1:nbands
+            int_intensity[j,i] = 0.0;
+            for k=1:ndirs
+                int_intensity[j,i] += intensity[(j-1)*ndirs+k, i] * omega[k];
+            end
+        end
+    end
+end
 
 # Derivative of equilibrium intensity with respect to temperature
 # input: frequency bands, bandwidth, temperature at each cell
@@ -322,26 +388,29 @@ end
 # input: temperature array to update, previous step temperature, intensity from this and the previous time step, 
 #        temperature from previous time step, frequency bands, bandwidth
 # output: temperature for next step for each cell
-function get_next_temp!(temp_next, temp_last, I_next, freq, dw; polarization="T")
+function get_next_temp!(temp_next, temp_last, I_next, freq, dw; polarization="T", threed=false, omega=nothing)
     debug = false;
     n = length(temp_last); # number of cells
     m = length(freq); # number of bands
     
     # G_last = get_integrated_intensity(I_last, ndirs, nbands);
     # G_next = get_integrated_intensity(I_next, ndirs, nbands);
-    get_integrated_intensity!(G_next.values, I_next, ndirs, nbands);
+    if threed
+        get_integrated_intensity_3d!(G_next.values, I_next, ndirs, nbands, omega);
+    else
+        get_integrated_intensity!(G_next.values, I_next, ndirs, nbands);
+    end
+    
     # didt = dIdT(freq, dw, temp_last, polarization=polarization); # Use single version in loop instead
     
     dt = Finch.time_stepper.dt;
     idt = 1/dt;
     
-    if debug
-        max_iters = 0;
-        ave_iters = 0;
-    end
+    max_iters = 0;
+    ave_iters = 0;
     
-    tol = 1e-10;
-    maxiters = 50;
+    tol = 1e-7;
+    maxiters = 200;
     for i=1:n # loop over cells
         # old values are not updated
         uold = 0.0; # These strange names are taken from the fortran code
@@ -370,15 +439,13 @@ function get_next_temp!(temp_next, temp_last, I_next, freq, dw; polarization="T"
             
             delta_T = (uold + gna - gnb - unew) / uprime;
             
-            if debug println("cell "*string(i)*" ("*string(uold)*", "*string(unew)*", "*string(gna)*", "*string(gnb)*", "*string(uprime)*") : "*string(delta_T)) end
+            # if debug println("cell "*string(i)*" ("*string(uold)*", "*string(unew)*", "*string(gna)*", "*string(gnb)*", "*string(uprime)*") : "*string(delta_T)) end
             
             temp_next[i] = temp_next[i] + delta_T;
             
             if abs(delta_T) < tol
-                if debug
-                    max_iters = max(max_iters, iter);
-                    ave_iters += iter;
-                end
+                max_iters = max(max_iters, iter);
+                ave_iters += iter;
                 break;
             else
                 if iter==maxiters
@@ -387,11 +454,12 @@ function get_next_temp!(temp_next, temp_last, I_next, freq, dw; polarization="T"
             end
         end# iterative refinement
     end# cell loop
+    ave_iters = ave_iters/n;
     if debug
-        println("ave iterations: "*string(ave_iters/n)*"  max: "*string(max_iters))
+        println("ave iterations: "*string(ave_iters)*"  max: "*string(max_iters))
     end
     
-    return temp_next;
+    return ave_iters;
 end
 
 # Band-based parallel version of above
@@ -399,24 +467,26 @@ end
 # input: temperature array to update, previous step temperature, intensity from this and the previous time step, 
 #        temperature from previous time step, frequency bands, bandwidth
 # output: temperature for next step for each cell
-function get_next_temp_par!(temp_next, temp_last, I_next, freq, dw; polarization="T")
+function get_next_temp_par!(temp_next, temp_last, I_next, freq, dw; polarization="T", threed=false, omega=nothing)
     debug = false;
     n = length(temp_last); # number of cells
     m = length(freq); # number of bands
     
-    get_integrated_intensity!(G_next.values, I_next, ndirs, nbands);
+    if threed
+        get_integrated_intensity_3d!(G_next.values, I_next, ndirs, nbands, omega);
+    else
+        get_integrated_intensity!(G_next.values, I_next, ndirs, nbands);
+    end
     # didt = dIdT(freq, dw, temp_last, polarization=polarization); # Use single version in loop instead
     
     dt = Finch.time_stepper.dt;
     idt = 1/dt;
     
-    if debug
-        max_iters = 0;
-        ave_iters = 0;
-    end
+    max_iters = 0;
+    ave_iters = 0;
     
-    tol = 1e-10;
-    maxiters = 50;
+    tol = 1e-5;
+    maxiters = 200;
     
     # First find uold and gnb from the previous step
     cell_comm_rank = MPI.Comm_rank(cell_comm);
@@ -496,10 +566,8 @@ function get_next_temp_par!(temp_next, temp_last, I_next, freq, dw; polarization
             temp_next[i] = temp_next[i] + delta_T;
             
             if abs(delta_T) < tol
-                if debug
-                    max_iters = max(max_iters, iter);
-                    ave_iters += iter;
-                end
+                max_iters = max(max_iters, iter);
+                ave_iters += iter;
                 converged[i] = true;
                 num_not_converged = num_not_converged - 1;
             else
@@ -512,23 +580,24 @@ function get_next_temp_par!(temp_next, temp_last, I_next, freq, dw; polarization
             break;
         end
     end# iterative refinement
+    ave_iters = ave_iters/n;
     if debug
-        println("ave iterations: "*string(ave_iters/n)*"  max: "*string(max_iters))
+        println("ave iterations: "*string(ave_iters)*"  max: "*string(max_iters))
     end
     
-    return temp_next;
+    return ave_iters;
 end
 
 # Update temperature, equilibrium I, and time scale
 #
-function update_temperature(temp, I_next, freq, dw, band_parallel=false)
+function update_temperature(temp, I_next, freq, dw; band_parallel=false, threed=false, omega=nothing)
     
     temp_last = deepcopy(temp);
     
     if band_parallel
-        get_next_temp_par!(temp, temp_last, I_next, freq, dw);
+        iterations = get_next_temp_par!(temp, temp_last, I_next, freq, dw, threed=threed, omega=omega);
     else
-        get_next_temp!(temp, temp_last, I_next, freq, dw);
+        iterations = get_next_temp!(temp, temp_last, I_next, freq, dw, threed=threed, omega=omega);
     end
     
     equilibrium_intensity!(Io.values, freq, dw, temp);
@@ -541,47 +610,9 @@ function update_temperature(temp, I_next, freq, dw, band_parallel=false)
             exit(0);
         end
     end
+    
+    return iterations;
 end
-
-# # Temporary until I figure out where to do this automatically
-# function communicate_bands()
-#     rank = Finch.config.proc_rank;
-#     np = Finch.config.num_procs;
-#     nel = Finch.mesh_data.nel;
-    
-#     # This is my band range
-#     band_range = (rank*40/np + 1):((rank+1)*40/np);
-#     # Part of Intensity that I did
-#     my_count = Int(nel*16*40/np);
-#     my_intensity = zeros(my_count);
-#     next = 1;
-#     for i=1:nel
-#         for k=1:band_range
-#             for j=1:16
-#                 m_intensity[next] = I.values[(k-1)*16 + j, i];
-#                 next += 1;
-#             end
-#         end
-#     end
-    
-#     # allgather the intensity
-#     p_data = zeros(length(I.values));
-#     p_data_in = Finch.MPI.UBuffer(p_data, my_count, config.num_procs, MPI.Datatype(Float64));
-#     p_data_out = my_intensity;
-#     Finch.MPI.Allgather!(p_data_out, p_data_in, MPI.COMM_WORLD);
-    
-#     # reorganize it
-#     next = 1;
-#     for i=1:nel
-#         for k=1:40
-#             for j=1:16
-#                 I.values[(k-1)*16 + j, i] = p_data_in[next];
-#                 next += 1;
-#             end
-#         end
-#     end
-    
-# end
 
 #############################################################################
 ## alternative models.

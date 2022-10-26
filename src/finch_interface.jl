@@ -378,6 +378,10 @@ function variable(name; type=SCALAR, location=NODAL, method=CG, index=nothing)
     if !(config.solver_type == MIXED) && !(config.solver_type == method)
         method = config.solver_type;
     end
+    
+    if !(index===nothing) && !(typeof(index) <: Vector)
+        index = [index];
+    end
     # Just make an empty variable with the info known so far.
     var = Variable(varsym, [], varind, type, location, method, [], index, 0, [], false);
     add_variable(var);
@@ -464,7 +468,7 @@ function index(name; range=[1])
     if length(range) == 2
         range = Array(range[1]:range[2]);
     end
-    idx = Indexer(Symbol(name), range, range[1])
+    idx = Indexer(Symbol(name), range, range[1], length(indexers)+1)
     add_indexer(idx);
     return idx;
 end
@@ -980,7 +984,7 @@ function source(var, sex)
 end
 
 """
-    assemblyLoops(var, indices, parallel_type=[])
+    assemblyLoops(indices, parallel_type=[])
 
 Specify the nesting order of loops for assembling the system.
 This makes sense for problems with indexed variables.
@@ -989,8 +993,10 @@ Indices is an array of indexer objects and a string "elements".
 Loops will be nested in that order with outermost first.
 If parallel_type is specified for the loops, they will be generated with 
 that type of parallel strategy. Possibilities are "none", "mpi", "threads".
+NOTE: parallel_type use is still under development and may not work for
+all problems.
 """
-function assemblyLoops(var, indices, parallel_type=[])
+function assemblyLoops(indices, parallel_type=[])
     if length(parallel_type) < length(indices)
         parallel_type = fill("none", length(indices));
     end
@@ -1005,6 +1011,7 @@ function assemblyLoops(var, indices, parallel_type=[])
                 for j=1:length(indexers)
                     if indices[i] == string(indexers[j].symbol)
                         push!(indexer_list, indexers[j]);
+                        break;
                     end
                 end
             end
@@ -1292,16 +1299,16 @@ function solve(var)
         # Evaluate initial conditions if not already done
         eval_initial_conditions();
         
-        # If any of the variables are indexed types, generate assembly loops
-        var_indexers = [];
+        # If any of the variables are indexed types, make sure ordered indexers has "elements"
+        need_indexers = false;
         for vi=1:length(var)
             if !(var[vi].indexer === nothing)
-                push!(var_indexers, var[vi].indexer);
+                need_indexers = true;
             end
         end
-        if length(var_indexers)>0 && assembly_loops[varind] === nothing
+        if need_indexers && length(ordered_indexers) == length(indexers)
             log_entry("Indexed variables detected, but no assembly loops specified. Using default.")
-            assemblyLoops(var, ["elements"; var_indexers]);
+            assemblyLoops(["elements"; ordered_indexers]);
         end
         
         # # If nonlinear, a matching set of variables should have been created. find them
@@ -1333,28 +1340,16 @@ function solve(var)
         end
         
         # Use the appropriate solver
-        if config.solver_type == CG # || config.solver_type == DG
+        if config.solver_type == CG || config.solver_type == DG
             func = solve_function[varind];
             
             if prob.nonlinear
                 TimerOutputs.@timeit timer_output "FE_solve" func.func(var, grid_data, refel, geo_factors, config, 
-                                            coefficients, variables, test_functions, indexers, prob, time_stepper, nl_var);
+                                            coefficients, variables, test_functions, ordered_indexers, prob, time_stepper, nl_var);
                 
             else
                 TimerOutputs.@timeit timer_output "FE_solve" func.func(var, grid_data, refel, geo_factors, config, 
-                                            coefficients, variables, test_functions, indexers, prob, time_stepper);
-            end
-            
-            log_entry("Solved for "*varnames, 1);
-            
-        elseif config.solver_type == DG
-            println("DG is not ready yet. Please wait.")
-            func = solve_function[varind];
-            
-            if prob.time_dependent
-                # t = @elapsed(result = DGSolver.solve(var, func, time_stepper));
-            else
-                # t = @elapsed(result = DGSolver.solve(var, func));
+                                            coefficients, variables, test_functions, ordered_indexers, prob, time_stepper);
             end
             
             log_entry("Solved for "*varnames, 1);
@@ -1364,16 +1359,17 @@ function solve(var)
             
             if prob.nonlinear
                 TimerOutputs.@timeit timer_output "FV_solve" func.func(var, grid_data, refel, geo_factors, fv_info, config, 
-                                            coefficients, variables, test_functions, indexers, prob, time_stepper, nl_var);
+                                            coefficients, variables, test_functions, ordered_indexers, prob, time_stepper, nl_var);
             else
                 TimerOutputs.@timeit timer_output "FV_solve" func.func(var, grid_data, refel, geo_factors, fv_info, config, 
-                                            coefficients, variables, test_functions, indexers, prob, time_stepper);
+                                            coefficients, variables, test_functions, ordered_indexers, prob, time_stepper);
             end
             
             log_entry("Solved for "*varnames, 1);
             
         elseif config.solver_type == MIXED
             println("Mixed solver is not ready. Please wait.");
+            return nothing
             
             # Need to determine the variable index for fe and fv
             fe_var_index = 0;

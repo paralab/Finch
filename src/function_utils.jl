@@ -32,6 +32,27 @@ function add_genfunction(genfun)
     log_entry("Generated function: "*genfun.name);
 end
 
+# Makes either: a constant number, a genfunction, or an array of genfunctions
+function makeFunctions(ex; args="x=0,y=0,z=0,t=0,node_index=1,face_index=1;indices=nothing")
+    nfuns = 0;
+    if typeof(ex) <: Array
+        for i=1:length(ex)
+            if typeof(ex[i]) == String
+                tmp = makeFunction(args, ex[i]);
+                nfuns += 1;
+            # else # It could be a number or function handle
+            end
+        end
+    else
+        if typeof(ex) == String
+            makeFunction(args, ex);
+            nfuns = 1;
+        # else # It could be a number or function handle
+        end
+    end
+    return nfuns;
+end
+
 # Makes a GenFunction and adds it to the
 # args is a string like "x,y,z"
 # fun is a string like "sin(x)*y + 3*z" OR an Expr
@@ -128,27 +149,6 @@ function extract_function_name_and_args(fun)
     return (name, args);
 end
 
-# Makes either: a constant number, a genfunction, or an array of genfunctions
-function makeFunctions(ex; args="x=0,y=0,z=0,t=0,node_index=1,face_index=1")
-    nfuns = 0;
-    if typeof(ex) <: Array
-        for i=1:length(ex)
-            if typeof(ex[i]) == String
-                tmp = makeFunction(args, ex[i]);
-                nfuns += 1;
-            # else # It could be a number or function handle
-            end
-        end
-    else
-        if typeof(ex) == String
-            makeFunction(args, ex);
-            nfuns = 1;
-        # else # It could be a number or function handle
-        end
-    end
-    return nfuns;
-end
-
 # Checks a string representing a function for time dependence.
 # Assumes that a "t" that is not part of a word is time.
 # ex could be a string or array containing strings or the result will be false.
@@ -170,7 +170,6 @@ end
 
 # Interpret symbols in the arguments to a function for boundary or initial conditions.
 # Replace them with something meaningful.
-# Everything must be in terms of x, y, z, t, node_index, face_index
 # Symbols could be:
 # numbers/math ops -> no change
 # x,y,z,t -> no change (provided as input arguments)
@@ -213,9 +212,10 @@ function replace_symbols_in_conditions(ex)
                 end
                 ex = newex;
             elseif i_index > 0
-                ex = :(Finch.indexers[$i_index].value);
+                index_tag = indexers[i_index].tag;
+                ex = :(indices[$index_tag]);
             elseif cb_index > 0
-                ex = :(callback_functions[$cb_index].func);
+                ex = :(Finch.callback_functions[$cb_index].func);
             elseif ex === :normal
                 ex = :(Finch.grid_data.facenormals[:,face_index]);
             end

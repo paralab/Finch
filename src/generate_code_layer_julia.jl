@@ -34,18 +34,19 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     
     # 
     if solver == CG || solver == DG
-        args = "(var, mesh, refel, geometric_factors, config, coefficients, variables, test_functions, indexers, prob, time_stepper, nl_var=nothing)";
+        args = "(var, mesh, refel, geometric_factors, config, coefficients, variables, test_functions, ordered_indexers, prob, time_stepper, nl_var=nothing)";
         disc_specific = "
     # FEM specific pieces
     Q = refel.Q;
     wg = refel.wg;
+    gness = size(mesh.face2glb,2); # CG=1, DG=2
     
     # For partitioned meshes
     (partitioned_order, partitioned_sizes) = get_partitioned_ordering(dofs_per_node, mesh, config);
     "
         
     elseif solver == FV
-        args = "(var, mesh, refel, geometric_factors, fv_info, config, coefficients, variables, test_functions, indexers, prob, time_stepper, nl_var=nothing)";
+        args = "(var, mesh, refel, geometric_factors, fv_info, config, coefficients, variables, test_functions, ordered_indexers, prob, time_stepper, nl_var=nothing)";
         disc_specific = "
     # FVM specific pieces
     
@@ -87,6 +88,7 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     nodes_per_element = refel.Np;
     qnodes_per_element = refel.Nqp;
     faces_per_element = refel.Nfaces;
+    nodes_per_face = refel.Nfp[1];
     dofs_per_element = dofs_per_node * nodes_per_element;
     local_system_size = dofs_per_loop * nodes_per_element;
     
@@ -351,7 +353,7 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         
     elseif op === :GLOBAL_FORM_MATRIX
         # This will eventually be more complicated, but let's do the default for now
-        code = indent * "global_matrix = sparse(global_matrix_I, global_matrix_J, global_matrix_V);\n"
+        code = indent * "global_matrix = sparse(@view(global_matrix_I[1:(next_nonzero_index-1)]), @view(global_matrix_J[1:(next_nonzero_index-1)]), @view(global_matrix_V[1:(next_nonzero_index-1)]));\n"
         
     elseif op === :GLOBAL_GATHER_VECTOR
         code = indent * "global_vector = gather_system(nothing, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config);"
@@ -363,7 +365,7 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         code *= indent * "exchange_ghosts_fv(var, mesh, dofs_per_node, ti);"
         
     elseif op === :GLOBAL_SOLVE
-        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = linear_system_solve("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* generate_from_IR_julia(IR.args[4], IRtypes) *", config);"
+        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " .= linear_system_solve("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* generate_from_IR_julia(IR.args[4], IRtypes) *", config);"
         
     elseif op === :GLOBAL_DISTRIBUTE_VECTOR
         code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = distribute_solution("*generate_from_IR_julia(IR.args[2], IRtypes) * ", nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config);"
@@ -371,7 +373,7 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
     elseif op === :GATHER_VARS
         # place variable arrays in global vector
         if length(IR.args) < 3
-            code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = get_var_vals(var, "* generate_from_IR_julia(IR.args[2], IRtypes) * ");";
+            code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = get_var_vals(var, "* generate_from_IR_julia(IR.args[2], IRtypes) * ", );";
         else
             code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * 
                 " = get_var_vals("* generate_from_IR_julia(IR.args[3], IRtypes) * ", "* generate_from_IR_julia(IR.args[2], IRtypes) * ");";
@@ -399,11 +401,10 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         
     elseif op === :SCATTER_VARS
         # place global vector in variable arrays
-        # place_sol_in_vars(var, sol, stepper);
         if length(IR.args) < 3
-            code = indent * "place_sol_in_vars(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *");";
+            code = indent * "place_vector_in_vars(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *");";
         else
-            code = indent * "place_sol_in_vars("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* 
+            code = indent * "place_vector_in_vars("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* 
                             generate_from_IR_julia(IR.args[2], IRtypes) *");";
         end
         

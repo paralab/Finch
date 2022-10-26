@@ -47,16 +47,17 @@ function linear_system_solve(A::SparseMatrixCSC, b::Vector, config::Finch_config
 end
 
 # place the values from sol into the variable value arrays
-function place_sol_in_vars(var::Vector{Variable}, sol::Vector{Float64})
+function place_vector_in_vars(var::Vector{Variable}, vect::Vector{Float64})
     tmp = 0;
     totalcomponents = 0;
     for vi=1:length(var)
         totalcomponents = totalcomponents + var[vi].total_components;
     end
+    
     for vi=1:length(var)
         components = var[vi].total_components;
         for compi=1:components
-            var[vi].values[compi,:] .= sol[(compi+tmp):totalcomponents:end];
+            var[vi].values[compi,:] .= @view(vect[(compi+tmp):totalcomponents:end]);
         end
         tmp = tmp + components;
     end
@@ -74,10 +75,11 @@ function get_var_vals(var::Vector{Variable}, vect::Union{Nothing, Vector{Float64
     if vect === nothing
         vect = zeros(totalcomponents * size(var[1].values, 2));
     end
+    
     for vi=1:length(var)
         components = var[vi].total_components;
         for compi=1:components
-            vect[(compi+tmp):totalcomponents:end] = var[vi].values[compi,:];
+            vect[(compi+tmp):totalcomponents:end] .= @view(var[vi].values[compi,:]);
         end
         tmp = tmp + components;
     end

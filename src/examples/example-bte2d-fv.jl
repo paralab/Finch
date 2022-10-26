@@ -1,19 +1,19 @@
 #=
-2D explicit BTE.
+2D BTE
+Can use EULER_EXPLICIT or EULER_IMPLICIT steppers.
 =#
 
 ### If the Finch package has already been added, use this line #########
-using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+# using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
 
 ### If not, use these four lines (working from the examples directory) ###
-# if !@isdefined(Finch)
-#     include("../Finch.jl");
-#     using .Finch
-# end
+if !@isdefined(Finch)
+    include("../Finch.jl");
+    using .Finch
+end
 ##########################################################################
 
 init_finch("FVbte2d");
-
 useLog("FVbte2dlog", level=3)
 
 # constants and various functions are in another file
@@ -24,20 +24,21 @@ include("bte-boundary.jl")
 # Configuration setup
 domain(2)
 solverType(FV)
-timeStepper(EULER_EXPLICIT)
-dt = 2.5e-12;
-nsteps = 10;
+timeStepper(EULER_IMPLICIT)
+# Specify time steps if desired
+dt = 2.5e-11;
+nsteps = 100;
 setSteps(dt, nsteps);
 
 # direction and band numbers
 ndirs = 16;
-nbands = 40;
+nbands = 4; # Set to 40 for larger scale computation
 
 # A simple mesh is internally generated for convenience
 # This matches the mesh in model_setup_BTE.in
 mesh(QUADMESH, # quad elements
     elsperdim=[20,5], # elements in each direction: 20 x 5 uniform grid
-    interval=[0, 3e-6, 0, 3e-7],  # interval in each direction: a very small rectangle
+    interval=[0, 4e-6, 0, 1e-6],  # interval in each direction: a very small rectangle
     bids=3) # 3 boundary IDs for this mesh correspond to left, right, top/bottom
 
 # Indices, Variables, etc.
@@ -72,18 +73,7 @@ initial(Io, [equilibrium_intensity(center_freq[b], delta_freq, init_temp) for b=
 initial(beta, [get_time_scale(center_freq[b], init_temp) for b=1:nbands])
 initial(temperature, init_temp);
 
-# The flux and source terms of the conservation equation
-# F and S in the following equation:
-# Dt(int(u dx)/A) = int(S dx) - int(F.n ds)
-# BTE:
-# Dt(int(Iij dx)) = int((Io-Iij)*beta dx) ) - vg * int(Iij * Si.n ds)
-flux(I, "vg[band] * upwind([Sx[direction];Sy[direction]] , I[direction,band])") 
-source(I, "(Io[band] - I[direction,band]) / beta[band]") # <- Shouldn't this be multiplied by beta, not divided?
-
-assemblyLoops(I, ["elements", band, direction])
-
-# Create an array to hold the values of I from the last step.
-# To get initial values here we have to manually initialize.
+# To get initial values here before calling solve, manually initialize.
 evalInitialConditions();
 get_integrated_intensity!(G_last.values, I.values, ndirs, nbands);
 
@@ -93,41 +83,45 @@ function post_step()
 end
 postStepFunction(post_step);
 
+assemblyLoops(["elements", band, direction])
+
+# BTE:
+# Dt(int(Iij dx)) = int((Io-I)/beta dx) ) + vg * int(I * S.n ds)
+# Input conservation form representing: (Io-I)/beta + surface(vg * I * S.n)
+conservationForm(I, "(Io[band] - I[direction,band]) / beta[band] + surface(vg[band] * upwind([Sx[direction];Sy[direction]] , I[direction,band]))")
+
 exportCode("bte2dcode") # uncomment to export generated code to a file
-#importCode("bte2dcodein") # uncomment to import code from a file
+# importCode("bte2dcode") # uncomment to import code from a file
 
 solve(I)
 
-finalize_finch()
+finalizeFinch()
 
 ##### Uncomment below to plot ######
 
-# xy = Finch.fv_info.cellCenters
+using Plots
+pyplot();
 
-# for i=1:size(xy,2)
-#     println(string(xy[1,i]) * ", \t" * string(xy[2,i]) * ", \t" * string(temperature.values[i]))
-# end
+xy = Finch.fv_info.cellCenters
 
-# using Plots
-# pyplot();
+# plots the temperature
+display(plot(xy[1,:], xy[2,:], temperature.values[:], st=:surface));
 
-# # p1 = plot(xy[1,:], xy[2,:], I.values[1,:], st=:surface)#, zlims=(0,Inf))
-# # p2 = plot(xy[1,:], xy[2,:], I.values[2,:], st=:surface)#, zlims=(0,Inf))
-# # p3 = plot(xy[1,:], xy[2,:], I.values[3,:], st=:surface)#, zlims=(0,Inf))
-# # p4 = plot(xy[1,:], xy[2,:], I.values[4,:], st=:surface)#, zlims=(0,Inf))
-# # p5 = plot(xy[1,:], xy[2,:], I.values[5,:], st=:surface)#, zlims=(0,Inf))
-# # p6 = plot(xy[1,:], xy[2,:], I.values[6,:], st=:surface)#, zlims=(0,Inf))
-# # p7 = plot(xy[1,:], xy[2,:], I.values[7,:], st=:surface)#, zlims=(0,Inf))
-# # p8 = plot(xy[1,:], xy[2,:], I.values[8,:], st=:surface)#, zlims=(0,Inf))
-# # p9 = plot(xy[1,:], xy[2,:], I.values[9,:], st=:surface)#, zlims=(0,Inf))
-# # p10 = plot(xy[1,:], xy[2,:], I.values[10,:], st=:surface)#, zlims=(0,Inf))
-# # p11 = plot(xy[1,:], xy[2,:], I.values[11,:], st=:surface)#, zlims=(0,Inf))
-# # p12 = plot(xy[1,:], xy[2,:], I.values[12,:], st=:surface)#, zlims=(0,Inf))
-# # p13 = plot(xy[1,:], xy[2,:], I.values[13,:], st=:surface)#, zlims=(0,Inf))
-# # p14 = plot(xy[1,:], xy[2,:], I.values[14,:], st=:surface)#, zlims=(0,Inf))
-# # p15 = plot(xy[1,:], xy[2,:], I.values[15,:], st=:surface)#, zlims=(0,Inf))
-# # p16 = plot(xy[1,:], xy[2,:], I.values[16,:], st=:surface)#, zlims=(0,Inf))
-# # display(plot(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, layout=16))
-
-# display(plot(xy[1,:], xy[2,:], temperature.values[:], st=:surface));
-
+# # plots the intensity for the first band an 16 directions
+# p1 = plot(xy[1,:], xy[2,:], I.values[1,:], st=:surface)#, zlims=(0,Inf))
+# p2 = plot(xy[1,:], xy[2,:], I.values[2,:], st=:surface)#, zlims=(0,Inf))
+# p3 = plot(xy[1,:], xy[2,:], I.values[3,:], st=:surface)#, zlims=(0,Inf))
+# p4 = plot(xy[1,:], xy[2,:], I.values[4,:], st=:surface)#, zlims=(0,Inf))
+# p5 = plot(xy[1,:], xy[2,:], I.values[5,:], st=:surface)#, zlims=(0,Inf))
+# p6 = plot(xy[1,:], xy[2,:], I.values[6,:], st=:surface)#, zlims=(0,Inf))
+# p7 = plot(xy[1,:], xy[2,:], I.values[7,:], st=:surface)#, zlims=(0,Inf))
+# p8 = plot(xy[1,:], xy[2,:], I.values[8,:], st=:surface)#, zlims=(0,Inf))
+# p9 = plot(xy[1,:], xy[2,:], I.values[9,:], st=:surface)#, zlims=(0,Inf))
+# p10 = plot(xy[1,:], xy[2,:], I.values[10,:], st=:surface)#, zlims=(0,Inf))
+# p11 = plot(xy[1,:], xy[2,:], I.values[11,:], st=:surface)#, zlims=(0,Inf))
+# p12 = plot(xy[1,:], xy[2,:], I.values[12,:], st=:surface)#, zlims=(0,Inf))
+# p13 = plot(xy[1,:], xy[2,:], I.values[13,:], st=:surface)#, zlims=(0,Inf))
+# p14 = plot(xy[1,:], xy[2,:], I.values[14,:], st=:surface)#, zlims=(0,Inf))
+# p15 = plot(xy[1,:], xy[2,:], I.values[15,:], st=:surface)#, zlims=(0,Inf))
+# p16 = plot(xy[1,:], xy[2,:], I.values[16,:], st=:surface)#, zlims=(0,Inf))
+# display(plot(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, layout=16))

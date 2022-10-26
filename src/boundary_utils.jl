@@ -275,7 +275,7 @@ end
 # - the value of constant BCs
 # - evaluate a genfunction.func for BCs defined by strings->genfunctions
 # - evaluate a function for BCs defined by callback functions
-function FV_evaluate_bc(val, eid, fid, facex, t)
+function FV_evaluate_bc(val, eid, fid, facex, t, indices=nothing)
     dim = config.dimension;
     if typeof(val) <: Number
         result = val;
@@ -285,11 +285,11 @@ function FV_evaluate_bc(val, eid, fid, facex, t)
         
     elseif typeof(val) == GenFunction
         if dim == 1
-            result=val.func(facex[1],0,0,t,eid,fid);
+            result=val.func(facex[1],0,0,t,eid,fid,indices=indices);
         elseif dim == 2
-            result=val.func(facex[1],facex[2],0,t,eid,fid);
+            result=val.func(facex[1],facex[2],0,t,eid,fid,indices=indices);
         else
-            result=val.func(facex[1],facex[2],facex[3],t,eid,fid);
+            result=val.func(facex[1],facex[2],facex[3],t,eid,fid,indices=indices);
         end
         
     elseif typeof(val) == CallbackFunction
@@ -319,8 +319,12 @@ function FV_evaluate_bc(val, eid, fid, facex, t)
                 end
                 push!(arg_list, (string(r.symbol), cvals));
             elseif typeof(r) == Indexer
-                foundit = true;
-                push!(arg_list, (string(r.symbol), r.value));
+                # if an indexer is present, indices should be a Dict{Symbol,Int}.
+                if !(indices === nothing)
+                    ind_val = indices[r.symbol];
+                    foundit = true;
+                    push!(arg_list, (r.symbol, ind_val));
+                end
             elseif typeof(r) == String
                 # This could also be a variable, coefficient, or special thing like normal, 
                 if r in ["x","y","z","t"]
@@ -344,7 +348,7 @@ function FV_evaluate_bc(val, eid, fid, facex, t)
                     for c in coefficients
                         if string(c.symbol) == r
                             foundit = true;
-                            push!(arg_list, (r, FV_evaluate_bc(c, eid, fid, t)));
+                            push!(arg_list, (r, FV_evaluate_bc(c, eid, fid, facex, t, indices=indices)));
                             break;
                         end
                     end
@@ -377,7 +381,7 @@ end
 function apply_boundary_conditions_elemental(var::Vector{Variable}, eid::Int, grid::Grid, refel::Refel,
                                             geo_facs::GeometricFactors, prob::Finch_prob, t::Union{Int,Float64},
                                             elmat::Matrix{Float64}, elvec::Vector{Float64}, bdry_done::Vector{Int},
-                                            component::Int = 0)
+                                            component::Int = 0, indices::Union{Vector{Int},Nothing}=nothing)
     # Check each node to see if the bid is > 0 (on boundary)
     nnodes = refel.Np;
     norm_dot_grad = nothing;
@@ -453,7 +457,8 @@ end
 # Apply boundary conditions to one element
 function apply_boundary_conditions_elemental_rhs(var::Vector{Variable}, eid::Int, grid::Grid, refel::Refel,
                                             geo_facs::GeometricFactors, prob::Finch_prob, t::Union{Int,Float64},
-                                            elvec::Vector{Float64}, bdry_done::Vector{Int}, component::Int = 0)
+                                            elvec::Vector{Float64}, bdry_done::Vector{Int}, 
+                                            component::Int = 0, indices::Union{Vector{Int},Nothing}=nothing)
     # Check each node to see if the bid is > 0 (on boundary)
     nnodes = refel.Np;
     for ni=1:nnodes
@@ -508,9 +513,10 @@ end
 # Modify flux_mat and flux_vec
 function apply_boundary_conditions_face(var::Vector{Variable}, eid::Int, fid::Int, fbid::Int, mesh::Grid, refel::Refel, 
                                         geometric_factors::GeometricFactors, fv_info::FVInfo, prob::Finch_prob, t::Union{Int,Float64}, 
-                                        flux_mat::Matrix{Float64}, flux_vec::Vector{Float64}, bdry_done::Vector{Int}, 
-                                        component::Int = 0)
+                                        dt::Union{Int,Float64}, flux_mat::Matrix{Float64}, flux_vec::Vector{Float64}, bdry_done::Vector{Int}, 
+                                        component::Int = 0, indices::Union{Vector{Int},Nothing}=nothing)
     dofind = 0;
+    ndofs = size(flux_mat,2);
     facex = fv_info.faceCenters[:,fid];
     for vi=1:length(var)
         if !(var[1].indexer === nothing)
@@ -525,17 +531,17 @@ function apply_boundary_conditions_face(var::Vector{Variable}, eid::Int, fid::In
                 # do nothing
             elseif prob.bc_type[var[vi].index, fbid] == FLUX
                 # compute the value and add it to the flux directly
-                flux_vec[dofind] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, facex, t);
-                # for i=1:size(flux_mat,2)
-                #     flux_mat[dofind, i] = 0;
-                # end
+                flux_vec[dofind] = dt * FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, facex, t, indices);
+                for i=1:ndofs
+                    flux_mat[dofind, i] = 0;
+                end
                 
             elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
                 # Set variable array and handle after the face loop
-                var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, facex, t);
-                # for i=1:size(flux_mat,2)
-                #     flux_mat[dofind, i] = 0;
-                # end
+                var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, facex, t, indices);
+                for i=1:ndofs
+                    flux_mat[dofind, i] = 0;
+                end
                 
             else
                 printerr("Unsupported boundary condition type: "*prob.bc_type[var[vi].index, fbid]);
@@ -548,14 +554,14 @@ end
 # Modify the flux vector
 function apply_boundary_conditions_face_rhs(var::Vector{Variable}, eid::Int, fid::Int, fbid::Int, mesh::Grid, refel::Refel, 
                                             geometric_factors::GeometricFactors, fv_info::FVInfo, prob::Finch_prob, t::Union{Int,Float64}, 
-                                            flux::Vector{Float64}, bdry_done::Vector{Int}, component::Int = 0)
+                                            dt::Union{Int,Float64}, flux::Vector{Float64}, bdry_done::Vector{Int}, 
+                                            component::Int = 0, indices::Union{Vector{Int},Nothing}=nothing)
     dofind = 0;
     facex = fv_info.faceCenters[:,fid];
     for vi=1:length(var)
-        if !(var[1].indexer === nothing)
+        if !(var[vi].indexer === nothing) # if the variable is indexed, a component offset should be specified
             compo_range = component + 1;
-            # row_index += nnodes * (component-1);
-        else
+        else # not an indexed variable, use all components
             compo_range = 1:var[vi].total_components;
         end
         for compo=compo_range
@@ -564,11 +570,11 @@ function apply_boundary_conditions_face_rhs(var::Vector{Variable}, eid::Int, fid
                 # do nothing
             elseif prob.bc_type[var[vi].index, fbid] == FLUX
                 # compute the value and add it to the flux directly
-                flux[dofind] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, facex, t);
+                flux[dofind] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, facex, t, indices);
                 
             elseif prob.bc_type[var[vi].index, fbid] == DIRICHLET
                 # Set variable array and handle after the face loop
-                var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, facex, t);
+                var[vi].values[compo,eid] = FV_evaluate_bc(prob.bc_func[var[vi].index, fbid][compo], eid, fid, facex, t, indices);
                 # If implicit, this needs to be handled before solving
                 
             else
