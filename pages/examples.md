@@ -30,11 +30,11 @@ The heat equation demonstrates support for time dependent problems.
 <br><a href="https://github.com/paralab/Finch/blob/master/src/examples/example-heat2d.jl">example-heat2d.jl</a>
 </p>
 
-<h3>Navier Stokes</h3>
-<p> <img src="images/NS.png" alt="NS" width="150">
-This 2D lid-driven NS problem demonstrates some of the nonlinear capabilities and the use of parameter entities.
-<br>Page: <a href="https://paralab.github.io/Finch/pages/NS.html">NS page</a>
-<br><a href="https://github.com/paralab/Finch/blob/master/src/examples/example-NS.jl">example-NS.jl</a>
+<h3>Bratu</h3>
+<p> <img src="images/bratu.png" alt="Bratu" width="200">
+This 1D Bratu equation demonstrates some of the nonlinear capabilities and indexed variables.
+<br>Page: <a href="https://paralab.github.io/Finch/pages/bratu.html">NS page</a>
+<br><a href="https://github.com/paralab/Finch/blob/master/src/examples/example-bratu1d.jl">example-bratu1d.jl</a>
 </p>
 
 <h3>Unstructured Meshes</h3>

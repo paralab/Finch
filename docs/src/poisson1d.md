@@ -11,7 +11,7 @@ The 1D Poisson equation with Dirichlet boundary and smooth functions is about as
 Begin by loading the Finch module. Then initialize. The name here is only used when generating code files.
 ```
 using Finch
-init_finch("poisson1d");
+initFinch("poisson1d");
 ```
 Then set up the configuration. This example simply sets dimensionality of the domain and polynomial order of the basis function space.
 ```
@@ -46,4 +46,4 @@ Then write the weak form expression in the residual form. Finally, solve for u.
 weakForm(u, "-grad(u)*grad(v) - f*v")
 solve(u);
 ```
-End things with `finalize_finch()` to finish up any generated files and the log.
+End things with `finalizeFinch()` to finish up any generated files and the log.

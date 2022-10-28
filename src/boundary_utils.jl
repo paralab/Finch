@@ -319,7 +319,7 @@ function FV_evaluate_bc(val, eid, fid, facex, t, indices=nothing)
                 end
                 push!(arg_list, (string(r.symbol), cvals));
             elseif typeof(r) == Indexer
-                # if an indexer is present, indices should be a Dict{Symbol,Int}.
+                # if an indexer is present
                 if !(indices === nothing)
                     ind_val = indices[r.symbol];
                     foundit = true;

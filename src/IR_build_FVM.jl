@@ -168,6 +168,13 @@ function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
             IR_data_node(IRtypes.int_64_data, :index_values, [max_index_tag], []),
             IR_operation_node(IRtypes.allocate_op, [IRtypes.int_64_data, max_index_tag])
         ]));
+        
+    else
+        push!(allocate_block.parts, IR_comment_node("No indexed variables"));
+        push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
+            IR_data_node(IRtypes.int_64_data, :index_values, [0], []),
+            IR_operation_node(IRtypes.allocate_op, [IRtypes.int_64_data, 0])
+        ]));
     end
     
     # coefficient prep

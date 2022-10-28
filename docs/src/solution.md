@@ -7,6 +7,6 @@ Pages = ["solution.md"]
 ```
 
 ```@docs
-solve(var, nlvar=nothing; nonlinear=false)
+solve(var)
 outputValues(vars, filename; format="vtk", ascii=false)
 ```

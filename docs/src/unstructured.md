@@ -14,7 +14,7 @@ Unstructured 2D meshes made of irregular triangles or quads are used in example-
 The following description is for the 2D case. Begin by importing and using the Finch module. Then initialize. The name here is only used when generating code files.
 ```
 using Finch
-init_finch("unstructured2d");
+initFinch("unstructured2d");
 ```
 Then set up the configuration. This example simply sets dimensionality of the domain and polynomial order of the basis function space.
 ```
@@ -54,4 +54,4 @@ Then write the weak form expression in the residual form and solve for u.
 weakForm(u, "k*dot(grad(u), grad(v)) + C*u*v+ f*v")
 solve(u);
 ```
-End things with `finalize_finch()` to finish up any generated files and the log.
+End things with `finalizeFinch()` to finish up any generated files and the log.

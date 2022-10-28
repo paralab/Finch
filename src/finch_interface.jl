@@ -2,7 +2,7 @@
 This file contains all of the common interface functions.
 Many of them simply call corresponding functions in jl.
 =#
-export generateFor, useLog, domain, solverType, functionSpace, trialSpace, testSpace, finiteVolumeOrder,
+export initFinch, generateFor, useLog, domain, solverType, functionSpace, trialSpace, testSpace, finiteVolumeOrder,
         nodeType, timeStepper, setSteps, matrixFree, customOperator, customOperatorFile,
         mesh, exportMesh, variable, coefficient, parameter, testSymbol, index, boundary, addBoundaryID,
         referencePoint, timeInterval, initial, preStepFunction, postStepFunction, callbackFunction,
@@ -13,12 +13,20 @@ export generateFor, useLog, domain, solverType, functionSpace, trialSpace, testS
         solve, cachesimSolve, 
         finalizeFinch, cachesim, outputValues,
         mortonNodes, hilbertNodes, tiledNodes, mortonElements, hilbertElements, 
-        tiledElements, elementFirstNodes, randomNodes, randomElements,
-        # These do not match the interface style, but are kept for legacy support. May be removed.
-        finalize_finch, morton_nodes, hilbert_nodes, tiled_nodes, morton_elements, hilbert_elements, 
-        tiled_elements, ef_nodes, random_nodes, random_elements
+        tiledElements, elementFirstNodes, randomNodes, randomElements
 
 # Begin configuration setting functions
+
+"""
+initFinch(name = "unnamedProject")
+
+This initializes the Finch state.
+If Finch had been previously initialized, this will reset everything.
+The name of the project can be set here.
+"""
+function initFinch(name="unnamedProject")
+    init_finch(name);
+end
 
 """
     generateFor(lang; filename=project_name, header="", params=nothing)
@@ -1551,8 +1559,7 @@ It does not deallocate any data, so further processing can be done after
 calling this. However, using Finch functions may cause issues because
 files have been closed.
 """
-function finalizeFinch() finalize_finch() end
-function finalize_finch()
+function finalizeFinch()
     # Finalize generation
     finalize_code_generator();
     if use_cachesim
@@ -1595,8 +1602,7 @@ with Finch's internal utility.
 griddim is an array representing the nodal grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 """
-function mortonNodes(griddim) morton_nodes(griddim) end
-function morton_nodes(griddim)
+function mortonNodes(griddim)
     t = @elapsed(global grid_data = reorder_grid_recursive!(grid_data, griddim, MORTON_ORDERING));
     log_entry("Reordered nodes to Morton. Took "*string(t)*" sec.", 2);
 end
@@ -1610,8 +1616,7 @@ with Finch's internal utility.
 griddim is an array representing the elemental grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 """
-function mortonElements(griddim) morton_elements(griddim) end
-function morton_elements(griddim)
+function mortonElements(griddim)
     grid_data.elemental_order = get_recursive_order(MORTON_ORDERING, config.dimension, griddim);
     log_entry("Reordered elements to Morton.", 2);
     ef_nodes();
@@ -1626,8 +1631,7 @@ with Finch's internal utility.
 griddim is an array representing the nodal grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 """
-function hilbertNodes(griddim) hilbert_nodes(griddim) end
-function hilbert_nodes(griddim)
+function hilbertNodes(griddim)
     t = @elapsed(global grid_data = reorder_grid_recursive!(grid_data, griddim, HILBERT_ORDERING));
     log_entry("Reordered nodes to Hilbert. Took "*string(t)*" sec.", 2);
 end
@@ -1641,8 +1645,7 @@ with Finch's internal utility.
 griddim is an array representing the elemental grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 """
-function hilbertElements(griddim) hilbert_elements(griddim) end
-function hilbert_elements(griddim)
+function hilbertElements(griddim)
     grid_data.elemental_order = get_recursive_order(HILBERT_ORDERING, config.dimension, griddim);
     log_entry("Reordered elements to Hilbert.", 2);
     ef_nodes();
@@ -1658,8 +1661,7 @@ griddim is an array representing the nodal grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 tiledim is the desired tile dimensions such as [4,4] for a 4x4 tile in 2D.
 """
-function tiledNodes(griddim, tiledim) tiled_nodes(griddim, tiledim) end
-function tiled_nodes(griddim, tiledim)
+function tiledNodes(griddim, tiledim)
     t = @elapsed(global grid_data = reorder_grid_tiled(grid_data, griddim, tiledim));
     log_entry("Reordered nodes to tiled. Took "*string(t)*" sec.", 2);
 end
@@ -1674,8 +1676,7 @@ griddim is an array representing the elemental grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 tiledim is the desired tile dimensions such as [4,4] for a 4x4 tile in 2D.
 """
-function tiledElements(griddim, tiledim) tiled_elements(griddim, tiledim) end
-function tiled_elements(griddim, tiledim)
+function tiledElements(griddim, tiledim)
     grid_data.elemental_order = get_tiled_order(config.dimension, griddim, tiledim, true);
     log_entry("Reordered elements to tiled("*string(tiledim)*").", 2);
     ef_nodes();
@@ -1688,8 +1689,7 @@ This is the default node ordering. Element first means the elements are given
 some order and the nodes are added elementwise according to that. An element's
 nodes are ordered according to the reference element.
 """
-function elementFirstNodes() ef_nodes() end
-function ef_nodes()
+function elementFirstNodes()
     t = @elapsed(global grid_data = reorder_grid_element_first!(grid_data, config.basis_order_min));
     log_entry("Reordered nodes to EF. Took "*string(t)*" sec.", 2);
 end
@@ -1700,8 +1700,7 @@ end
 Randomize nodes in memory for testing a worst-case arrangement.
 The seed is for making results reproducible.
 """
-function randomNodes(seed = 17) random_nodes(seed) end
-function random_nodes(seed = 17)
+function randomNodes(seed = 17)
     t = @elapsed(global grid_data = reorder_grid_random!(grid_data, seed));
     log_entry("Reordered nodes to random. Took "*string(t)*" sec.", 2);
 end
@@ -1712,8 +1711,7 @@ end
 Randomize the order of the elemental loop for testing a worst-case arrangement.
 The seed is for making results reproducible.
 """
-function randomElements(seed = 17) random_elements(seed) end
-function random_elements(seed = 17)
+function randomElements(seed = 17)
     grid_data.elemental_order = random_order(size(grid_data.loc2glb,2), seed);
     log_entry("Reordered elements to random.", 2);
     random_nodes(seed);

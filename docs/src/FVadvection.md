@@ -12,7 +12,7 @@ The finite volume method can also be used for some problems. One key difference 
 The following description is for the 2D case. Begin by importing and using the Finch module. Then initialize. The name here is only used when generating code files.
 ```
 using Finch
-init_finch("FVadvection2d");
+initFinch("FVadvection2d");
 ```
 Then set up the configuration. This example sets dimensionality of the domain and the solver type(FV).
 ```
@@ -39,12 +39,10 @@ boundary(u, 4, NO_BC) # y=1
 ```
 The PDE must be in a conservation form.
 ```
-# The flux and source terms of the conservation equation
-# F and S in the following equation:
-# Dt(int(u dx)) = int(S dx) - int(F.n ds)
-
-flux(u, "upwind(a,u)") 
-# Note that there is no source() for this problem
+# The conservation type equation
+# The "upwind" function applies upwinding to the term (a.n)*f with flow velocity a.
+# The optional third parameter is for tuning. Default upwind = 0, central = 1. Choose something between these.
+conservationForm([u, v, w], ["surface(upwind(a,u))", "surface(upwind(a,v))", "surface(upwind(a,w))"]) 
 ```
 Here the `upwind(a,u)` function applies upwinding to the advective term (a.n)u with advection velocity a. An optional third parameter is for tuning. Default upwind = 0, central = 1. Choose something between these.
 
@@ -56,4 +54,4 @@ Finally, solve for u.
 ```
 solve(u);
 ```
-End things with `finalize_finch()` to finish up any generated files and the log.
+End things with `finalizeFinch()` to finish up any generated files and the log.

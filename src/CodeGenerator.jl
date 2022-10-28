@@ -45,10 +45,6 @@ include("generate_code_layer.jl");
 # code gen functions for each solver type and target
 include("generate_code_layer_julia.jl");
 
-include("generate_code_layer_cg_julia.jl");
-include("generate_code_layer_dg_julia.jl");
-include("generate_code_layer_fv_julia.jl");
-
 # # target specific code gen functions
 # include("generate_code_layer_dendro.jl");
 # include("generate_code_layer_homg.jl");

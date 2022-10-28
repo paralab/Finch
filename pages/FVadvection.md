@@ -1,20 +1,18 @@
----
-title: Finite Volume: Advection
----
+# Finite Volume: Advection
 
-## Finite Volume: Advection
-
+```@raw html
 <img src="images/fvadvec2d.png" alt="fvadvec2d" width="400">
+```
 
-The Julia script: <a href="https://github.com/paralab/Finch/blob/master/Finch/examples/example-advection1d-fv.jl">example-advection1d-fv.jl</a>
-<br><a href="https://github.com/paralab/Finch/blob/master/Finch/examples/example-advection2d-fv.jl">example-advection2d-fv.jl</a>
+The script file: [example-advection1d-fv.jl](https://github.com/paralab/Finch/blob/master/Finch/examples/example-advection1d-fv.jl), 
+[example-advection2d-fv.jl](https://github.com/paralab/Finch/blob/master/Finch/examples/example-advection2d-fv.jl)
 
 The finite volume method can also be used for some problems. One key difference is that the PDE will be input in the form of a conservation equation rather than the weak form. Also, variables used with FV should be defined as averages on cells rather than nodal values, though there is some ability to interpolate between them as needed. 
 
 The following description is for the 2D case. Begin by importing and using the Finch module. Then initialize. The name here is only used when generating code files.
 ```
 using Finch
-init_finch("FVadvection2d");
+initFinch("FVadvection2d");
 ```
 Then set up the configuration. This example sets dimensionality of the domain and the solver type(FV).
 ```
@@ -58,4 +56,4 @@ Finally, solve for u.
 ```
 solve(u);
 ```
-End things with `finalize_finch()` to finish up any generated files and the log.
+End things with `finalizeFinch()` to finish up any generated files and the log.

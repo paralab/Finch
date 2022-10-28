@@ -76,7 +76,12 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         allocatedNZ,
         IR_operation_node(IRtypes.math_op, [:*, :num_elements, :dofs_per_element, :dofs_per_element])
-        ]));
+    ]));
+    nextNZ = IR_data_node(IRtypes.float_64_data, :next_nonzero_index);
+    push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
+        nextNZ,
+        IR_operation_node(IRtypes.math_op, [:+, allocatedNZ, 1])
+    ]));
     globalmat_I = IR_data_node(IRtypes.int_64_data, :global_matrix_I, [:allocated_nonzeros], []);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         globalmat_I,

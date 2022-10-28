@@ -11,7 +11,7 @@ A 2D heat equation demonstrates support for time dependent problems.
 Begin by importing and using the Finch module. Then initialize. The name here is only used when generating code files.
 ```
 using Finch
-init_finch("heat2d");
+initFinch("heat2d");
 ```
 Then set up the configuration. This example simply sets dimensionality of the domain and polynomial order of the basis function space.
 ```
@@ -53,4 +53,4 @@ Then write the weak form expression in the residual form. Finally, solve for u.
 weakForm(u, "Dt(u*v) + 0.01 * dot(grad(u),grad(v)) - f*v")
 solve(u);
 ```
-End things with `finalize_finch()` to finish up any generated files and the log.
+End things with `finalizeFinch()` to finish up any generated files and the log.

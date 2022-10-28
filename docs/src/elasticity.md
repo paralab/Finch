@@ -11,7 +11,7 @@ A 3D linear elasticity equation that models the gravity induced deflection of a 
 Begin by importing and using the Finch module. Then initialize. The name here is only used when generating code files.
 ```
 using Finch
-init_finch("elasticity");
+initFinch("elasticity");
 ```
 Then set up the configuration. This example simply sets dimensionality of the domain and polynomial order of the basis function space.
 ```
@@ -51,4 +51,4 @@ Then write the weak form expression in the residual form. Finally, solve for u.
 weakForm(u, "inner( (lambda * div(u) .* [1 0 0; 0 1 0; 0 0 1] + mu .* (grad(u) + transpose(grad(u)))), grad(v)) - dot(f,v)")
 solve(u);
 ```
-End things with `finalize_finch()` to finish up any generated files and the log.
+End things with `finalizeFinch()` to finish up any generated files and the log.

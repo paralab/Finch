@@ -816,8 +816,18 @@ function add_boundary_condition(var, bid, type, ex, nfuns)
                 valstr *= ", ";
             end
         end
+        
+        # If the variable has mor components than specified, just expand vals with its last element
+        var_components = size(var.values,1);
+        if var_components > length(ex)
+            for i=(length(ex)+1):var_components
+                push!(vals, vals[i-1]);
+            end
+        end
+        
         valstr *= "]";
         prob.bc_func[var.index, bid] = vals;
+        
     else
         var_components = size(var.values,1);
         if typeof(ex) <: Number
