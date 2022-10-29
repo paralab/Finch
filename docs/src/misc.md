@@ -7,6 +7,7 @@ Pages = ["misc.md"]
 ```
 
 ```@docs
+initFinch(name="unnamedProject")
 customOperator(name, handle)
 customOperatorFile(filename)
 VariableTransform
@@ -15,10 +16,10 @@ transformVariable(xform::VariableTransform)
 preStepFunction(fun)
 postStepFunction(fun)
 callbackFunction(fun; name="", args=[], body="")
-assemblyLoops(var, indices, parallel_type=[])
+assemblyLoops(indices, parallel_type=[])
 exportCode(filename)
 importCode(filename)
 finalizeFinch()
 cachesim(use)
-cachesimSolve(var, nlvar=nothing; nonlinear=false)
+cachesimSolve(var)
 ```

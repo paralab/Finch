@@ -113,19 +113,67 @@ end
 try
     using PETSc
 catch e
-    println("PETSc package is not yet installed. It is optional and may cause issues depending on your system.\nWould you like to install now? y/n.");
-    response = readline();
-    if response=="Y" || response=="y"
+    # println("PETSc package is not yet installed. It is optional and may cause issues depending on your system.\nWould you like to install now? y/n.");
+    # response = readline();
+    # if response=="Y" || response=="y"
+    #     using Pkg
+    #     Pkg.add("PETSc")
+    #     try
+    #         using PETSc
+    #     catch e
+    #         println("There was an issue with using PETSc. Check the Julia PETSc.jl documentation to install correctly.")
+    #         exit(0);
+    #     end
+    # else
+    #     println("Continuing without PETSc.")
+    #     PETSc = nothing;
+    # end
+    println("PETSc package is not available. It is optional, but PETSc solvers can't be used.")
+    
+end
+
+try
+    using TimerOutputs
+catch e
+    if force_package_install
+        println("TimerOutputs package is not yet installed. Installing now.");
         using Pkg
-        Pkg.add("PETSc")
-        try
-            using PETSc
-        catch e
-            println("There was an issue with using PETSc. Check the Julia PETSc.jl documentation to install correctly.")
-            exit(0);
-        end
+        Pkg.add("TimerOutputs")
+        using TimerOutputs
+        
     else
-        println("Continuing without PETSc.")
+        println("TimerOutputs package is not yet installed. It is required.\nWould you like to install now? y/n.");
+        response = readline();
+        if response=="Y" || response=="y"
+            using Pkg
+            Pkg.add("TimerOutputs")
+            using TimerOutputs
+        else
+            println("It is a required package. Exiting Finch.")
+        end
+    end
+    
+end
+
+try
+    using Zygote
+catch e
+    if force_package_install
+        println("Zygote package is not yet installed. Installing now.");
+        using Pkg
+        Pkg.add("Zygote")
+        using Zygote
+        
+    else
+        println("Zygote package is not yet installed. It is optional.\nWould you like to install now? y/n.");
+        response = readline();
+        if response=="Y" || response=="y"
+            using Pkg
+            Pkg.add("Zygote")
+            using Zygote
+        else
+            println("Continuing without Zygote")
+        end
     end
     
 end
@@ -168,6 +216,9 @@ include("fv_utils.jl");
 include("fv_neighborhood.jl");
 include("grid_parent_child.jl");
 include("polyharmonic_interp.jl");
+include("solver_utils.jl");
+include("boundary_utils.jl");
+include("parallel_utils.jl");
 
 include("output_data.jl");
 
@@ -180,13 +231,7 @@ include("cachesim_solve.jl");
 # Finch submodules
 include("SymbolicParser.jl")
 using .SymbolicParser
+include("IntermediateRepresentation.jl")
+using .IntermediateRepresentation
 include("CodeGenerator.jl");
 using .CodeGenerator
-include("DGSolver.jl");
-using .DGSolver
-include("CGSolver.jl");
-using .CGSolver
-include("FVSolver.jl");
-using .FVSolver
-include("MixedSolver.jl");
-using .MixedSolver

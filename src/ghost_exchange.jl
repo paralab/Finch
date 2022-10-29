@@ -68,13 +68,13 @@ For other strategies, this needs to be modified.
 function exchange_ghosts(var, grid, tag=0)
     tag = config.num_procs + Int(round(tag));
     if config.solver_type == FV
-        return exchange_ghosts_fv(var, grid, tag);
+        return exchange_ghosts_fv_old(var, grid, tag);
     else
         printerr("Ghost exchange not ready for "*config.solver_type, fatal=true)
     end
 end
 
-function exchange_ghosts_fv(var, grid, tag)
+function exchange_ghosts_fv_old(var, grid, tag)
     n_neighbors = grid.num_neighbor_partitions;
     # How big does each buffer need to be?
     buffer_size = zeros(Int, n_neighbors);

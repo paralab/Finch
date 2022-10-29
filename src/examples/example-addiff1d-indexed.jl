@@ -5,13 +5,13 @@
 =#
 
 ### If the Finch package has already been added, use this line #########
-using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+# using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
 
 ### If not, use these four lines (working from the examples directory) ###
-# if !@isdefined(Finch)
-#     include("../Finch.jl");
-#     using .Finch
-# end
+if !@isdefined(Finch)
+    include("../Finch.jl");
+    using .Finch
+end
 ##########################################################################
 
 init_finch("addiff1dindexed");
@@ -21,7 +21,7 @@ useLog("addiff1dindexedlog", level=3)
 # Configuration setup
 domain(1)
 solverType(FV)
-timeStepper(RK4)
+timeStepper(EULER_EXPLICIT)
 
 # Mesh
 n = 60 # number of elements
@@ -35,58 +35,49 @@ diff = index("diff", range = [1,ndiffs])
 
 speeds = zeros(nspeeds);
 diffs = zeros(ndiffs);
-bdrystr = [];
-initstr = [];
-astr = [];
-dstr = [];
-
 for j=1:ndiffs
-    diffs[j] = 0.06 * (j-1)/(ndiffs-1);
-    push!(dstr, string(diffs[j]));
+    diffs[j] = 0.03 * (j-1)/(ndiffs-1);
 end
 for i=1:nspeeds
-    speeds[i] = 0.5 + i/nspeeds;
-    ts = 0.2/speeds[i];
-    push!(astr, string(speeds[i]));
-    for j=1:ndiffs
-        push!(bdrystr, 0);
-        push!(initstr, "x<=0.3&&x>0.1 ? 1 : 0");
-    end
+    speeds[i] = 0.1 + i/nspeeds;
 end
 
 # Variables and BCs
 u = variable("u", type=VAR_ARRAY, location=CELL, index = [speed, diff])
-boundary(u, 1, FLUX, bdrystr)
+boundary(u, 1, FLUX, 0)
 boundary(u, 2, NO_BC)
 
 # Time interval and initial condition
 T = 0.3;
 timeInterval(T)
-initial(u, initstr)
-
-# The flux and source terms of the conservation equation
-coefficient("a", astr, VAR_ARRAY) # advection velocity
-coefficient("d", dstr, VAR_ARRAY) # diffusion rate
-flux(u, "upwind(a[speed],u[speed, diff]) - d[diff] * dot(grad(u[speed, diff]),normal())")
+initial(u, "x<=0.3&&x>0.1 ? 1 : 0")
 
 # Arrange the loops as desired. Outermost first.
-assemblyLoops(u, ["elements", speed, diff])
-# assemblyLoops(u, [speed, diff, "elements"])
+# assemblyLoops(["elements", speed, diff])
+assemblyLoops([speed, diff, "elements"])
+
+# The flux and source terms of the conservation equation
+coefficient("a", speeds, type=VAR_ARRAY) # advection velocity
+coefficient("d", diffs, type=VAR_ARRAY) # diffusion rate
+
+conservationForm(u, "surface(upwind(a[speed],u[speed, diff]) - d[diff] * dot(grad(u[speed, diff]),normal()))")
+
+exportCode("addiff1dindexedcode") # uncomment to export generated code to a file
+# importCode("addiff1dindexedcode") # uncomment to import code from a file
 
 solve(u)
 
 finalize_finch()
 
-##### Uncomment below to compare to plot solution
+##### Uncomment below to plot solution
 
 # # The exact solution with constant velocity v
 # a = 1;
-# exact = zeros(n);
+# ini = zeros(n);
 # x = Finch.fv_info.cellCenters[:]
 # for i=1:n
-#     xt = x[i] - a*T;
-#     if xt < 0.3 && xt > 0.1
-#         exact[i] = 1
+#     if x[i] <= 0.3 && x[i] > 0.1
+#         ini[i] = 1
 #     end
 # end
 
@@ -95,8 +86,8 @@ finalize_finch()
 # ps = Array{Any,1}(undef, ndiffs);
 # for j=1:ndiffs
 #     global xs = x;
-#     global labels = "exact a=1,d=0";
-#     global vals = exact;
+#     global labels = "initial";
+#     global vals = ini;
 #     for i=1:nspeeds
 #         global xs;
 #         global vals;

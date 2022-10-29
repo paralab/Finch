@@ -14,6 +14,12 @@ export init_code_generator, finalize_code_generator, set_generation_target,
 import ..Finch: @import_finch_symbols
 @import_finch_symbols()
 
+# IR symbols
+import ..Finch: IntermediateRepresentation, IR_entry_types, IR_string, print_IR, repr_IR,
+            IR_part, IR_data_node, IR_data_access, IR_operation_node, 
+            IR_block_node, IR_loop_node, IR_conditional_node, IR_comment_node
+            
+
 genDir = "";
 genFileName = "";
 gen_file_extension = "";
@@ -22,7 +28,6 @@ block_comment_char = [""; ""];
 headerText = "";
 genfiles = [];
 external_get_language_elements_function = nothing;
-external_generate_code_layer_function = nothing;
 external_generate_code_files_function = nothing;
 
 # for custom targets
@@ -38,9 +43,7 @@ include("code_generator_utils.jl");
 include("generate_code_layer.jl");
 
 # code gen functions for each solver type and target
-include("generate_code_layer_cg_julia.jl");
-include("generate_code_layer_dg_julia.jl");
-include("generate_code_layer_fv_julia.jl");
+include("generate_code_layer_julia.jl");
 
 # # target specific code gen functions
 # include("generate_code_layer_dendro.jl");
@@ -74,14 +77,12 @@ function init_code_generator(dir, name, header)
     global headerText = header;
     
     global external_get_language_elements_function = default_language_elements_function;
-    global external_generate_code_layer_function = default_code_layer_function;
     global external_generate_code_files_function = default_code_files_function;
 end
 
 # Sets the functions to be used during external code generation
-function set_generation_target(lang_elements, code_layer, file_maker)
+function set_generation_target(lang_elements, file_maker)
     global external_get_language_elements_function = lang_elements;
-    global external_generate_code_layer_function = code_layer;
     global external_generate_code_files_function = file_maker;
     global using_custom_target = true;
     global gen_file_extension;
@@ -108,9 +109,9 @@ function add_generated_file(filename; dir="", make_header_text=true)
     return newfile;
 end
 
-function generate_all_files(var, lhs_vol, lhs_surf, rhs_vol, rhs_surf; parameters=0)
+function generate_all_files(var, IR; parameters=0)
     if using_custom_target
-        external_generate_code_files_function(var, lhs_vol, lhs_surf, rhs_vol, rhs_surf);
+        external_generate_code_files_function(var, IR);
     end
 end
 

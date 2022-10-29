@@ -235,10 +235,10 @@ function build_refel(dimension, order, nfaces, nodetype)
         refel.Vg = zeros(order+1, order+1);
         refel.gradVg = zeros(order+1, order+1);
         # surface versions
-        refel.surf_V = fill!(Array{Array{Float64}}(undef, nfaces), []);
-        refel.surf_gradV = fill!(Array{Array{Float64}}(undef, nfaces), []);
-        refel.surf_Vg = fill!(Array{Array{Float64}}(undef, nfaces), []);
-        refel.surf_gradVg = fill!(Array{Array{Float64}}(undef, nfaces), []);
+        refel.surf_V = Array{Array{Float64}}(undef, nfaces);
+        refel.surf_gradV = Array{Array{Float64}}(undef, nfaces);
+        refel.surf_Vg = Array{Array{Float64}}(undef, nfaces);
+        refel.surf_gradVg = Array{Array{Float64}}(undef, nfaces);
         for fi=1:nfaces
             refel.surf_V[fi] = zeros(refel.Nfp[fi], Np);
             refel.surf_gradV[fi] = zeros(refel.Nfp[fi], Np);
@@ -290,11 +290,11 @@ function build_refel(dimension, order, nfaces, nodetype)
             refel.Ddr = kron(ident,refel.Dr);
             refel.Dds = kron(refel.Dr,ident);
             # surface
-            refel.surf_Q = fill!(Array{Array{Float64}}(undef, nfaces), []);
-            refel.surf_Qr = fill!(Array{Array{Float64}}(undef, nfaces), []);
-            refel.surf_Qs = fill!(Array{Array{Float64}}(undef, nfaces), []);
-            refel.surf_Ddr = fill!(Array{Array{Float64}}(undef, nfaces), []);
-            refel.surf_Dds = fill!(Array{Array{Float64}}(undef, nfaces), []);
+            refel.surf_Q = Array{Array{Float64}}(undef, nfaces);
+            refel.surf_Qr = Array{Array{Float64}}(undef, nfaces);
+            refel.surf_Qs = Array{Array{Float64}}(undef, nfaces);
+            refel.surf_Ddr = Array{Array{Float64}}(undef, nfaces);
+            refel.surf_Dds = Array{Array{Float64}}(undef, nfaces);
             ## Surfaces will use the full matrices rather than using tensor products
             fullinvV = kron(refel.invV, refel.invV);
             
@@ -352,13 +352,13 @@ function build_refel(dimension, order, nfaces, nodetype)
             refel.Ddt = kron(kron(refel.Dg, ident), ident);
             
             # surface
-            refel.surf_Q = fill!(Array{Array{Float64}}(undef, nfaces), []);
-            refel.surf_Qr = fill!(Array{Array{Float64}}(undef, nfaces), []);
-            refel.surf_Qs = fill!(Array{Array{Float64}}(undef, nfaces), []);
-            refel.surf_Qt = fill!(Array{Array{Float64}}(undef, nfaces), []);
-            refel.surf_Ddr = fill!(Array{Array{Float64}}(undef, nfaces), []);
-            refel.surf_Dds = fill!(Array{Array{Float64}}(undef, nfaces), []);
-            refel.surf_Ddt = fill!(Array{Array{Float64}}(undef, nfaces), []);
+            refel.surf_Q = Array{Array{Float64}}(undef, nfaces);
+            refel.surf_Qr = Array{Array{Float64}}(undef, nfaces);
+            refel.surf_Qs = Array{Array{Float64}}(undef, nfaces);
+            refel.surf_Qt = Array{Array{Float64}}(undef, nfaces);
+            refel.surf_Ddr = Array{Array{Float64}}(undef, nfaces);
+            refel.surf_Dds = Array{Array{Float64}}(undef, nfaces);
+            refel.surf_Ddt = Array{Array{Float64}}(undef, nfaces);
             ## Surfaces will use the full matrices rather than using tensor products
             fullinvV = kron(refel.invV, kron(refel.invV, refel.invV));
             

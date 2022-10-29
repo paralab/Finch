@@ -23,17 +23,42 @@ struct Coefficient
     value::Array            # An array of either constant values(numbers) or genfunctions
     
     is_element_array::Bool  # Are the values specified for each element in an array?
+    is_time_dependent::Bool # Is it time dependent?
 end
 
 # Returns the value of the coefficient for the specified component, coordinates and time.
 # There are optional node index and face index inputs
-function evaluate_coefficient(c::Coefficient, comp, x, t, nodeind=1, faceind=1)
+function evaluate_coefficient(c::Coefficient, comp::Union{Int,Vector{Int}}, x::Number, y::Number, z::Number, t::Number, nodeind::Int=1, faceind::Int=1)
     if typeof(comp) <: Array
         # This is likely an array type coefficient: comp=[a,b,c] -> value[a,b,c]
-        coef_size = size(c.value);
+        comp_size = size(comp,1);
         comp_index = comp[1];
         for i=2:length(comp)
-            comp_index += comp_size[i-1]*(comp[i]-1);
+            comp_index += comp_size*comp[i];
+            comp_size *= size(comp,i);
+        end
+        
+    else
+        comp_index = comp;
+    end
+    if typeof(c.value[comp_index]) <: Number
+        return c.value[comp_index];
+    end
+    
+    # If not a number, it should be a genfunction
+    return c.value[comp_index].func(x,y,z,t,nodeind, faceind);
+end
+
+# Returns the value of the coefficient for the specified component, coordinates and time.
+# There are optional node index and face index inputs
+function evaluate_coefficient(c::Coefficient, comp::Union{Int,Vector{Int}}, x::Vector{Number}, t::Number, nodeind::Int=1, faceind::Int=1)
+    if typeof(comp) <: Array
+        # This is likely an array type coefficient: comp=[a,b,c] -> value[a,b,c]
+        comp_size = size(comp,1);
+        comp_index = comp[1];
+        for i=2:length(comp)
+            comp_index += comp_size*comp[i];
+            comp_size *= size(comp,i);
         end
         
     else

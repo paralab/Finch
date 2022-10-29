@@ -8,7 +8,6 @@ Pages = ["equation.md"]
 
 ```@docs
 weakForm(var, wf)
-flux(var, fex)
-source(var, sex)
+conservationForm(var, cf)
 printLatex(var)
 ```

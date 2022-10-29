@@ -1,7 +1,7 @@
 # Geometric factors
 export GeometricFactors, Jacobian
 export build_geometric_factors, geometric_factors, geometric_factors_face, 
-        build_deriv_matrix, build_face_deriv_matrix, get_quadrature_point_coords
+        build_derivative_matrix, build_deriv_matrix, build_face_deriv_matrix, get_quadrature_point_coords
 
 include("tensor_ops.jl");
 
@@ -233,6 +233,59 @@ function geometric_factors_face(refel, face, pts)
     end
     
     return (detJ, 0);
+end
+
+# builds one derivative matrix in place
+function build_derivative_matrix(refel::Refel, geofacs, direction::Int, eid::Int, type::Int, mat::Array{Float64, 2})
+    @timeit timer_output "deriv-mat" begin
+    N = size(mat,2);
+    M = size(mat,1);
+    J = geofacs.J[eid];
+    if type == 0
+        refel_dr = refel.Qr;
+        refel_ds = refel.Qs;
+        refel_dt = refel.Qt;
+    else
+        refel_dr = refel.Ddr;
+        refel_ds = refel.Dds;
+        refel_dt = refel.Ddt;
+    end
+    @inbounds begin
+    if refel.dim == 1
+        # Multiply rows of dr by J.rx
+        for i=1:N # loop over columns
+            mat[1:M,i] .= J.rx .* refel_dr[1:M,i];
+        end
+        
+    elseif refel.dim == 2
+        if direction == 1
+            for i=1:N # loop over columns
+                mat[1:M,i] .= J.rx .* refel_dr[1:M,i] .+ J.sx .* refel_ds[1:M,i];
+            end
+        else
+            for i=1:N # loop over columns
+                mat[1:M,i] .= J.ry .* refel_dr[1:M,i] .+ J.sy .* refel_ds[1:M,i];
+            end
+        end
+        
+    elseif refel.dim == 3
+        if direction == 1
+            for i=1:N # loop over columns
+                mat[1:M,i] .= J.rx .* refel_dr[1:M,i] .+ J.sx .* refel_ds[1:M,i] .+ J.tx .* refel_dt[1:M,i];
+            end
+        elseif direction == 2
+            for i=1:N # loop over columns
+                mat[1:M,i] .= J.ry .* refel_dr[1:M,i] .+ J.sy .* refel_ds[1:M,i] .+ J.ty .* refel_dt[1:M,i];
+            end
+        else
+            for i=1:N # loop over columns
+                mat[1:M,i] .= J.rz .* refel_dr[1:M,i] .+ J.sz .* refel_ds[1:M,i] .+ J.tz .* refel_dt[1:M,i];
+            end
+        end
+    end
+    
+    end # inbounds
+    end # timer
 end
 
 function build_deriv_matrix(refel, J)

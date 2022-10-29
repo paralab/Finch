@@ -18,4 +18,5 @@ mutable struct Indexer
     symbol::Symbol   # symbol used in expressions
     range::Array     # Range of integers.
     value::Int       # Current value
+    tag::Int         # This indexer's position in the array of indexers?
 end

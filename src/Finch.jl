@@ -26,7 +26,6 @@ output_dir = pwd();
 language = 0;
 gen_framework = 0;
 generate_external = false;
-solver = nothing;
 codegen_params = nothing;
 #log
 use_log = false;
@@ -34,7 +33,6 @@ log_file = "";
 log_line_index = 1;
 #mesh
 mesh_data = nothing;    # The basic element information as read from a MSH file or generated here.
-elemental_order = [];   # Determines the order of the elemental loops
 needed_grid_types = [false, false, false]; # [CG, DG, FV] true if that type is needed
 # FEM specific
 grid_data = nothing;    # The full collection of nodes(including internal nodes) and other mesh info in the actual DOF ordering.
@@ -55,17 +53,20 @@ coefficients = [];
 parameters = [];
 test_functions = [];
 indexers = [];
+ordered_indexers = [];
 variable_transforms = [];
 #generated functions
 genfunc_count = 0;
 genfunctions = [];
 callback_functions = [];
-#rhs
-linears = [];
-face_linears = [];
-#lhs
-bilinears = [];
-face_bilinears = [];
+# #rhs
+# linears = [];
+# face_linears = [];
+# #lhs
+# bilinears = [];
+# face_bilinears = [];
+# solve functions for each variable
+solve_function = [];
 #assembly loop functions
 assembly_loops = [];
 #symbolic layer
@@ -82,6 +83,8 @@ use_cachesim = false;
 
 #handles for custom code gen functions
 custom_gen_funcs = [];
+
+timer_output = nothing;
 
 ###############################################################
 include("finch_includes.jl");
@@ -112,7 +115,6 @@ function init_finch(name="unnamedProject")
     global fv_info = nothing;
     global refel = nothing;
     global fv_refel = nothing;
-    global elemental_order = [];
     global parent_maps = nothing;
     global fv_grid = nothing;
     global fv_geo_factors = nothing;
@@ -122,6 +124,7 @@ function init_finch(name="unnamedProject")
     global parameters = [];
     global test_functions = [];
     global indexers = [];
+    global ordered_indexers = [];
     global variable_transforms = [];
     global genfunc_count = 0;
     global genfunctions = [];
@@ -138,6 +141,8 @@ function init_finch(name="unnamedProject")
     global specified_Nsteps = 0;
     global use_specified_steps = false;
     global use_cachesim = false;
+    
+    global timer_output = TimerOutput();
     
     # check for MPI and initialize
     if @isdefined(MPI)
@@ -174,21 +179,20 @@ function set_included_gen_target(lang, framework, dirpath, name; head="")
     
     # Need to set these three functions
     
-    set_generation_target(get_external_language_elements, generate_external_code_layer, generate_external_files);
+    set_generation_target(get_external_language_elements, generate_external_files);
 end
 
 # Setting a custom target requires three functions
 # 1. get_external_language_elements() - file extensions, comment chars etc.
-# 2. generate_external_code_layer(var, entities, terms, lorr, vors) - Turns symbolic expressions into code
-# 3. generate_external_files(var, lhs_vol, lhs_surf, rhs_vol, rhs_surf) - Writes all files based on generated code
-function set_custom_gen_target(lang_elements, code_layer, file_maker, dirpath, name; head="", params=nothing)
+# 3. generate_external_files(var, IR) - Writes all files based on generated code
+function set_custom_gen_target(lang_elements, file_maker, dirpath, name; head="", params=nothing)
     global language = CUSTOM_GEN_TARGET;
     global gen_framework = CUSTOM_GEN_TARGET;
     global output_dir = dirpath;
     global project_name = name;
     global generate_external = true;
     init_code_generator(dirpath, name, head);
-    set_generation_target(lang_elements, code_layer, file_maker);
+    set_generation_target(lang_elements, file_maker);
 end
 
 # Set parameters used by code generation. This is specific to the target.
@@ -201,7 +205,6 @@ function set_solver(stype, backend)
     config.linalg_backend = backend;
     if typeof(stype) <: Array
         config.solver_type = MIXED;
-        global solver = MixedSolver;
         for s in stype
             if s == CG
                 global needed_grid_types[1] = true;
@@ -213,20 +216,16 @@ function set_solver(stype, backend)
         end
     elseif stype == DG
         config.solver_type = stype;
-        global solver = DGSolver;
         global needed_grid_types[2] = true;
     elseif stype == CG
         config.solver_type = stype;
-        global solver = CGSolver;
         global needed_grid_types[1] = true;
     elseif stype == FV
         config.solver_type = stype;
-        global solver = FVSolver;
         global needed_grid_types[3] = true;
     end
-    solver.init_solver();
     
-    if backend == PETSC_SOLVER
+    if backend == PETSC_SOLVER && !(PETSc===nothing)
         # Initialize using the first available library.
         # This should have been set up beforehand.
         if length(PETSc.petsclibs) == 0
@@ -286,7 +285,6 @@ function add_mesh(mesh; partitions=0)
     global geo_factors;
     global fv_geo_factors;
     global fv_info;
-    global elemental_order;
     
     # If no method has been specified, assume CG
     if !(needed_grid_types[1] || needed_grid_types[2] || needed_grid_types[3])
@@ -398,9 +396,6 @@ function add_mesh(mesh; partitions=0)
     else
         log_entry("Full grid has "*string(size(grid_data.allnodes,2))*" nodes.", 2);
     end
-    
-    # Set elemental loop ordering to match the order from the grid for now.
-    elemental_order = 1:grid_data.nel_owned;
 end
 
 # Write the mesh to a MSH file
@@ -484,7 +479,7 @@ function add_test_function(v, type)
     end
     symvar = sym_var(string(v), type, components);
 
-    push!(test_functions, Finch.Coefficient(v, symvar, varind, type, NODAL, [], false););
+    push!(test_functions, Finch.Coefficient(v, symvar, varind, type, NODAL, [], false, false););
     log_entry("Set test function symbol: "*string(v)*" of type: "*type, 2);
 end
 
@@ -536,13 +531,16 @@ function add_variable(var)
     
     if language == JULIA || language == 0
         var.values = zeros(val_size);
+    else
+        var.values = zeros(1,0);
     end
     
     # make symbolic layer variable symbols
     var.symvar = sym_var(string(var.symbol), var.type, var.total_components);
 
     global variables = [variables; var];
-
+    
+    global solve_function = [solve_function; nothing];
     global linears = [linears; nothing];
     global bilinears = [bilinears; nothing];
     global face_linears = [face_linears; nothing];
@@ -562,7 +560,7 @@ function add_variable(var)
 end
 
 # Adds a coefficient with either constant value or some generated function of (x,y,z,t)
-function add_coefficient(c, type, location, val, nfuns, element_array=false)
+function add_coefficient(c, type, location, val, nfuns, element_array=false, time_dependent=false)
     global coefficients;
     # The values of c will have the same array structure as val
     if typeof(val) <: Array
@@ -609,7 +607,7 @@ function add_coefficient(c, type, location, val, nfuns, element_array=false)
     symvar = sym_var(string(c), type, components);
 
     index = length(coefficients) + 1;
-    push!(coefficients, Coefficient(c, symvar, index, type, location, vals, element_array));
+    push!(coefficients, Coefficient(c, symvar, index, type, location, vals, element_array, time_dependent));
     
     if element_array
         log_entry("Added coefficient "*string(c)*" : (array of elemental values)", 2);
@@ -633,12 +631,17 @@ end
 # Adds an Indexer entity
 function add_indexer(indexer)
     push!(indexers, indexer);
+    push!(ordered_indexers, indexer);
     if length(indexer.range) < 3
         log_entry("Added indexer "*string(indexer.symbol)*" : "*string(indexer.range));
     else
         log_entry("Added indexer "*string(indexer.symbol)*" : ["*string(indexer.range[1])*", ... "*string(indexer.range[end])*"]");
     end
-    
+end
+
+# Sets the ordered indexers
+function set_ordered_indexers(ind)
+    global ordered_indexers = ind;
 end
 
 # Defines a variable transform
@@ -729,9 +732,9 @@ function eval_initial_conditions()
                         if typeof(prob.initial[vind][ci]) <: Number
                             nodal_values[ci,ni] = prob.initial[vind][ci];
                         elseif dim == 1
-                            nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[ni],0,0,0);
+                            nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[ni],0.0,0.0,0);
                         elseif dim == 2
-                            nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],0,0);
+                            nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],0.0,0);
                         elseif dim == 3
                             nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],this_grid_data.allnodes[3,ni],0);
                         end
@@ -742,7 +745,6 @@ function eval_initial_conditions()
                 if variables[vind].location == CELL
                     nel = size(this_grid_data.loc2glb, 2);
                     for ei=1:nel
-                        # e = elemental_order[ei];
                         e = ei;
                         glb = this_grid_data.loc2glb[:,e];
                         vol = this_geo_factors.volume[e];
@@ -775,7 +777,7 @@ function add_boundary_condition(var, bid, type, ex, nfuns)
             nbid = 1;
         end
         
-        tmp1 = fill("", var_count, nbid);
+        tmp1 = fill(NO_BC, var_count, nbid);
         tmp2 = Array{Any,2}(undef, (var_count, nbid)); # need to keep this array open to any type
         fill!(tmp2, 0);
         tmp3 = zeros(Int, (var_count, nbid));
@@ -814,8 +816,18 @@ function add_boundary_condition(var, bid, type, ex, nfuns)
                 valstr *= ", ";
             end
         end
+        
+        # If the variable has mor components than specified, just expand vals with its last element
+        var_components = size(var.values,1);
+        if var_components > length(ex)
+            for i=(length(ex)+1):var_components
+                push!(vals, vals[i-1]);
+            end
+        end
+        
         valstr *= "]";
         prob.bc_func[var.index, bid] = vals;
+        
     else
         var_components = size(var.values,1);
         if typeof(ex) <: Number
@@ -889,102 +901,31 @@ function add_callback_function(f)
     push!(callback_functions, f);
 end
 
-# Sets the RHS(linear) function for the given variable(s).
-function set_rhs(var, code="")
-    global linears;
-    if language == 0 || language == JULIA
+# Generates a function from a code string and sets that as the code for the variable(s).
+function set_code(var, code, IR)
+    if language == JULIA || language == 0
+        code_expr = CodeGenerator.code_string_to_expr(code);
+        # args = "args; kwargs...";
+        # makeFunction(args, code_expr);
+        makeCompleteFunction(code_expr);
         if typeof(var) <:Array
             for i=1:length(var)
-                linears[var[i].index] = genfunctions[end];
-                code_strings[2][var[i].index] = code;
-            end
-        else
-            linears[var.index] = genfunctions[end];
-            code_strings[2][var.index] = code;
-        end
-        
-    else # external generation
-        if typeof(var) <:Array
-            for i=1:length(var)
-                linears[var[i].index] = code;
-            end
-        else
-            linears[var.index] = code;
-        end
-    end
-end
-
-# Sets the LHS(bilinear) function for the given variable(s).
-function set_lhs(var, code="")
-    global bilinears;
-    if language == 0 || language == JULIA
-        if typeof(var) <:Array
-            for i=1:length(var)
-                bilinears[var[i].index] = genfunctions[end];
+                solve_function[var[i].index] = genfunctions[end];
                 code_strings[1][var[i].index] = code;
             end
         else
-            bilinears[var.index] = genfunctions[end];
+            solve_function[var.index] = genfunctions[end];
             code_strings[1][var.index] = code;
         end
-        
-    else # external generation
+    else
         if typeof(var) <:Array
             for i=1:length(var)
-                bilinears[var[i].index] = code;
+                solve_function[var[i].index] = IR;
+                code_strings[1][var[i].index] = code;
             end
         else
-            bilinears[var.index] = code;
-        end
-    end
-end
-
-# Sets the surface RHS(linear) function for the given variable(s).
-function set_rhs_surface(var, code="")
-    global face_linears;
-    if language == 0 || language == JULIA
-        if typeof(var) <:Array
-            for i=1:length(var)
-                face_linears[var[i].index] = genfunctions[end];
-                code_strings[4][var[i].index] = code;
-            end
-        else
-            face_linears[var.index] = genfunctions[end];
-            code_strings[4][var.index] = code;
-        end
-        
-    else # external generation
-        if typeof(var) <:Array
-            for i=1:length(var)
-                face_linears[var[i].index] = code;
-            end
-        else
-            face_linears[var.index] = code;
-        end
-    end
-end
-
-# Sets the surface LHS(bilinear) function for the given variable(s).
-function set_lhs_surface(var, code="")
-    global face_bilinears;
-    if language == 0 || language == JULIA
-        if typeof(var) <:Array
-            for i=1:length(var)
-                face_bilinears[var[i].index] = genfunctions[end];
-                code_strings[3][var[i].index] = code;
-            end
-        else
-            face_bilinears[var.index] = genfunctions[end];
-            code_strings[3][var.index] = code;
-        end
-        
-    else # external generation
-        if typeof(var) <:Array
-            for i=1:length(var)
-                face_bilinears[var[i].index] = code;
-            end
-        else
-            face_bilinears[var.index] = code;
+            solve_function[var.index] = IR;
+            code_strings[1][var.index] = code;
         end
     end
 end
@@ -1019,29 +960,129 @@ function set_symexpressions(var, ex, lorr, vors)
     end
 end
 
-function set_assembly_loops(var, code="")
-    global assembly_loops;
-    if language == 0 || language == JULIA
-        if typeof(var) <:Array
-            for i=1:length(var)
-                assembly_loops[var[i].index] = genfunctions[end];
-                code_strings[5][var[i].index] = code;
-            end
-        else
-            assembly_loops[var.index] = genfunctions[end];
-            code_strings[5][var.index] = code;
-        end
+# # Sets the RHS(linear) function for the given variable(s).
+# function set_rhs(var, code="")
+#     global linears;
+#     if language == 0 || language == JULIA
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 linears[var[i].index] = genfunctions[end];
+#                 code_strings[2][var[i].index] = code;
+#             end
+#         else
+#             linears[var.index] = genfunctions[end];
+#             code_strings[2][var.index] = code;
+#         end
         
-    else # external generation
-        if typeof(var) <:Array
-            for i=1:length(var)
-                assembly_loops[var[i].index] = code;
-            end
-        else
-            assembly_loops[var.index] = code;
-        end
-    end
-end
+#     else # external generation
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 linears[var[i].index] = code;
+#             end
+#         else
+#             linears[var.index] = code;
+#         end
+#     end
+# end
+
+# # Sets the LHS(bilinear) function for the given variable(s).
+# function set_lhs(var, code="")
+#     global bilinears;
+#     if language == 0 || language == JULIA
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 bilinears[var[i].index] = genfunctions[end];
+#                 code_strings[1][var[i].index] = code;
+#             end
+#         else
+#             bilinears[var.index] = genfunctions[end];
+#             code_strings[1][var.index] = code;
+#         end
+        
+#     else # external generation
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 bilinears[var[i].index] = code;
+#             end
+#         else
+#             bilinears[var.index] = code;
+#         end
+#     end
+# end
+
+# # Sets the surface RHS(linear) function for the given variable(s).
+# function set_rhs_surface(var, code="")
+#     global face_linears;
+#     if language == 0 || language == JULIA
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 face_linears[var[i].index] = genfunctions[end];
+#                 code_strings[4][var[i].index] = code;
+#             end
+#         else
+#             face_linears[var.index] = genfunctions[end];
+#             code_strings[4][var.index] = code;
+#         end
+        
+#     else # external generation
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 face_linears[var[i].index] = code;
+#             end
+#         else
+#             face_linears[var.index] = code;
+#         end
+#     end
+# end
+
+# # Sets the surface LHS(bilinear) function for the given variable(s).
+# function set_lhs_surface(var, code="")
+#     global face_bilinears;
+#     if language == 0 || language == JULIA
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 face_bilinears[var[i].index] = genfunctions[end];
+#                 code_strings[3][var[i].index] = code;
+#             end
+#         else
+#             face_bilinears[var.index] = genfunctions[end];
+#             code_strings[3][var.index] = code;
+#         end
+        
+#     else # external generation
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 face_bilinears[var[i].index] = code;
+#             end
+#         else
+#             face_bilinears[var.index] = code;
+#         end
+#     end
+# end
+
+# function set_assembly_loops(var, code="")
+#     global assembly_loops;
+#     if language == 0 || language == JULIA
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 assembly_loops[var[i].index] = genfunctions[end];
+#                 code_strings[5][var[i].index] = code;
+#             end
+#         else
+#             assembly_loops[var.index] = genfunctions[end];
+#             code_strings[5][var.index] = code;
+#         end
+        
+#     else # external generation
+#         if typeof(var) <:Array
+#             for i=1:length(var)
+#                 assembly_loops[var[i].index] = code;
+#             end
+#         else
+#             assembly_loops[var.index] = code;
+#         end
+#     end
+# end
 
 function finalize()
     finalize_finch();

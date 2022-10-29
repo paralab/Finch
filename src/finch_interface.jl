@@ -2,21 +2,31 @@
 This file contains all of the common interface functions.
 Many of them simply call corresponding functions in jl.
 =#
-export generateFor, useLog, domain, solverType, functionSpace, trialSpace, testSpace, finiteVolumeOrder,
+export initFinch, generateFor, useLog, domain, solverType, functionSpace, trialSpace, testSpace, finiteVolumeOrder,
         nodeType, timeStepper, setSteps, matrixFree, customOperator, customOperatorFile,
         mesh, exportMesh, variable, coefficient, parameter, testSymbol, index, boundary, addBoundaryID,
         referencePoint, timeInterval, initial, preStepFunction, postStepFunction, callbackFunction,
         variableTransform, transformVariable,
-        weakForm, flux, source, assemblyLoops,
+        weakForm, conservationForm, flux, source, assemblyLoops,
         exportCode, importCode, printLatex,
-        evalInitialConditions, solve, cachesimSolve, finalizeFinch, cachesim, outputValues,
+        evalInitialConditions, nonlinear, 
+        solve, cachesimSolve, 
+        finalizeFinch, cachesim, outputValues,
         mortonNodes, hilbertNodes, tiledNodes, mortonElements, hilbertElements, 
-        tiledElements, elementFirstNodes, randomNodes, randomElements,
-        # These do not match the interface style, but are kept for legacy support. May be removed.
-        finalize_finch, morton_nodes, hilbert_nodes, tiled_nodes, morton_elements, hilbert_elements, 
-        tiled_elements, ef_nodes, random_nodes, random_elements
+        tiledElements, elementFirstNodes, randomNodes, randomElements
 
 # Begin configuration setting functions
+
+"""
+initFinch(name = "unnamedProject")
+
+This initializes the Finch state.
+If Finch had been previously initialized, this will reset everything.
+The name of the project can be set here.
+"""
+function initFinch(name="unnamedProject")
+    init_finch(name);
+end
 
 """
     generateFor(lang; filename=project_name, header="", params=nothing)
@@ -37,10 +47,9 @@ function generateFor(lang; filename=project_name, header="", params=nothing)
         # lang should be a filename for a custom target
         # This file must include these three functions:
         # 1. get_external_language_elements() - file extensions, comment chars etc.
-        # 2. generate_external_code_layer(var, entities, terms, lorr, vors) - Turns symbolic expressions into code
-        # 3. generate_external_files(var, lhs_vol, lhs_surf, rhs_vol, rhs_surf) - Writes all files based on generated code
+        # 3. generate_external_files(var, IR) - Writes all files based on generated code
         include(lang);
-        set_custom_gen_target(get_external_language_elements, generate_external_code_layer, generate_external_files, outputDirPath, filename, head=header);
+        set_custom_gen_target(get_external_language_elements, generate_external_files, outputDirPath, filename, head=header);
     else
         # Use an included target
         target_dir = @__DIR__
@@ -57,7 +66,7 @@ function generateFor(lang; filename=project_name, header="", params=nothing)
             target_file = "/targets/target_matlab_cg.jl";
         end
         include(target_dir * target_file);
-        set_custom_gen_target(get_external_language_elements, generate_external_code_layer, generate_external_files, outputDirPath, filename, head=header);
+        set_custom_gen_target(get_external_language_elements, generate_external_files, outputDirPath, filename, head=header);
     end
     if !(params === nothing)
         set_codegen_parameters(params);
@@ -169,6 +178,10 @@ end
 Manually set the time steps if desired.
 """
 function setSteps(dt, steps)
+    prob.time_dependent = true;
+    if time_stepper === nothing
+        timeStepper(EULER_IMPLICIT);
+    end
     set_specified_steps(dt, steps);
 end
 
@@ -218,6 +231,9 @@ file. Currently GMSH files(.msh), either old or new versions, and MEDIT files(.m
 are supported.
 """
 function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
+    
+    @timeit timer_output "Mesh" begin
+    
     if msh == LINEMESH
         log_entry("Building simple line mesh with nx elements, nx="*string(elsperdim));
         meshtime = @elapsed(mshdat = simple_line_mesh(elsperdim.+1, bids, interval));
@@ -314,6 +330,8 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
             
         end
     end
+    
+    end # timer block
 end
 
 """
@@ -368,6 +386,10 @@ function variable(name; type=SCALAR, location=NODAL, method=CG, index=nothing)
     if !(config.solver_type == MIXED) && !(config.solver_type == method)
         method = config.solver_type;
     end
+    
+    if !(index===nothing) && !(typeof(index) <: Vector)
+        index = [index];
+    end
     # Just make an empty variable with the info known so far.
     var = Variable(varsym, [], varind, type, location, method, [], index, 0, [], false);
     add_variable(var);
@@ -384,10 +406,11 @@ Type can be SCALAR, VECTOR, TENSOR, SYM_TENSOR, or VAR_ARRAY.
 Location can be NODAL or CELL. Generally nodal will be used for FEM and 
 cell for FVM. 
 """
-function coefficient(name, val; type=SCALAR, location=NODAL, element_array=false)
+function coefficient(name, val; type=SCALAR, location=NODAL, element_array=false, time_dependent=false)
     csym = Symbol(name);
     nfuns = makeFunctions(val); # if val is constant, nfuns will be 0
-    return add_coefficient(csym, type, location, val, nfuns, element_array);
+    time_dependent = time_dependent || check_time_dependence(val);
+    return add_coefficient(csym, type, location, val, nfuns, element_array, time_dependent);
 end
 
 """
@@ -453,7 +476,7 @@ function index(name; range=[1])
     if length(range) == 2
         range = Array(range[1]:range[2]);
     end
-    idx = Indexer(Symbol(name), range, range[1])
+    idx = Indexer(Symbol(name), range, range[1], length(indexers)+1)
     add_indexer(idx);
     return idx;
 end
@@ -602,7 +625,7 @@ Set a function to be called before each time step, or stage for multi-stage
 steppers.
 """
 function preStepFunction(fun)
-    solver.set_pre_step(fun);
+    prob.pre_step_function = fun;
 end
 
 """
@@ -612,7 +635,7 @@ Set a function to be called after each time step, or stage for multi-stage
 steppers.
 """
 function postStepFunction(fun)
-    solver.set_post_step(fun);
+    prob.post_step_function = fun;
 end
 
 """
@@ -647,22 +670,45 @@ wf is a string expression or array of them. It can include numbers, coefficients
 variables, parameters, indexers, and symbolic operators.
 """
 function weakForm(var, wf)
-    if typeof(var) <: Array
-        # multiple simultaneous variables
-        wfvars = [];
-        wfex = [];
-        if !(length(var) == length(wf))
-            printerr("Error in weak form: # of unknowns must equal # of equations. (example: @weakform([a,b,c], [f1,f2,f3]))");
+    
+    @timeit timer_output "CodeGen-weakform" begin
+    
+    if !(typeof(var) <: Array)
+        var = [var];
+        wf = [wf];
+    end
+    wfvars = [];
+    wfex = [];
+    if !(length(var) == length(wf))
+        printerr("Error in weak form: # of unknowns must equal # of equations. (example: weakform([a,b,c], [f1,f2,f3]))");
+    end
+    for vi=1:length(var)
+        push!(wfvars, var[vi].symbol);
+        push!(wfex, Meta.parse((wf)[vi]));
+    end
+    solver_type = var[1].discretization;
+    
+    # If nonlinear iteration is used, need to make copies of variables for DELTA versions
+    # if prob.nonlinear
+    #     deltavar = [];
+    #     for i=1:length(var)
+    #         deltaname = "DELTA"*string(var[i].symbol);
+    #         push!(deltavar, variable(deltaname, type=var[i].type, location=var[i].location, method=var[i].discretization, index=var[i].indexer));
+    #         # need to add zero dirichlet BC for every bid
+    #         nbids = size(prob.bid, 2);
+    #         for bid=1:nbids
+    #             boundary(deltavar[end], prob.bid[1,bid], DIRICHLET, 0);
+    #         end
+    #     end
+        
+    # else
+    #     deltavar = var;
+    # end
+    if prob.nonlinear
+        for i=1:length(var)
+            oldname = "OLD"*string(var[i].symbol);
+            variable(oldname, type=var[i].type, location=var[i].location, method=var[i].discretization, index=var[i].indexer);
         end
-        for vi=1:length(var)
-            push!(wfvars, var[vi].symbol);
-            push!(wfex, Meta.parse((wf)[vi]));
-        end
-        solver_type = var[1].discretization;
-    else
-        wfex = Meta.parse(wf);
-        wfvars = var.symbol;
-        solver_type = var.discretization;
     end
     
     log_entry("Making weak form for variable(s): "*string(wfvars));
@@ -674,6 +720,8 @@ function weakForm(var, wf)
         (lhs_symexpr, rhs_symexpr, lhs_surf_symexpr, rhs_surf_symexpr) = result_exprs;
     else
         (lhs_symexpr, rhs_symexpr) = result_exprs;
+        lhs_surf_symexpr = nothing;
+        rhs_surf_symexpr = nothing;
     end
     
     # Here we set a SymExpression for each of the pieces. 
@@ -704,39 +752,124 @@ function weakForm(var, wf)
                     " dx = \\int_{K}"*symexpression_to_latex(rhs_symexpr)*" dx");
     end
     
-    # change symbolic layer into code layer
-    (lhs_string, lhs_code) = generate_code_layer(lhs_symexpr, var, LHS, "volume", solver_type, language, gen_framework);
-    (rhs_string, rhs_code) = generate_code_layer(rhs_symexpr, var, RHS, "volume", solver_type, language, gen_framework);
-    if length(result_exprs) == 4
-        (lhs_surf_string, lhs_surf_code) = generate_code_layer(lhs_surf_symexpr, var, LHS, "surface", solver_type, language, gen_framework);
-        (rhs_surf_string, rhs_surf_code) = generate_code_layer(rhs_surf_symexpr, var, RHS, "surface", solver_type, language, gen_framework);
-        log_entry("Weak form, code layer: LHS = \n"*string(lhs_string)*"\nsurfaceLHS = \n"*string(lhs_surf_string)*" \nRHS = \n"*string(rhs_string)*"\nsurfaceRHS = \n"*string(rhs_surf_string));
-    else
-        log_entry("Weak form, code layer: LHS = \n"*string(lhs_string)*" \n  RHS = \n"*string(rhs_string));
-    end
-    
-    #log_entry("Julia code Expr: LHS = \n"*string(lhs_code)*" \n  RHS = \n"*string(rhs_code), 3);
-    
-    if language == JULIA || language == 0
-        args = "args; kwargs...";
-        makeFunction(args, lhs_code);
-        set_lhs(var, lhs_string);
-        
-        makeFunction(args, rhs_code);
-        set_rhs(var, rhs_string);
-        
-        if length(result_exprs) == 4
-            makeFunction(args, string(lhs_surf_code));
-            set_lhs_surface(var, lhs_surf_string);
-            
-            makeFunction(args, string(rhs_surf_code));
-            set_rhs_surface(var, rhs_surf_string);
+    # Init stepper here so it can be used in generation
+    if prob.time_dependent
+        init_stepper(grid_data.allnodes, time_stepper);
+        if use_specified_steps
+            time_stepper.dt = specified_dt;
+            time_stepper.Nsteps = specified_Nsteps;
         end
-        
-    else
-        set_lhs(var, lhs_code);
-        set_rhs(var, rhs_code);
+        share_time_step_info(time_stepper, config);
     end
+    
+    # change symbolic layer into IR
+    full_IR = build_IR_fem(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, 
+                            var, ordered_indexers, config, prob, time_stepper);
+    log_entry("Weak form IR: \n"*repr_IR(full_IR),3);
+    
+    # Generate code from IR
+    code = generate_code_layer(var, full_IR, solver_type, language, gen_framework);
+    log_entry("Code layer: \n" * code, 3);
+    set_code(var, code, full_IR);
+    
+    end # timer block
+end
+
+"""
+    conservationForm(var, cf)
+
+Write the integral conservation form of the PDE. This should be an expression
+that is assumed to be equal to the time derivative of the variable.
+Surface integrals for the flux are wrapped in surface(), and all other terms are
+assumed to be volume integrals for the source. Do not include the time derivative
+as it is implicitly assumed.
+var can be a variable or an array of variables. When using arrays, cf must
+also be an array of matching size.
+cf is a string expression or array of them. It can include numbers, coefficients,
+variables, parameters, indexers, and symbolic operators.
+"""
+function conservationForm(var, cf)
+    
+    @timeit timer_output "CodeGen-conservationform" begin
+    
+    if !(typeof(var) <: Array)
+        var = [var];
+        cf = [cf];
+    end
+    cfvars = [];
+    cfex = [];
+    if !(length(var) == length(cf))
+        printerr("Error in conservation form: # of unknowns must equal # of equations. (example: conservationform([a,b,c], [f1,f2,f3]))");
+    end
+    for vi=1:length(var)
+        push!(cfvars, var[vi].symbol);
+        push!(cfex, Meta.parse((cf)[vi]));
+    end
+    solver_type = var[1].discretization;
+    
+    log_entry("Making conservation form for variable(s): "*string(cfvars));
+    log_entry("Conservation form, input: "*string(cf));
+    
+    # This is the parsing step. It goes from an Expr to arrays of Basic
+    result_exprs = sp_parse(cfex, cfvars, is_FV=true);
+    if length(result_exprs) == 4 # has surface terms
+        (lhs_symexpr, rhs_symexpr, lhs_surf_symexpr, rhs_surf_symexpr) = result_exprs;
+    else
+        (lhs_symexpr, rhs_symexpr) = result_exprs;
+    end
+    
+    # Here we set a SymExpression for each of the pieces. 
+    # This is an Expr tree that is passed to the code generator.
+    if length(result_exprs) == 4 # has surface terms
+        set_symexpressions(var, lhs_symexpr, LHS, "volume");
+        set_symexpressions(var, lhs_surf_symexpr, LHS, "surface");
+        set_symexpressions(var, rhs_symexpr, RHS, "volume");
+        set_symexpressions(var, rhs_surf_symexpr, RHS, "surface");
+        
+        log_entry("lhs volume symexpression:\n\t"*string(lhs_symexpr));
+        log_entry("lhs surface symexpression:\n\t"*string(lhs_surf_symexpr));
+        log_entry("rhs volume symexpression:\n\t"*string(rhs_symexpr));
+        log_entry("rhs surface symexpression:\n\t"*string(rhs_surf_symexpr));
+        
+        log_entry("Latex equation:\n\t\t \\int_{K} -"*symexpression_to_latex(lhs_symexpr)*
+                    " dx + \\int_{K}"*symexpression_to_latex(rhs_symexpr)*" dx"*
+                    "\\int_{\\partial K}"*symexpression_to_latex(lhs_surf_symexpr)*
+                    " ds - \\int_{\\partial K}"*symexpression_to_latex(rhs_surf_symexpr)*" ds", 3);
+    else
+        set_symexpressions(var, lhs_symexpr, LHS, "volume");
+        set_symexpressions(var, rhs_symexpr, RHS, "volume");
+        
+        log_entry("lhs symexpression:\n\t"*string(lhs_symexpr));
+        log_entry("rhs symexpression:\n\t"*string(rhs_symexpr));
+        
+        log_entry("Latex equation:\n\t\t\$ \\int_{K}"*symexpression_to_latex(lhs_symexpr)*
+                    " dx = \\int_{K}"*symexpression_to_latex(rhs_symexpr)*" dx", 3);
+    end
+    
+    # Init stepper here so it can be used in generation
+    if prob.time_dependent
+        init_stepper(grid_data.allnodes, time_stepper);
+        if use_specified_steps
+            time_stepper.dt = specified_dt;
+            time_stepper.Nsteps = specified_Nsteps;
+        end
+        share_time_step_info(time_stepper, config);
+    end
+    
+    # change symbolic layer into IR
+    if length(result_exprs) == 4
+        full_IR = build_IR_fvm(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, var, ordered_indexers, config, prob, time_stepper, fv_info);
+    else
+        full_IR = build_IR_fvm(lhs_symexpr, nothing, rhs_symexpr, nothing, var, ordered_indexers, config, prob, time_stepper, fv_info);
+    end
+    log_entry("Conservation form IR: "*repr_IR(full_IR),3);
+    
+    # Generate code from IR
+    code = generate_code_layer(var, full_IR, solver_type, language, gen_framework);
+    log_entry("Code layer: \n" * code, 3);
+    set_code(var, code, full_IR);
+    
+    end # timer block
 end
 
 """
@@ -859,7 +992,7 @@ function source(var, sex)
 end
 
 """
-    assemblyLoops(var, indices, parallel_type=[])
+    assemblyLoops(indices, parallel_type=[])
 
 Specify the nesting order of loops for assembling the system.
 This makes sense for problems with indexed variables.
@@ -868,12 +1001,15 @@ Indices is an array of indexer objects and a string "elements".
 Loops will be nested in that order with outermost first.
 If parallel_type is specified for the loops, they will be generated with 
 that type of parallel strategy. Possibilities are "none", "mpi", "threads".
+NOTE: parallel_type use is still under development and may not work for
+all problems.
 """
-function assemblyLoops(var, indices, parallel_type=[])
+function assemblyLoops(indices, parallel_type=[])
     if length(parallel_type) < length(indices)
         parallel_type = fill("none", length(indices));
     end
     # find the associated indexer objects
+    # and reorder ordered_indexers
     indexer_list = [];
     for i=1:length(indices)
         if typeof(indices[i]) == String
@@ -883,6 +1019,7 @@ function assemblyLoops(var, indices, parallel_type=[])
                 for j=1:length(indexers)
                     if indices[i] == string(indexers[j].symbol)
                         push!(indexer_list, indexers[j]);
+                        break;
                     end
                 end
             end
@@ -890,23 +1027,9 @@ function assemblyLoops(var, indices, parallel_type=[])
         elseif typeof(indices[i]) == Indexer
             push!(indexer_list, indices[i]);
         end
-        
     end
-    
-    (loop_string, loop_code) = generate_assembly_loops(var, indexer_list, config.solver_type, language, parallel_type);
-    log_entry("assembly loop function: \n\t"*string(loop_string));
-    
-    if language == JULIA || language == 0
-        if config.solver_type == FV
-            args = "var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; is_explicit=true";
-        elseif config.solver_type == CG
-            args = "var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; rhs_only=false";
-        end
-        makeFunction(args, string(loop_code));
-        set_assembly_loops(var, loop_string);
-    else
-        set_assembly_loops(var, loop_code);
-    end
+    set_ordered_indexers(indexer_list);
+    return nothing;
 end
 
 """
@@ -921,50 +1044,16 @@ function exportCode(filename)
     if language == JULIA || language == 0
         file = open(filename*".jl", "w");
         println(file, "#=\nGenerated functions for "*project_name*"\n=#\n");
-        for LorR in [LHS, RHS]
-            if LorR == LHS
-                codevol = code_strings[1];
-                codesurf = code_strings[3];
+        
+        for i=1:length(variables)
+            code = code_strings[1][i];
+            var = string(variables[i].symbol);
+            if length(code) > 1
+                println(file, "# begin solve function for "*var*"\n");
+                println(file, code);
+                println(file, "# end solve function for "*var*"\n");
             else
-                codevol = code_strings[2];
-                codesurf = code_strings[4];
-            end
-            codeassemble = code_strings[5];
-            for i=1:length(variables)
-                var = string(variables[i].symbol);
-                if !(codevol[i] === "")
-                    func_name = LorR*"_volume_function_for_"*var;
-                    println(file, "function "*func_name*"(args; kwargs...)");
-                    println(file, codevol[i]);
-                    println(file, "end #"*func_name*"\n");
-                else
-                    println(file, "# No "*LorR*" volume set for "*var*"\n");
-                end
-                
-                if !(codesurf[i] === "")
-                    func_name = LorR*"_surface_function_for_"*var;
-                    println(file, "function "*func_name*"(args; kwargs...)");
-                    println(file, codesurf[i]);
-                    println(file, "end #"*func_name*"\n");
-                else
-                    println(file, "# No "*LorR*" surface set for "*var*"\n");
-                end
-                
-                if LorR == RHS
-                    if !(codeassemble[i] == "" || assembly_loops[i] === nothing)
-                        func_name = "assembly_function_for_"*var;
-                        if config.solver_type == FV
-                            args = "var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0";
-                        elseif config.solver_type == CG
-                            args = "var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; rhs_only=false";
-                        end
-                        println(file, "function "*func_name*"("*args*")");
-                        println(file, codeassemble[i]);
-                        println(file, "end #"*func_name*"\n");
-                    else
-                        println(file, "# No assembly function set for "*var*"\n");
-                    end
-                end
+                println(file, "# No code set for "*var*"\n");
             end
         end
         
@@ -979,7 +1068,7 @@ end
     importCode(filename)
 
 Import elemental calculation and assembly loop code for all variables if possible.
-The function definition line and ending line must match a specific format to 
+The "begin", "end", and "No code" comment lines must match a specific format to 
 properly match them to the variables, so do not modify those lines from the
 exported code.
 """
@@ -988,102 +1077,46 @@ function importCode(filename)
     if language == JULIA || language == 0
         file = open(filename*".jl", "r");
         lines = readlines(file, keep=true);
-        for LorR in [LHS, RHS]
-            if LorR == LHS
-                codevol = bilinears;
-                codesurf = face_bilinears;
+        
+        # Loop over variables and check to see if a matching function is present.
+        for i=1:length(variables)
+            # Scan the file for a pattern like
+            #   # begin solve function for u
+            #       ...
+            #   # end solve function for u
+            # OR
+            #   # No code set for u
+            var = string(variables[i].symbol);
+            func_begin_flag = "# begin solve function for "*var;
+            func_end_flag = "# end solve function for "*var;
+            func_none_flag = "# No code set for "*var;
+            func_string = "";
+            for st=1:length(lines)
+                if occursin(func_begin_flag, lines[st])
+                    # st+1 is the start of the function
+                    for en=(st+1):length(lines)
+                        if occursin(func_end_flag, lines[en])
+                            # en-1 is the end of the function
+                            st = en; # update st
+                            break;
+                        else
+                            func_string *= lines[en];
+                        end
+                    end
+                elseif occursin(func_none_flag, lines[st])
+                    # There is no function for this variable
+                    log_entry("While importing, no solve function was found for "*var);
+                end
+            end # lines loop
+            
+            # Generate the functions and set them in the right places
+            if func_string == ""
+                log_entry("While importing, nothing was found for "*var);
             else
-                codevol = linears;
-                codesurf = face_linears;
+                set_code(variables[i], func_string, IR_comment_node("Code imported from file, no IR available"));
             end
             
-            # Loop over variables and check to see if a matching function is present.
-            for i=1:length(variables)
-                # Scan the file for a pattern like
-                #   function LHS_volume_function_for_u
-                #       ...
-                #   end #LHS_volume_function_for_u
-                #
-                # Set LHS/RHS, volume/surface, and the variable name
-                var = string(variables[i].symbol);
-                vfunc_name = LorR*"_volume_function_for_"*var;
-                vfunc_string = "";
-                sfunc_name = LorR*"_surface_function_for_"*var;
-                sfunc_string = "";
-                afunc_name = "assembly_function_for_"*var;
-                afunc_string = "";
-                for st=1:length(lines)
-                    if occursin("function "*vfunc_name, lines[st])
-                        # s is the start of the function
-                        for en=(st+1):length(lines)
-                            if occursin("end #"*vfunc_name, lines[en])
-                                # en is the end of the function
-                                st = en; # update st
-                                break;
-                            else
-                                vfunc_string *= lines[en];
-                            end
-                        end
-                    elseif occursin("function "*sfunc_name, lines[st])
-                        # s is the start of the function
-                        for en=(st+1):length(lines)
-                            if occursin("end #"*sfunc_name, lines[en])
-                                # en is the end of the function
-                                st = en; # update st
-                                break;
-                            else
-                                sfunc_string *= lines[en];
-                            end
-                        end
-                    elseif LorR == RHS && occursin("function "*afunc_name, lines[st])
-                        # s is the start of the function
-                        for en=(st+1):length(lines)
-                            if occursin("end #"*afunc_name, lines[en])
-                                # en is the end of the function
-                                st = en; # update st
-                                break;
-                            else
-                                afunc_string *= lines[en];
-                            end
-                        end
-                    end
-                end # lines loop
-                
-                # Generate the functions and set them in the right places
-                if vfunc_string == ""
-                    log_entry("Warning: While importing, no "*LorR*" volume function was found for "*var);
-                else
-                    makeFunction("args; kwargs...", CodeGenerator.code_string_to_expr(vfunc_string));
-                    if LorR == LHS
-                        set_lhs(variables[i]);
-                    else
-                        set_rhs(variables[i]);
-                    end
-                end
-                if sfunc_string == ""
-                    log_entry("Warning: While importing, no "*LorR*" surface function was found for "*var);
-                else
-                    makeFunction("args; kwargs...", CodeGenerator.code_string_to_expr(sfunc_string));
-                    if LorR == LHS
-                        set_lhs_surface(variables[i]);
-                    else
-                        set_rhs_surface(variables[i]);
-                    end
-                end
-                if afunc_string == ""
-                    log_entry("Warning: While importing, no assembly function was found for "*var*" (using default)");
-                else
-                    if config.solver_type == FV
-                        args = "var, source_lhs, source_rhs, flux_lhs, flux_rhs, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; is_explicit=true";
-                    elseif config.solver_type == CG
-                        args = "var, bilinear, linear, allocated_vecs, dofs_per_node=1, dofs_per_loop=1, t=0, dt=0; rhs_only=false";
-                    end
-                    makeFunction(args, CodeGenerator.code_string_to_expr(afunc_string));
-                    set_assembly_loops(variables[i]);
-                end
-                
-            end # vars loop
-        end
+        end # vars loop
         
         close(file);
         log_entry("Imported code from "*filename*".jl");
@@ -1212,7 +1245,24 @@ function evalInitialConditions()
 end # Just for consistent style because this is also an internal function
 
 """
-    solve(var, nlvar=nothing; nonlinear=false)
+    nonlinear(;maxIters=100, relativeTol=1e-5, absoluteTol=1e-5)
+
+Use to signal that this problem contains nonlinearity and needs an
+iterative solution. Set the parameters for the iteration.
+The tolerances are for the infinity norm of the change between 
+iterations (u(i) - u(i-1)).
+"""
+function nonlinear(;maxIters=100, relativeTol=1e-5, absoluteTol=1e-5, relaxation=1, derivative="AD")
+    prob.nonlinear = true;
+    prob.derivative_type = derivative;
+    prob.max_iters = maxIters;
+    prob.relative_tol = relativeTol;
+    prob.absolute_tol = absoluteTol;
+    prob.relaxation = relaxation;
+end
+
+"""
+    solve(var)
 
 Either solve the problem using an internal target, or generate all code
 files for an external target.
@@ -1220,195 +1270,115 @@ Var is a variable or array of variables to solve for.
 The keyword arguments are for nonlinear equations which have very limited
 support, so generally they won't be used.
 """
-function solve(var, nlvar=nothing; nonlinear=false)
+function solve(var)
     if use_cachesim
         return cachesimSolve(var);
     end
     
+    # For consistency put single variables in an array
+    if typeof(var) == Variable
+        var = [var];
+    end
+    dofs_per_node = 0;
+    dofs_per_loop = 0;
+    for vi=1:length(var)
+        dofs_per_loop += length(var[vi].symvar);
+        dofs_per_node += var[vi].total_components;
+    end
+    
     global time_stepper; # This should not be necessary. It will go away eventually
+    
+    # Wrap this all in a timer
+    @timeit timer_output "Solve" begin
     
     # Generate files or solve directly
     if !(!generate_external && (language == JULIA || language == 0)) # if an external code gen target is ready
-        if typeof(var) <: Array
-            varind = var[1].index;
-        else
-            varind = var.index;
-        end
-        generate_all_files(var, bilinears[varind], face_bilinears[varind], linears[varind], face_linears[varind]);
+        varind = var[1].index;
+        generate_all_files(var, solve_function[varind]);
         
     else
-        if typeof(var) <: Array
-            varnames = "["*string(var[1].symbol);
-            for vi=2:length(var)
-                varnames = varnames*", "*string(var[vi].symbol);
-            end
-            varnames = varnames*"]";
-            varind = var[1].index;
-        else
-            varnames = string(var.symbol);
-            varind = var.index;
+        varnames = "["*string(var[1].symbol);
+        for vi=2:length(var)
+            varnames = varnames*", "*string(var[vi].symbol);
         end
+        varnames = varnames*"]";
+        varind = var[1].index;
         
         # Evaluate initial conditions if not already done
         eval_initial_conditions();
         
-        # If any of the variables are indexed types, generate assembly loops
-        var_indexers = [];
-        if typeof(var) <: Array
-            for vi=1:length(var)
-                if !(var[vi].indexer === nothing)
-                    push!(var_indexers, var[vi].indexer);
-                end
-            end
-        else
-            if !(var.indexer === nothing)
-                var_indexers = [var.indexer];
+        # If any of the variables are indexed types, make sure ordered indexers has "elements"
+        need_indexers = false;
+        for vi=1:length(var)
+            if !(var[vi].indexer === nothing)
+                need_indexers = true;
             end
         end
-        if length(var_indexers)>0 && assembly_loops[varind] === nothing
+        if need_indexers && length(ordered_indexers) == length(indexers)
             log_entry("Indexed variables detected, but no assembly loops specified. Using default.")
-            assemblyLoops(var, ["elements"; var_indexers]);
+            assemblyLoops(["elements"; ordered_indexers]);
+        end
+        
+        # # If nonlinear, a matching set of variables should have been created. find them
+        # if prob.nonlinear
+        #     deltavar = Vector{Variable}(undef, 0);
+        #     for i=1:length(var)
+        #         deltaname = Symbol("DELTA"*string(var[i].symbol));
+        #         for v in variables
+        #             if deltaname === v.symbol
+        #                 push!(deltavar, v);
+        #                 v.values .= var[i].values; # copy initial conditions
+        #                 break;
+        #             end
+        #         end
+        #     end
+        # end
+        if prob.nonlinear
+            nl_var = Vector{Variable}(undef, 0);
+            for i=1:length(var)
+                oldname = Symbol("OLD"*string(var[i].symbol));
+                for v in variables
+                    if oldname === v.symbol
+                        push!(nl_var, v);
+                        v.values .= var[i].values; # copy initial conditions
+                        break;
+                    end
+                end
+            end
         end
         
         # Use the appropriate solver
-        if config.solver_type == CG
-            lhs = bilinears[varind];
-            rhs = linears[varind];
-            loop_func = assembly_loops[varind];
+        if config.solver_type == CG || config.solver_type == DG
+            func = solve_function[varind];
             
-            if prob.time_dependent
-                time_stepper = init_stepper(grid_data.allnodes, time_stepper);
-                if use_specified_steps
-                    time_stepper.dt = specified_dt;
-				    time_stepper.Nsteps = specified_Nsteps;
-                end
-                if (nonlinear)
-                    if time_stepper.type == EULER_EXPLICIT || time_stepper.type == LSRK4
-                        printerr("Warning: Use implicit stepper for nonlinear problem. cancelling solve.");
-                        return;
-                    end
-                	t = @elapsed(result = CGSolver.nonlinear_solve(var, nlvar, lhs, rhs, time_stepper, assemble_func=loop_func));
-				else
-                	t = @elapsed(result = CGSolver.linear_solve(var, lhs, rhs, time_stepper, assemble_func=loop_func));
-				end
-                # result is already stored in variables
-            else
-                # solve it!
-				if (nonlinear)
-                	t = @elapsed(result = CGSolver.nonlinear_solve(var, nlvar, lhs, rhs, assemble_func=loop_func));
-                else
-                    t = @elapsed(result = CGSolver.linear_solve(var, lhs, rhs, assemble_func=loop_func));
-				end
+            if prob.nonlinear
+                TimerOutputs.@timeit timer_output "FE_solve" func.func(var, grid_data, refel, geo_factors, config, 
+                                            coefficients, variables, test_functions, ordered_indexers, prob, time_stepper, nl_var);
                 
-                # place the values in the variable value arrays
-                if typeof(var) <: Array && length(result) > 1
-                    tmp = 0;
-                    totalcomponents = 0;
-                    for vi=1:length(var)
-                        totalcomponents = totalcomponents + length(var[vi].symvar);
-                    end
-                    for vi=1:length(var)
-                        components = length(var[vi].symvar);
-                        for compi=1:components
-                            #println("putting result "*string(compi+tmp)*":"*string(totalcomponents)*":end in var["*string(vi)*"].values["*string(compi)*"]")
-                            var[vi].values[compi,:] = result[(compi+tmp):totalcomponents:end];
-                        end
-                        tmp = tmp + components;
-                    end
-                elseif length(result) > 1
-                    components = length(var.symvar);
-                    for compi=1:components
-                        var.values[compi,:] = result[compi:components:end];
-                    end
-                end
+            else
+                TimerOutputs.@timeit timer_output "FE_solve" func.func(var, grid_data, refel, geo_factors, config, 
+                                            coefficients, variables, test_functions, ordered_indexers, prob, time_stepper);
             end
             
-            log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
-            
-        elseif config.solver_type == DG
-            lhs = bilinears[varind];
-            rhs = linears[varind];
-            slhs = face_bilinears[varind];
-            srhs = face_linears[varind];
-            
-            if prob.time_dependent
-                time_stepper = init_stepper(grid_data.allnodes, time_stepper);
-                if use_specified_steps
-                    time_stepper.dt = specified_dt;
-				    time_stepper.Nsteps = specified_Nsteps;
-                end
-				if (nonlinear)
-                	# t = @elapsed(result = DGSolver.nonlinear_solve(var, nlvar, lhs, rhs, slhs, srhs, time_stepper));
-                    printerr("Nonlinear solver not ready for DG");
-                    return;
-				else
-                	t = @elapsed(result = DGSolver.linear_solve(var, lhs, rhs, slhs, srhs, time_stepper));
-				end
-                # result is already stored in variables
-            else
-                # solve it!
-				if (nonlinear)
-                	# t = @elapsed(result = DGSolver.nonlinear_solve(var, nlvar, lhs, rhs, slhs, srhs));
-                    printerr("Nonlinear solver not ready for DG");
-                else
-                    t = @elapsed(result = DGSolver.linear_solve(var, lhs, rhs, slhs, srhs));
-				end
-                
-                # place the values in the variable value arrays
-                if typeof(var) <: Array && length(result) > 1
-                    tmp = 0;
-                    totalcomponents = 0;
-                    for vi=1:length(var)
-                        totalcomponents = totalcomponents + length(var[vi].symvar);
-                    end
-                    for vi=1:length(var)
-                        components = length(var[vi].symvar);
-                        for compi=1:components
-                            var[vi].values[compi,:] = result[(compi+tmp):totalcomponents:end];
-                            tmp = tmp + 1;
-                        end
-                    end
-                elseif length(result) > 1
-                    components = length(var.symvar);
-                    for compi=1:components
-                        var.values[compi,:] = result[compi:components:end];
-                    end
-                end
-            end
-            
-            log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
+            log_entry("Solved for "*varnames, 1);
             
         elseif config.solver_type == FV
-            slhs = bilinears[varind];
-            srhs = linears[varind];
-            flhs = face_bilinears[varind];
-            frhs = face_linears[varind];
-            loop_func = assembly_loops[varind];
+            func = solve_function[varind];
             
-            if prob.time_dependent
-                if fv_grid === nothing
-                    time_stepper = init_stepper(grid_data.allnodes, time_stepper);
-                else
-                    time_stepper = init_stepper(fv_grid.allnodes, time_stepper);
-                end
-                if use_specified_steps
-                    time_stepper.dt = specified_dt;
-				    time_stepper.Nsteps = specified_Nsteps;
-                end
-				if (nonlinear)
-                	printerr("Nonlinear solver not ready for FV");
-                    return;
-				else
-                	t = @elapsed(result = solver.linear_solve(var, slhs, srhs, flhs, frhs, time_stepper, loop_func));
-				end
-                # result is already stored in variables
-                log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
+            if prob.nonlinear
+                TimerOutputs.@timeit timer_output "FV_solve" func.func(var, grid_data, refel, geo_factors, fv_info, config, 
+                                            coefficients, variables, test_functions, ordered_indexers, prob, time_stepper, nl_var);
             else
-                # does this make sense?
-                printerr("FV assumes time dependence. Set initial conditions etc.");
+                TimerOutputs.@timeit timer_output "FV_solve" func.func(var, grid_data, refel, geo_factors, fv_info, config, 
+                                            coefficients, variables, test_functions, ordered_indexers, prob, time_stepper);
             end
             
+            log_entry("Solved for "*varnames, 1);
+            
         elseif config.solver_type == MIXED
+            println("Mixed solver is not ready. Please wait.");
+            return nothing
+            
             # Need to determine the variable index for fe and fv
             fe_var_index = 0;
             fv_var_index = 0;
@@ -1479,19 +1449,21 @@ function solve(var, nlvar=nothing; nonlinear=false)
                         time_stepper[2].dt = min_dt;
                         time_stepper[2].Nsteps = max_Nsteps;
                     end
+                    share_time_step_info(time_stepper, config);
                 else
                     time_stepper = init_stepper(grid_data.allnodes, time_stepper);
                     if use_specified_steps
                         time_stepper.dt = specified_dt;
                         time_stepper.Nsteps = specified_Nsteps;
                     end
+                    share_time_step_info(time_stepper, config);
                 end
                 
-				if (nonlinear)
+				if (prob.nonlinear)
                 	printerr("Nonlinear solver not ready for mixed solver");
                     return;
 				else
-                	t = @elapsed(result = solver.linear_solve(var, vol_lhs, vol_rhs, surf_lhs, surf_rhs, time_stepper, loop_func));
+                	t = @elapsed(result = MixedSolver.linear_solve(var, vol_lhs, vol_rhs, surf_lhs, surf_rhs, time_stepper, loop_func));
 				end
                 # result is already stored in variables
                 log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
@@ -1504,14 +1476,16 @@ function solve(var, nlvar=nothing; nonlinear=false)
     end
     
     # At this point all of the final values for the variables in var should be placed in var.values.
+    end # timer block
+    
 end
 
 """
-    cachesimSolve(var, nlvar=nothing; nonlinear=false)
+    cachesimSolve(var)
 
 When using the cache simulator target, this is used instead of solve().
 """
-function cachesimSolve(var, nlvar=nothing; nonlinear=false)
+function cachesimSolve(var)
     if !(!generate_external && (language == JULIA || language == 0))
         printerr("Cachesim solve is only ready for Julia direct solve");
     else
@@ -1585,20 +1559,23 @@ It does not deallocate any data, so further processing can be done after
 calling this. However, using Finch functions may cause issues because
 files have been closed.
 """
-function finalizeFinch() finalize_finch() end
-function finalize_finch()
+function finalizeFinch()
     # Finalize generation
     finalize_code_generator();
     if use_cachesim
         CachesimOut.finalize();
     end
-    # log
-    close_log();
-    # # mpi
-    # if config.use_mpi
-    #     MPI.Finalize(); # If MPI is finalized, it cannot be reinitialized without restarting Julia
-    # end
+    
+    # mpi
+    if config.use_mpi
+        MPI.Finalize(); # If MPI is finalized, it cannot be reinitialized without restarting Julia
+    end
+    
     if config.proc_rank == 0
+        # timeroutput
+        show(timer_output)
+        # log
+        close_log();
         println("Finch has completed.");
     end
 end
@@ -1625,8 +1602,7 @@ with Finch's internal utility.
 griddim is an array representing the nodal grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 """
-function mortonNodes(griddim) morton_nodes(griddim) end
-function morton_nodes(griddim)
+function mortonNodes(griddim)
     t = @elapsed(global grid_data = reorder_grid_recursive!(grid_data, griddim, MORTON_ORDERING));
     log_entry("Reordered nodes to Morton. Took "*string(t)*" sec.", 2);
 end
@@ -1640,9 +1616,8 @@ with Finch's internal utility.
 griddim is an array representing the elemental grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 """
-function mortonElements(griddim) morton_elements(griddim) end
-function morton_elements(griddim)
-    global elemental_order = get_recursive_order(MORTON_ORDERING, config.dimension, griddim);
+function mortonElements(griddim)
+    grid_data.elemental_order = get_recursive_order(MORTON_ORDERING, config.dimension, griddim);
     log_entry("Reordered elements to Morton.", 2);
     ef_nodes();
 end
@@ -1656,8 +1631,7 @@ with Finch's internal utility.
 griddim is an array representing the nodal grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 """
-function hilbertNodes(griddim) hilbert_nodes(griddim) end
-function hilbert_nodes(griddim)
+function hilbertNodes(griddim)
     t = @elapsed(global grid_data = reorder_grid_recursive!(grid_data, griddim, HILBERT_ORDERING));
     log_entry("Reordered nodes to Hilbert. Took "*string(t)*" sec.", 2);
 end
@@ -1671,9 +1645,8 @@ with Finch's internal utility.
 griddim is an array representing the elemental grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 """
-function hilbertElements(griddim) hilbert_elements(griddim) end
-function hilbert_elements(griddim)
-    global elemental_order = get_recursive_order(HILBERT_ORDERING, config.dimension, griddim);
+function hilbertElements(griddim)
+    grid_data.elemental_order = get_recursive_order(HILBERT_ORDERING, config.dimension, griddim);
     log_entry("Reordered elements to Hilbert.", 2);
     ef_nodes();
 end
@@ -1688,8 +1661,7 @@ griddim is an array representing the nodal grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 tiledim is the desired tile dimensions such as [4,4] for a 4x4 tile in 2D.
 """
-function tiledNodes(griddim, tiledim) tiled_nodes(griddim, tiledim) end
-function tiled_nodes(griddim, tiledim)
+function tiledNodes(griddim, tiledim)
     t = @elapsed(global grid_data = reorder_grid_tiled(grid_data, griddim, tiledim));
     log_entry("Reordered nodes to tiled. Took "*string(t)*" sec.", 2);
 end
@@ -1704,9 +1676,8 @@ griddim is an array representing the elemental grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 tiledim is the desired tile dimensions such as [4,4] for a 4x4 tile in 2D.
 """
-function tiledElements(griddim, tiledim) tiled_elements(griddim, tiledim) end
-function tiled_elements(griddim, tiledim)
-    global elemental_order = get_tiled_order(config.dimension, griddim, tiledim, true);
+function tiledElements(griddim, tiledim)
+    grid_data.elemental_order = get_tiled_order(config.dimension, griddim, tiledim, true);
     log_entry("Reordered elements to tiled("*string(tiledim)*").", 2);
     ef_nodes();
 end
@@ -1718,9 +1689,8 @@ This is the default node ordering. Element first means the elements are given
 some order and the nodes are added elementwise according to that. An element's
 nodes are ordered according to the reference element.
 """
-function elementFirstNodes() ef_nodes() end
-function ef_nodes()
-    t = @elapsed(global grid_data = reorder_grid_element_first!(grid_data, config.basis_order_min, elemental_order));
+function elementFirstNodes()
+    t = @elapsed(global grid_data = reorder_grid_element_first!(grid_data, config.basis_order_min));
     log_entry("Reordered nodes to EF. Took "*string(t)*" sec.", 2);
 end
 
@@ -1730,8 +1700,7 @@ end
 Randomize nodes in memory for testing a worst-case arrangement.
 The seed is for making results reproducible.
 """
-function randomNodes(seed = 17) random_nodes(seed) end
-function random_nodes(seed = 17)
+function randomNodes(seed = 17)
     t = @elapsed(global grid_data = reorder_grid_random!(grid_data, seed));
     log_entry("Reordered nodes to random. Took "*string(t)*" sec.", 2);
 end
@@ -1742,9 +1711,8 @@ end
 Randomize the order of the elemental loop for testing a worst-case arrangement.
 The seed is for making results reproducible.
 """
-function randomElements(seed = 17) random_elements(seed) end
-function random_elements(seed = 17)
-    global elemental_order = random_order(size(grid_data.loc2glb,2), seed);
+function randomElements(seed = 17)
+    grid_data.elemental_order = random_order(size(grid_data.loc2glb,2), seed);
     log_entry("Reordered elements to random.", 2);
     random_nodes(seed);
 end
