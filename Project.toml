@@ -5,7 +5,6 @@ version = "0.1.0"
 
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 METIS_jll = "d00139f3-1899-568f-a2f0-47f597d42d70"
 MPI = "da04e1cc-30fd-572f-bb4f-1f8673147195"
@@ -15,15 +14,17 @@ PkgBenchmark = "32113eaa-f34f-5b0d-bd6c-c81e245fc73d"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 SymEngine = "123dc426-2d89-5057-bbad-38513e3affd8"
+TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 WriteVTK = "64499a7a-5c06-52f2-abe2-ccb03c286192"
+Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [compat]
 SymEngine = "0.8"
 julia = "1"
 
 [extras]
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
 test = ["Test"]
