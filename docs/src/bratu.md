@@ -1,7 +1,7 @@
 # Bratu equation
 
 ```@raw html
-<img src="images/bratu.png" alt="Bratu" width="400">
+<img src="../assets/images/bratu.png" alt="Bratu" width="400">
 ```
 
 The script file: [example-bratu1d.jl](https://github.com/paralab/Finch/blob/master/src/examples/example-bratu1d.jl)
