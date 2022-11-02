@@ -206,7 +206,40 @@ function sym_deriv_string(var, wrt)
     
     prefix = "D"*swrt*"_";
     
-    return symbols(prefix*string(var));
+    # var could be a single symbol like _u_1
+    # or an expression like _u_1 + _v_1
+    # To check, parse as Expr
+    ex = Meta.parse(string(var));
+    if typeof(ex) == Symbol
+        result = symbols(prefix*string(var));
+    elseif typeof(ex) <:Number
+        result = 0;
+    elseif typeof(ex) == Expr
+        if ex.head === :call && (ex.args[1] in [:+ , :- , :.+ , :.-])
+            for i=2:length(ex.args)
+                ex.args[i] = sym_deriv_string(ex.args[i], wrt);
+            end
+            result = ex;
+        elseif ex.head === :call && (ex.args[1] in [:* , :.*])
+            newex = :(a+b);
+            newex.args = [:+];
+            for i=2:length(ex.args)
+                subex = copy(ex);
+                subex.args[i] = sym_deriv_string(ex.args[i], wrt);
+                push!(newex.args, subex);
+            end
+            result = newex;
+        else
+            printerr("Unexpected expression in sym_deriv_string: "*string(var));
+            result = 0;
+        end
+        result = Basic(result);
+    else
+        printerr("Unexpected expression in sym_deriv_string: "*string(var));
+        result = 0;
+    end
+    
+    return result;
 end
 
 function sym_deriv_op(u, wrt)
