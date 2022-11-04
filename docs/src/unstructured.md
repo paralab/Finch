@@ -4,8 +4,8 @@
 <img src="../assets/images/umeshes.png" alt="umeshes" width="400">
 ```
 
-The script file: [example-unstructured2d.jl](https://github.com/paralab/Finch/blob/master/Finch/examples/example-unstructured2d.jl), 
-[example-unstructured3d.jl](https://github.com/paralab/Finch/blob/master/Finch/examples/example-unstructured3d.jl)
+The script file: [example-unstructured2d.jl](https://github.com/paralab/Finch/blob/master/src/examples/example-unstructured2d.jl), 
+[example-unstructured3d.jl](https://github.com/paralab/Finch/blob/master/src/examples/example-unstructured3d.jl)
 
 Unstructured 2D meshes made of irregular triangles or quads are used in example-unstructured2d.jl to solve a steady state reaction diffusion equation. This demonstrates how to import .MSH files and the unstructured mesh capabilities in 2D. 
 

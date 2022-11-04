@@ -4,7 +4,7 @@
 <img src="../assets/images/heat.png" alt="heat" width="400">
 ```
 
-The script file: [example-heat2d.jl](https://github.com/paralab/Finch/blob/master/Finch/examples/example-heat2d.jl)
+The script file: [example-heat2d.jl](https://github.com/paralab/Finch/blob/master/src/examples/example-heat2d.jl)
 
 A 2D heat equation demonstrates support for time dependent problems.
 

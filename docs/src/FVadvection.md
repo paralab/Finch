@@ -4,8 +4,8 @@
 <img src="../assets/images/fvadvec2d.png" alt="fvadvec2d" width="400">
 ```
 
-The script file: [example-advection1d-fv.jl](https://github.com/paralab/Finch/blob/master/Finch/examples/example-advection1d-fv.jl), 
-[example-advection2d-fv.jl](https://github.com/paralab/Finch/blob/master/Finch/examples/example-advection2d-fv.jl)
+The script file: [example-advection1d-fv.jl](https://github.com/paralab/Finch/blob/master/src/examples/example-advection1d-fv.jl), 
+[example-advection2d-fv.jl](https://github.com/paralab/Finch/blob/master/src/examples/example-advection2d-fv.jl)
 
 The finite volume method can also be used for some problems. One key difference is that the PDE will be input in the form of a conservation equation rather than the weak form. Also, variables used with FV should be defined as averages on cells rather than nodal values, though there is some ability to interpolate between them as needed. 
 
