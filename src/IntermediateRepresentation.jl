@@ -39,7 +39,7 @@ import ..Finch: @import_finch_symbols
 
 AbstractTrees.children(a::Nothing) = ();
 AbstractTrees.children(a::Symbol) = ();
-AbstractTrees.children(a::Number) = ();
+# AbstractTrees.children(a::Number) = ();
 AbstractTrees.printnode(io::IO, a::Nothing) = print(io,"nothing");
 AbstractTrees.printnode(io::IO, a::Symbol) = print(io,string(a));
 AbstractTrees.printnode(io::IO, a::Number) = print(io,string(a));
@@ -427,6 +427,7 @@ end
 
 #############################################################################################################
 include("IR_utils.jl");
+include("IR_build_shared.jl");
 include("IR_build_FEM.jl");
 include("IR_build_FVM.jl");
 

@@ -27,6 +27,7 @@ catch e
             using SymEngine
         else
             println("It is a required package. Exiting Finch.")
+            exit(0);
         end
     end
     
@@ -150,6 +151,7 @@ catch e
             using TimerOutputs
         else
             println("It is a required package. Exiting Finch.")
+            exit(0);
         end
     end
     
