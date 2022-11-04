@@ -3,13 +3,13 @@
 =#
 
 ### If the Finch package has already been added, use this line #########
-# using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
 
 ### If not, use these four lines (working from the examples directory) ###
-if !@isdefined(Finch)
-    include("../Finch.jl");
-    using .Finch
-end
+# if !@isdefined(Finch)
+#     include("../Finch.jl");
+#     using .Finch
+# end
 ##########################################################################
 
 initFinch("FVbte3d");
@@ -99,6 +99,6 @@ exportCode("bte3dcode") # uncomment to export generated code to a file
 
 solve(I)
 
-finalizeFinch()
+output_values(temperature, "bte3dTemp", format="vtk");
 
-# display(temperature.values)
+finalizeFinch()
