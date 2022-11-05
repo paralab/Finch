@@ -44,6 +44,10 @@ mutable struct Finch_config
     num_partitions::Int;    # number of mesh partitions
     partition_index::Int;   # this process's partition
     
+    # Data types
+    index_type::Type
+    float_type::Type
+    
     # Constructor builds a default config.
     Finch_config() = new(
         1,
@@ -70,6 +74,8 @@ mutable struct Finch_config
         0,
         1,
         1,
-        0
+        0,
+        Int64,
+        Float64
     );
 end

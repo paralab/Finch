@@ -69,8 +69,8 @@ struct IR_entry_types
     named_op::Int8      # = 16 # a special op keyword that will be interpreted by codegen as needed
     
     # data types
-    int_data::Int8      # = 21 # These are for int and float of unspecified size
-    float_data::Int8    # = 22 #
+    int_data::Int8      # = 21 # These are for abstract int and float
+    float_data::Int8    # = 22 # They should use config.index_type and config.float_type
     
     int_32_data::Int8    # = 25
     int_64_data::Int8    # = 26
@@ -97,8 +97,8 @@ struct IR_entry_types
             15=>"member op",
             16=>"named op",
             
-            21=>"Int",
-            22=>"Float64",
+            21=>"CustomInt",
+            22=>"CustomFloat",
             25=>"Int32",
             26=>"Int64",
             27=>"Float32",
@@ -367,6 +367,10 @@ function IR_string(a::IR_operation_node)
             typename = "Float32";
         elseif a.args[1] == IRtypes.float_64_data
             typename = "Float64";
+        elseif a.args[1] == IRtypes.float_data
+            typename = "CustomFloat";
+        elseif a.args[1] == IRtypes.int_data
+            typename = "CustomInt";
         else
             typename = "UNKNOWNTYPE";
         end

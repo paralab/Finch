@@ -47,7 +47,7 @@ function linear_system_solve(A::SparseMatrixCSC, b::Vector, config::Finch_config
 end
 
 # place the values from sol into the variable value arrays
-function place_vector_in_vars(var::Vector{Variable}, vect::Vector{Float64})
+function place_vector_in_vars(var::Vector{Variable}, vect::Vector)
     tmp = 0;
     totalcomponents = 0;
     for vi=1:length(var)
@@ -66,14 +66,14 @@ function place_vector_in_vars(var::Vector{Variable}, vect::Vector{Float64})
 end
 
 # Set the values from variable arrays in a global vector
-function get_var_vals(var::Vector{Variable}, vect::Union{Nothing, Vector{Float64}}=nothing)
+function get_var_vals(var::Vector{Variable}, vect::Union{Nothing, Vector}=nothing)
     tmp = 0;
     totalcomponents = 0;
     for vi=1:length(var)
         totalcomponents = totalcomponents + var[vi].total_components;
     end
     if vect === nothing
-        vect = zeros(totalcomponents * size(var[1].values, 2));
+        vect = zeros(config.float_type, totalcomponents * size(var[1].values, 2));
     end
     
     for vi=1:length(var)
@@ -90,7 +90,7 @@ end
 # Only for Dirichlet Boundaries!
 # Copy the dirichlet values from vec into var.values
 # If zero_vals, the values in vec will be zero after copying
-function copy_bdry_vals_to_variables(var::Vector{Variable}, vec::Vector{Float64}, grid::Grid, 
+function copy_bdry_vals_to_variables(var::Vector{Variable}, vec::Vector, grid::Grid, 
                                     dofs_per_node::Int, zero_vals::Bool=true)
     dofind = 0;
     for vi=1:length(var)
@@ -127,7 +127,7 @@ end
 
 # Only for Dirichlet Boundaries!
 # Copy the dirichlet values from var.values into vec_b
-function copy_bdry_vals_to_vector(var::Vector{Variable}, vec::Vector{Float64}, grid::Grid, dofs_per_node::Int)
+function copy_bdry_vals_to_vector(var::Vector{Variable}, vec::Vector, grid::Grid, dofs_per_node::Int)
     dofind = 0;
     for vi=1:length(var)
         for compo=1:length(var[vi].symvar)
@@ -161,7 +161,7 @@ end
 ######################################################################################################
 
 # reconstructs u at x based on a cell set
-function FV_reconstruct_value(cellx::Matrix{Float64}, cellu::Vector{Float64}, x::Vector{Float64})
+function FV_reconstruct_value(cellx::Matrix, cellu::Vector, x::Vector)
     # If only one cell given, return that value
     if length(cellu) == 1
         return cellu[1];
@@ -174,9 +174,9 @@ function FV_reconstruct_value(cellx::Matrix{Float64}, cellu::Vector{Float64}, x:
 end
 
 # reconstructs u at x based on left and right cell sets
-function FV_reconstruct_value_left_right(leftx::Matrix{Float64}, rightx::Matrix{Float64}, 
-                                        leftu::Vector{Float64}, rightu::Vector{Float64}, 
-                                        x::Vector{Float64}; limiter::String="none")
+function FV_reconstruct_value_left_right(leftx::Matrix, rightx::Matrix, 
+                                        leftu::Vector, rightu::Vector, 
+                                        x::Vector; limiter::String="none")
     left = 0.0;
     right = 0.0;
     leftslope = 0.0;

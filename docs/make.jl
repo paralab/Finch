@@ -1,4 +1,9 @@
-using Documenter, Finch
+using Documenter
+
+if !@isdefined(Finch)
+    include("../src/Finch.jl");
+    using .Finch
+end
 
 makedocs(
     sitename="Finch",
@@ -12,6 +17,7 @@ makedocs(
             "conditions.md",
             "equation.md",
             "solution.md",
+            "datatypes.md",
             "reorder.md",
             "misc.md"
         ],

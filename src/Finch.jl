@@ -442,7 +442,7 @@ function set_parent_and_child(p_maps, c_grid, order)
                 val_size = (comps, N);
             end
             
-            variables[i].values = zeros(val_size);
+            variables[i].values = zeros(config.float_type, val_size);
         end
     end
 end
@@ -530,9 +530,9 @@ function add_variable(var)
     var.total_components = comps;
     
     if language == JULIA || language == 0
-        var.values = zeros(val_size);
+        var.values = zeros(config.float_type, val_size);
     else
-        var.values = zeros(1,0);
+        var.values = zeros(config.float_type, 1,0);
     end
     
     # make symbolic layer variable symbols
@@ -726,7 +726,7 @@ function eval_initial_conditions()
                 end
                 
                 # Evaluate at nodes
-                nodal_values = zeros(length(prob.initial[vind]), size(this_grid_data.allnodes,2));
+                nodal_values = zeros(config.float_type, length(prob.initial[vind]), size(this_grid_data.allnodes,2));
                 for ci=1:length(prob.initial[vind])
                     for ni=1:size(this_grid_data.allnodes,2)
                         if typeof(prob.initial[vind][ci]) <: Number

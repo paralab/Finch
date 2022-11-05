@@ -41,7 +41,7 @@ function arithmetic_expr_to_IR(ex)
             end
         end
         
-        return IR_data_node(IRtypes.float_64_data, Symbol(str), [1], []);
+        return IR_data_node(IRtypes.float_data, Symbol(str), [1], []);
         
     elseif typeof(ex) == Expr && ex.head === :call
         args = [];

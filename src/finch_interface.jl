@@ -2,7 +2,8 @@
 This file contains all of the common interface functions.
 Many of them simply call corresponding functions in jl.
 =#
-export initFinch, generateFor, useLog, domain, solverType, functionSpace, trialSpace, testSpace, finiteVolumeOrder,
+export initFinch, generateFor, useLog, indexDataType, floatDataType,
+        domain, solverType, functionSpace, trialSpace, testSpace, finiteVolumeOrder,
         nodeType, timeStepper, setSteps, matrixFree, customOperator, customOperatorFile,
         mesh, exportMesh, variable, coefficient, parameter, testSymbol, index, boundary, addBoundaryID,
         referencePoint, timeInterval, initial, preStepFunction, postStepFunction, callbackFunction,
@@ -82,6 +83,38 @@ each step), or 3(everything).
 """
 function useLog(name=project_name; dir=output_dir, level=2)
     init_log(name, dir, level);
+end
+
+"""
+    indexDataType(type)
+
+Set the data type to be used for indices.
+The default is Int64.
+"""
+function indexDataType(type)
+    if type <: Integer
+        config.index_type = type;
+    else
+        printerr("Only subtypes of Integer can be used for indexDataType. Got "*string(type))
+    end
+end
+
+"""
+    floatDataType(type)
+
+Set the data type to be used for floating point data.
+The default is Float64.
+Note that while this generally applies to data arrays relevant to
+the computation, some places may still use Float64, so the 
+corresponding conversions should be defined.
+"""
+function floatDataType(type)
+    config.float_type = type;
+    if type <: AbstractFloat
+        config.float_type = type;
+    else
+        printerr("Only subtypes of AbstractFloat can be used for floatDataType. Got "*string(type))
+    end
 end
 
 """

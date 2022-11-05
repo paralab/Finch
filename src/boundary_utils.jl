@@ -9,19 +9,19 @@ function get_norm_dot_grad(eid::Int, grid::Grid, refel::Refel, geometric_factors
     nnodes = refel.Np;
     dim = refel.dim;
     # Will need all the the Ddr derivative matrices for this element
-    RD1 = zeros(Float64, nnodes, nnodes);
+    RD1 = zeros(config.float_type, nnodes, nnodes);
     build_derivative_matrix(refel, geometric_factors, 1, eid, 1, RD1);
     if dim > 1
-        RD2 = zeros(Float64, nnodes, nnodes);
+        RD2 = zeros(config.float_type, nnodes, nnodes);
         build_derivative_matrix(refel, geometric_factors, 2, eid, 1, RD2);
     end
     if dim > 2
-        RD3 = zeros(Float64, nnodes, nnodes);
+        RD3 = zeros(config.float_type, nnodes, nnodes);
         build_derivative_matrix(refel, geometric_factors, 3, eid, 1, RD3);
     end
     
     # The result will be this
-    ndotgrad = zeros(nnodes,nnodes);
+    ndotgrad = zeros(config.float_type, nnodes,nnodes);
     
     # Match each node to a face
     nid = zeros(Int, nnodes);
@@ -77,7 +77,7 @@ function evaluate_at_nodes(val, nodes, face, t)
         result = fill(val, N);
         
     elseif typeof(val) == Coefficient && typeof(val.value[1]) == GenFunction
-        result = zeros(N);
+        result = zeros(config.float_type, N);
         if dim == 1
             for i=1:N
                 result[i]=val.value[1].func(grid_data.allnodes[1,nodes[i]],0,0,t,nodes[i],face);
@@ -93,7 +93,7 @@ function evaluate_at_nodes(val, nodes, face, t)
         end
         
     elseif typeof(val) == GenFunction
-        result = zeros(N);
+        result = zeros(config.float_type, N);
         if dim == 1
             for i=1:N
                 result[i]=val.func(grid_data.allnodes[1,nodes[i]],0,0,t,nodes[i],face);
@@ -109,7 +109,7 @@ function evaluate_at_nodes(val, nodes, face, t)
         end
         
     elseif typeof(val) == CallbackFunction
-        result = zeros(N);
+        result = zeros(config.float_type, N);
         for i=1:N
             #form a dict for the arguments. x,y,z,t are always included
             arg_list = [];
@@ -312,7 +312,7 @@ function FV_evaluate_bc(val, eid, fid, facex, t, indices=nothing)
                 end
             elseif typeof(r) == Coefficient
                 foundit = true;
-                cvals = zeros(size(r.value));
+                cvals = zeros(config.float_type, size(r.value));
                 facex = fv_info.faceCenters[:,fid];
                 for i=1:length(cvals)
                     cvals[i] = evaluate_coefficient(r, i, facex, t, eid, fid);
@@ -348,7 +348,7 @@ function FV_evaluate_bc(val, eid, fid, facex, t, indices=nothing)
                     for c in coefficients
                         if string(c.symbol) == r
                             foundit = true;
-                            push!(arg_list, (r, FV_evaluate_bc(c, eid, fid, facex, t, indices=indices)));
+                            push!(arg_list, (r, FV_evaluate_bc(c, eid, fid, facex, t, indices)));
                             break;
                         end
                     end
@@ -380,8 +380,8 @@ end
 # Apply boundary conditions to one element
 function apply_boundary_conditions_elemental(var::Vector{Variable}, eid::Int, grid::Grid, refel::Refel,
                                             geo_facs::GeometricFactors, prob::Finch_prob, t::Union{Int,Float64},
-                                            elmat::Matrix{Float64}, elvec::Vector{Float64}, bdry_done::Vector{Int},
-                                            component::Int = 0, indices::Union{Vector{Int},Nothing}=nothing)
+                                            elmat::Matrix, elvec::Vector, bdry_done::Vector,
+                                            component::Int = 0, indices::Union{Vector,Nothing}=nothing)
     # Check each node to see if the bid is > 0 (on boundary)
     nnodes = refel.Np;
     norm_dot_grad = nothing;
@@ -457,8 +457,8 @@ end
 # Apply boundary conditions to one element
 function apply_boundary_conditions_elemental_rhs(var::Vector{Variable}, eid::Int, grid::Grid, refel::Refel,
                                             geo_facs::GeometricFactors, prob::Finch_prob, t::Union{Int,Float64},
-                                            elvec::Vector{Float64}, bdry_done::Vector{Int}, 
-                                            component::Int = 0, indices::Union{Vector{Int},Nothing}=nothing)
+                                            elvec::Vector, bdry_done::Vector, 
+                                            component::Int = 0, indices::Union{Vector,Nothing}=nothing)
     # Check each node to see if the bid is > 0 (on boundary)
     nnodes = refel.Np;
     for ni=1:nnodes
@@ -513,8 +513,8 @@ end
 # Modify flux_mat and flux_vec
 function apply_boundary_conditions_face(var::Vector{Variable}, eid::Int, fid::Int, fbid::Int, mesh::Grid, refel::Refel, 
                                         geometric_factors::GeometricFactors, fv_info::FVInfo, prob::Finch_prob, t::Union{Int,Float64}, 
-                                        dt::Union{Int,Float64}, flux_mat::Matrix{Float64}, flux_vec::Vector{Float64}, bdry_done::Vector{Int}, 
-                                        component::Int = 0, indices::Union{Vector{Int},Nothing}=nothing)
+                                        dt::Union{Int,Float64}, flux_mat::Matrix, flux_vec::Vector, bdry_done::Vector, 
+                                        component::Int = 0, indices::Union{Vector,Nothing}=nothing)
     dofind = 0;
     ndofs = size(flux_mat,2);
     facex = fv_info.faceCenters[:,fid];
@@ -554,8 +554,8 @@ end
 # Modify the flux vector
 function apply_boundary_conditions_face_rhs(var::Vector{Variable}, eid::Int, fid::Int, fbid::Int, mesh::Grid, refel::Refel, 
                                             geometric_factors::GeometricFactors, fv_info::FVInfo, prob::Finch_prob, t::Union{Int,Float64}, 
-                                            dt::Union{Int,Float64}, flux::Vector{Float64}, bdry_done::Vector{Int}, 
-                                            component::Int = 0, indices::Union{Vector{Int},Nothing}=nothing)
+                                            dt::Union{Int,Float64}, flux::Vector, bdry_done::Vector, 
+                                            component::Int = 0, indices::Union{Vector,Nothing}=nothing)
     dofind = 0;
     facex = fv_info.faceCenters[:,fid];
     for vi=1:length(var)

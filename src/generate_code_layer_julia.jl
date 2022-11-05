@@ -63,6 +63,10 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     end
     
     code *="
+    # User specified data types for int and float
+    CustomInt = config.index_type;
+    CustomFloat = config.float_type;
+    
     # pre/post step functions if defined
     pre_step_function = prob.pre_step_function;
     post_step_function = prob.post_step_function;
@@ -362,7 +366,11 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         code *= indent * "(global_matrix, global_vector) = gather_system(global_matrix, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config);"
         
     elseif op === :GHOST_EXCHANGE_FV
-        code *= indent * "exchange_ghosts_fv(var, mesh, dofs_per_node, ti);"
+        if length(IR.args) < 2
+            code *= indent * "exchange_ghosts_fv(var, mesh, dofs_per_node, ti);"
+        else
+            code *= indent * "exchange_ghosts_fv(var, mesh, dofs_per_node, "*generate_from_IR_julia(IR.args[2], IRtypes)*");"
+        end
         
     elseif op === :GLOBAL_SOLVE
         code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " .= linear_system_solve("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* generate_from_IR_julia(IR.args[4], IRtypes) *", config);"

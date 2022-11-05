@@ -11,5 +11,5 @@ See [MPI.jl](https://juliaparallel.org/MPI.jl/stable/) and
 for refernence.
 
 ```@contents
-Pages = ["start.md", "configuration.md", "mesh.md", "entities.md", "conditions.md", "equation.md", "solution.md", "reorder.md", "misc.md"]
+Pages = ["start.md", "configuration.md", "mesh.md", "entities.md", "conditions.md", "equation.md", "solution.md", "datatypes.md", "reorder.md", "misc.md"]
 ```

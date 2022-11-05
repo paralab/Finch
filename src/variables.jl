@@ -24,7 +24,7 @@ mutable struct Variable
     type::String            # constants for SCALAR, VECTOR, etc.
     location::String        # constant for NODAL or CELL
     discretization::String  # constant for CG, DG, FV
-    values::Array{Float64}  # a C x N array, C is number of components (SCALAR=1, etc.)
+    values::Array           # a C x N array, C is number of components (SCALAR=1, etc.)
     
     # These are mainly for ARRAY type vars. Should there be a separate struct for those?
     indexer                  # indexer object or array of them
@@ -79,8 +79,8 @@ function transform_variable_values(xform)
     end
     
     if is_array
-        input = zeros(from_len);
-        output = zeros(to_len);
+        input = zeros(config.float_type, from_len);
+        output = zeros(config.float_type, to_len);
         for i=1:N
             for j=1:from_len
                 input[j] = xform.from[j].values[i];

@@ -72,43 +72,43 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     
     # Allocate the global matrix and vector
     push!(allocate_block.parts, IR_comment_node("Allocate global matrix(IJV form) and vector."));
-    allocatedNZ = IR_data_node(IRtypes.float_64_data, :allocated_nonzeros);
+    allocatedNZ = IR_data_node(IRtypes.float_data, :allocated_nonzeros);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         allocatedNZ,
         IR_operation_node(IRtypes.math_op, [:*, :num_elements, :dofs_per_element, :dofs_per_element])
     ]));
-    nextNZ = IR_data_node(IRtypes.float_64_data, :next_nonzero_index);
+    nextNZ = IR_data_node(IRtypes.float_data, :next_nonzero_index);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         nextNZ,
         IR_operation_node(IRtypes.math_op, [:+, allocatedNZ, 1])
     ]));
-    globalmat_I = IR_data_node(IRtypes.int_64_data, :global_matrix_I, [:allocated_nonzeros], []);
+    globalmat_I = IR_data_node(IRtypes.int_data, :global_matrix_I, [:allocated_nonzeros], []);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         globalmat_I,
-        IR_operation_node(IRtypes.allocate_op, [IRtypes.int_64_data, :allocated_nonzeros])
+        IR_operation_node(IRtypes.allocate_op, [IRtypes.int_data, :allocated_nonzeros])
         ]));
-    globalmat_J = IR_data_node(IRtypes.int_64_data, :global_matrix_J, [:allocated_nonzeros], []);
+    globalmat_J = IR_data_node(IRtypes.int_data, :global_matrix_J, [:allocated_nonzeros], []);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         globalmat_J,
-        IR_operation_node(IRtypes.allocate_op, [IRtypes.int_64_data, :allocated_nonzeros])
+        IR_operation_node(IRtypes.allocate_op, [IRtypes.int_data, :allocated_nonzeros])
         ]));
-    globalmat_V = IR_data_node(IRtypes.float_64_data, :global_matrix_V, [:allocated_nonzeros], []);
+    globalmat_V = IR_data_node(IRtypes.float_data, :global_matrix_V, [:allocated_nonzeros], []);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         globalmat_V,
-        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :allocated_nonzeros])
+        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :allocated_nonzeros])
         ]));
     
     # Global vectors
-    globalvec = IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], []);
+    globalvec = IR_data_node(IRtypes.float_data, :global_vector, [:dofs_global], []);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         globalvec,
-        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])
+        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global])
         ]));
     
-    solvec = IR_data_node(IRtypes.float_64_data, :solution, [:dofs_global], []);
+    solvec = IR_data_node(IRtypes.float_data, :solution, [:dofs_global], []);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         solvec,
-        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])
+        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global])
         ]));
         
     # I and J should be initialized to 1 for julia
@@ -121,24 +121,24 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     
     # Allocate the elemental matrix and vector
     push!(allocate_block.parts, IR_comment_node("Allocate elemental matrix and vector."));
-    elementmat = IR_data_node(IRtypes.float_64_data, :element_matrix, [:local_system_size, :local_system_size], []);
+    elementmat = IR_data_node(IRtypes.float_data, :element_matrix, [:local_system_size, :local_system_size], []);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         elementmat,
-        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :local_system_size, :local_system_size])
+        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :local_system_size, :local_system_size])
         ]));
     
-    elementvec = IR_data_node(IRtypes.float_64_data, :element_vector, [:local_system_size], []);
+    elementvec = IR_data_node(IRtypes.float_data, :element_vector, [:local_system_size], []);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         elementvec,
-        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :local_system_size])
+        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :local_system_size])
         ]));
     
     # bdry done flag for each node
     push!(allocate_block.parts, IR_comment_node("Boundary done flag for each node."));
-    bdry_done = IR_data_node(IRtypes.int_64_data, :bdry_done, [:nnodes_global], []);
+    bdry_done = IR_data_node(IRtypes.int_data, :bdry_done, [:nnodes_global], []);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         bdry_done,
-        IR_operation_node(IRtypes.allocate_op, [IRtypes.int_64_data, :nnodes_global])
+        IR_operation_node(IRtypes.allocate_op, [IRtypes.int_data, :nnodes_global])
         ]));
     
     # coefficient prep
@@ -191,21 +191,21 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     append!(time_coefficient_block.parts, coef);
     
     if constantJ
-        detj = IR_data_node(IRtypes.float_64_data, :detj, [], []);
+        detj = IR_data_node(IRtypes.float_data, :detj, [], []);
         push!(coefficient_block.parts, IR_operation_node(IRtypes.assign_op, [detj, 
             IR_operation_node(IRtypes.member_op, [:geometric_factors, 
-                IR_data_node(IRtypes.float_64_data, :detJ, [:?,:?],  [1, :eid])])]))
+                IR_data_node(IRtypes.float_data, :detJ, [:?,:?],  [1, :eid])])]))
         
     else
-        detj = IR_data_node(IRtypes.float_64_data, :detj, [:qnodes_per_element], []);
-        detj_i = IR_data_node(IRtypes.float_64_data, :detj, [:qnodes_per_element], [:qnode_i]);
+        detj = IR_data_node(IRtypes.float_data, :detj, [:qnodes_per_element], []);
+        detj_i = IR_data_node(IRtypes.float_data, :detj, [:qnodes_per_element], [:qnode_i]);
         push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
             detj,
-            IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :qnodes_per_element])]));
+            IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :qnodes_per_element])]));
         push!(coefficient_block.parts, IR_loop_node(IRtypes.index_loop, :qnodes, :qnode_i, 1, :qnodes_per_element, IR_block_node([
             IR_operation_node(IRtypes.assign_op, [detj_i, 
                 IR_operation_node(IRtypes.member_op, [:geometric_factors, 
-                    IR_data_node(IRtypes.float_64_data, :detJ, [:?,:?],  [:qnode_i, :eid])])])
+                    IR_data_node(IRtypes.float_data, :detJ, [:?,:?],  [:qnode_i, :eid])])])
         ])))
     end
     
@@ -224,7 +224,7 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     rhs_counts[3] = 0;
     push!(time_coefficient_block.parts, IR_operation_node(IRtypes.assign_op, [:detj, 
         IR_operation_node(IRtypes.member_op, [:geometric_factors, 
-            IR_data_node(IRtypes.float_64_data, :detJ, [:?,:?],  [1, :eid])])]))
+            IR_data_node(IRtypes.float_data, :detJ, [:?,:?],  [1, :eid])])]))
     
     (allocate, rhsderiv) = prepare_derivative_matrices(rhs_entities, rhs_counts, var);
     if length(rhsderiv)>0 
@@ -266,15 +266,15 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     if need_face_loop
         # surface block (includes face loop)
         push!(face_block.parts, IR_comment_node("Surface integral terms in a face loop"));
-        fid = IR_data_node(IRtypes.int_64_data, :fid, [], []); # Face ID
-        fbid = IR_data_node(IRtypes.int_64_data, :fbid, [], []); # Face BID
-        leftel = IR_data_node(IRtypes.int_64_data, :left_el, [], []); # left element
-        rightel = IR_data_node(IRtypes.int_64_data, :right_el, [], []); # right element
+        fid = IR_data_node(IRtypes.int_data, :fid, [], []); # Face ID
+        fbid = IR_data_node(IRtypes.int_data, :fbid, [], []); # Face BID
+        leftel = IR_data_node(IRtypes.int_data, :left_el, [], []); # left element
+        rightel = IR_data_node(IRtypes.int_data, :right_el, [], []); # right element
         face_loop_body = IR_block_node([
             # fid = fv_grid.element2face[i, eid]; # face ID 
             IR_operation_node(IRtypes.assign_op, [fid,
                 IR_operation_node(IRtypes.member_op, [:mesh, 
-                    IR_data_node(IRtypes.int_64_data, :element2face, [:faces_per_element, :num_elements], [:fi, :eid])])
+                    IR_data_node(IRtypes.int_data, :element2face, [:faces_per_element, :num_elements], [:fi, :eid])])
             ]),
             # # Only compute face once for each face
             # IR_conditional_node(IR_data_node(IRtypes.boolean_data, :face_face_done, [:num_faces], [:fid]),
@@ -283,16 +283,16 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
             # fbid = fv_grid.facebid[fid]; # BID of this face
             IR_operation_node(IRtypes.assign_op, [fbid,
                 IR_operation_node(IRtypes.member_op, [:mesh, 
-                    IR_data_node(IRtypes.int_64_data, :facebid, [:num_faces], [:fid])])
+                    IR_data_node(IRtypes.int_data, :facebid, [:num_faces], [:fid])])
             ]),
             # (leftel, rightel) = fv_grid.face2element[:,fid];
             IR_operation_node(IRtypes.assign_op, [leftel,
                 IR_operation_node(IRtypes.member_op, [:mesh, 
-                    IR_data_node(IRtypes.int_64_data, :face2element, [2, :num_faces], [1, :fid])])
+                    IR_data_node(IRtypes.int_data, :face2element, [2, :num_faces], [1, :fid])])
             ]),
             IR_operation_node(IRtypes.assign_op, [rightel,
                 IR_operation_node(IRtypes.member_op, [:mesh, 
-                    IR_data_node(IRtypes.int_64_data, :face2element, [2, :num_faces], [2, :fid])])
+                    IR_data_node(IRtypes.int_data, :face2element, [2, :num_faces], [2, :fid])])
             ]),
             # if (eid == rightel || rightel == 0) (neighbor = leftel) else (neighbor = rightel)
             IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(||), 
@@ -322,34 +322,34 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
         face_mat_tmp_cols = :TODO_face_mat_tmp_cols;
         if dofsper == 1
             # add RHS face_tmp to face after handling BCs
-            push!(face_loop_body.parts, IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_64_data, :face, [:dofs_per_loop], [1]), 
-                IR_operation_node(IRtypes.math_op, [:+, IR_data_node(IRtypes.float_64_data, :face, [:dofs_per_loop], [1]), 
-                    IR_operation_node(IRtypes.math_op, [:*, IR_data_node(IRtypes.float_64_data, :face_tmp, [:dofs_per_loop], [1]), :area_over_volume])])]));
+            push!(face_loop_body.parts, IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_data, :face, [:dofs_per_loop], [1]), 
+                IR_operation_node(IRtypes.math_op, [:+, IR_data_node(IRtypes.float_data, :face, [:dofs_per_loop], [1]), 
+                    IR_operation_node(IRtypes.math_op, [:*, IR_data_node(IRtypes.float_data, :face_tmp, [:dofs_per_loop], [1]), :area_over_volume])])]));
                     
             # add LHS face_tmp to face if needed
             if !(lhs_surf === nothing)  && !is_empty_expression(lhs_surf)
                 push!(face_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
-                    IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [1, :fi]), 
+                    IR_data_node(IRtypes.float_data, :face_mat, [:dofs_per_loop, face_mat_cols], [1, :fi]), 
                     IR_operation_node(IRtypes.math_op, [:+, 
-                        IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [1, :fi]), 
+                        IR_data_node(IRtypes.float_data, :face_mat, [:dofs_per_loop, face_mat_cols], [1, :fi]), 
                         IR_operation_node(IRtypes.math_op, [:*, 
-                            IR_data_node(IRtypes.float_64_data, :face_mat_tmp, [:dofs_per_loop, face_mat_tmp_cols], [1, 1]), 
+                            IR_data_node(IRtypes.float_data, :face_mat_tmp, [:dofs_per_loop, face_mat_tmp_cols], [1, 1]), 
                             :area_over_volume])])]));
                 face_mat_index = IR_operation_node(IRtypes.math_op, [:+, :faces_per_element, :fi]); 
                 push!(face_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
-                    IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [1, face_mat_index]), 
+                    IR_data_node(IRtypes.float_data, :face_mat, [:dofs_per_loop, face_mat_cols], [1, face_mat_index]), 
                     IR_operation_node(IRtypes.math_op, [:+, 
-                        IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [1, face_mat_index]), 
+                        IR_data_node(IRtypes.float_data, :face_mat, [:dofs_per_loop, face_mat_cols], [1, face_mat_index]), 
                         IR_operation_node(IRtypes.math_op, [:*, 
-                            IR_data_node(IRtypes.float_64_data, :face_mat_tmp, [:dofs_per_loop, face_mat_tmp_cols], [1, 2]), 
+                            IR_data_node(IRtypes.float_data, :face_mat_tmp, [:dofs_per_loop, face_mat_tmp_cols], [1, 2]), 
                             :area_over_volume])])]));
             end
             
         else # dofs > 1
             push!(face_loop_body.parts, IR_loop_node(IRtypes.dof_loop, :dofs, :dofi, 1, :dofs_per_loop, IR_block_node([
-                IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_64_data, :face, [:dofs_per_loop], [:dofi]), 
-                IR_operation_node(IRtypes.math_op, [:+, IR_data_node(IRtypes.float_64_data, :face, [:dofs_per_loop], [:dofi]), 
-                    IR_operation_node(IRtypes.math_op, [:*, IR_data_node(IRtypes.float_64_data, :face_tmp, [:dofs_per_loop], [:dofi]), :area_over_volume])])])
+                IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_data, :face, [:dofs_per_loop], [:dofi]), 
+                IR_operation_node(IRtypes.math_op, [:+, IR_data_node(IRtypes.float_data, :face, [:dofs_per_loop], [:dofi]), 
+                    IR_operation_node(IRtypes.math_op, [:*, IR_data_node(IRtypes.float_data, :face_tmp, [:dofs_per_loop], [:dofi]), :area_over_volume])])])
             ])));
             # add LHS face_tmp to face if needed
             if !(lhs_surf === nothing)  && !is_empty_expression(lhs_surf)
@@ -366,18 +366,18 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
                 push!(face_loop_body.parts, IR_loop_node(IRtypes.dof_loop, :dofs, :dofi, 1, :dofs_per_loop, IR_block_node([
                     IR_loop_node(IRtypes.dof_loop, :dofs, :dofj, 1, :dofs_per_loop, IR_block_node([
                         IR_operation_node(IRtypes.assign_op, [
-                            IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [:dofi, face_mat_index1]), 
+                            IR_data_node(IRtypes.float_data, :face_mat, [:dofs_per_loop, face_mat_cols], [:dofi, face_mat_index1]), 
                             IR_operation_node(IRtypes.math_op, [:+, 
-                                IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [:dofi, face_mat_index1]), 
+                                IR_data_node(IRtypes.float_data, :face_mat, [:dofs_per_loop, face_mat_cols], [:dofi, face_mat_index1]), 
                                 IR_operation_node(IRtypes.math_op, [:*, 
-                                    IR_data_node(IRtypes.float_64_data, :face_mat_tmp, [:dofs_per_loop, face_mat_tmp_cols], [:dofi, :dofj]), 
+                                    IR_data_node(IRtypes.float_data, :face_mat_tmp, [:dofs_per_loop, face_mat_tmp_cols], [:dofi, :dofj]), 
                                     :area_over_volume])])]),
                             IR_operation_node(IRtypes.assign_op, [
-                                IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [:dofi, face_mat_index2]), 
+                                IR_data_node(IRtypes.float_data, :face_mat, [:dofs_per_loop, face_mat_cols], [:dofi, face_mat_index2]), 
                                 IR_operation_node(IRtypes.math_op, [:+, 
-                                    IR_data_node(IRtypes.float_64_data, :face_mat, [:dofs_per_loop, face_mat_cols], [:dofi, face_mat_index2]), 
+                                    IR_data_node(IRtypes.float_data, :face_mat, [:dofs_per_loop, face_mat_cols], [:dofi, face_mat_index2]), 
                                     IR_operation_node(IRtypes.math_op, [:*, 
-                                        IR_data_node(IRtypes.float_64_data, :face_mat_tmp, [:dofs_per_loop, face_mat_tmp_cols], [:dofi, dofjplus]), 
+                                        IR_data_node(IRtypes.float_data, :face_mat_tmp, [:dofs_per_loop, face_mat_tmp_cols], [:dofi, dofjplus]), 
                                         :area_over_volume])])])
                     ]))
                 ])));
@@ -454,16 +454,16 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
             push!(allocate_block.parts, t_allocate);
             
             # Pieces needed for nonlinear iteration
-            nl_change_abs = IR_data_node(IRtypes.float_64_data, :nl_change_abs);
-            nl_change_rel = IR_data_node(IRtypes.float_64_data, :nl_change_rel);
-            oldsolvec = IR_data_node(IRtypes.float_64_data, :solution_old, [:dofs_global], []);
+            nl_change_abs = IR_data_node(IRtypes.float_data, :nl_change_abs);
+            nl_change_rel = IR_data_node(IRtypes.float_data, :nl_change_rel);
+            oldsolvec = IR_data_node(IRtypes.float_data, :solution_old, [:dofs_global], []);
             zero_el_vec = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY,
-                IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], []), 0, :dofs_global]);
+                IR_data_node(IRtypes.float_data, :global_vector, [:dofs_global], []), 0, :dofs_global]);
             zero_bdry_done = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY,
-                IR_data_node(IRtypes.int_64_data, :bdry_done, [:nnodes_global], []), 0, :nnodes_global]);
+                IR_data_node(IRtypes.int_data, :bdry_done, [:nnodes_global], []), 0, :nnodes_global]);
             push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
                 oldsolvec,
-                IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])
+                IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global])
             ]));
             
             # The nonlinear iteration loop will contain the body of the time step loop
@@ -536,19 +536,19 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
             # # u = u + DELTAu
             # # check norm(DELTAu) for convergence 
             # #
-            # nl_change_abs = IR_data_node(IRtypes.float_64_data, :nl_change_abs);
-            # nl_change_rel = IR_data_node(IRtypes.float_64_data, :nl_change_rel);
-            # oldsolvec = IR_data_node(IRtypes.float_64_data, :solution_old, [:dofs_global], []);
+            # nl_change_abs = IR_data_node(IRtypes.float_data, :nl_change_abs);
+            # nl_change_rel = IR_data_node(IRtypes.float_data, :nl_change_rel);
+            # oldsolvec = IR_data_node(IRtypes.float_data, :solution_old, [:dofs_global], []);
             # zero_el_vec = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY,
-            #     IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], []), 0, :dofs_global]);
+            #     IR_data_node(IRtypes.float_data, :global_vector, [:dofs_global], []), 0, :dofs_global]);
             # zero_bdry_done = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY,
-            #     IR_data_node(IRtypes.int_64_data, :bdry_done, [:nnodes_global], []), 0, :nnodes_global]);
+            #     IR_data_node(IRtypes.int_data, :bdry_done, [:nnodes_global], []), 0, :nnodes_global]);
             # push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
             #     oldsolvec,
-            #     IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])
+            #     IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global])
             # ]));
             # compute_block = IR_block_node([
-            #     IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_64_data, :t), 0]),
+            #     IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_data, :t), 0]),
             #     IR_operation_node(IRtypes.assign_op, [nl_change_abs, 1]),
             #     IR_operation_node(IRtypes.assign_op, [nl_change_rel, 1]),
             #     # build vector from existing sol vars for initial guess
@@ -584,19 +584,19 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
             
             
             ###### A different approach using Taylor approx for nonlinear terms
-            nl_change_abs = IR_data_node(IRtypes.float_64_data, :nl_change_abs);
-            nl_change_rel = IR_data_node(IRtypes.float_64_data, :nl_change_rel);
-            oldsolvec = IR_data_node(IRtypes.float_64_data, :solution_old, [:dofs_global], []);
+            nl_change_abs = IR_data_node(IRtypes.float_data, :nl_change_abs);
+            nl_change_rel = IR_data_node(IRtypes.float_data, :nl_change_rel);
+            oldsolvec = IR_data_node(IRtypes.float_data, :solution_old, [:dofs_global], []);
             zero_el_vec = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY,
-                IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], []), 0, :dofs_global]);
+                IR_data_node(IRtypes.float_data, :global_vector, [:dofs_global], []), 0, :dofs_global]);
             zero_bdry_done = IR_operation_node(IRtypes.named_op, [:FILL_ARRAY,
-                IR_data_node(IRtypes.int_64_data, :bdry_done, [:nnodes_global], []), 0, :nnodes_global]);
+                IR_data_node(IRtypes.int_data, :bdry_done, [:nnodes_global], []), 0, :nnodes_global]);
             push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
                 oldsolvec,
-                IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])
+                IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global])
                 ]));
             compute_block = IR_block_node([
-                IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_64_data, :t), 0]),
+                IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_data, :t), 0]),
                 IR_operation_node(IRtypes.assign_op, [nl_change_abs, 1]),
                 IR_operation_node(IRtypes.assign_op, [nl_change_rel, 1]),
                 # The nonlinear iteration
@@ -692,15 +692,15 @@ function prepare_derivative_matrices(entities, counts, var)
         if needed_derivative_matrices[i]
             push!(allocate_part, IR_operation_node(
                 IRtypes.assign_op,[
-                IR_data_node(IRtypes.float_64_data, Symbol("RQ"*string(i)), [:qnodes_per_element, :nodes_per_element], []),
-                IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :qnodes_per_element, :nodes_per_element])
+                IR_data_node(IRtypes.float_data, Symbol("RQ"*string(i)), [:qnodes_per_element, :nodes_per_element], []),
+                IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :qnodes_per_element, :nodes_per_element])
                 ]));
         end
         if needed_derivative_matrices[i+4]
             push!(allocate_part, IR_operation_node(
                 IRtypes.assign_op,[
-                IR_data_node(IRtypes.float_64_data, Symbol("RD"*string(i)), [:nodes_per_element, :nodes_per_element], []),
-                IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :nodes_per_element, :nodes_per_element])
+                IR_data_node(IRtypes.float_data, Symbol("RD"*string(i)), [:nodes_per_element, :nodes_per_element], []),
+                IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :nodes_per_element, :nodes_per_element])
                 ]));
         end
         
@@ -751,24 +751,24 @@ function prepare_coefficient_values(entities, var, dimension, group)
         coef_loop_body = [
             # nodeID = mesh.loc2glb[eid, ni]
             IR_operation_node(IRtypes.assign_op,[:nodeID, 
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_64_data, :loc2glb, 
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_data, :loc2glb, 
                                                             [:nodes_per_element, :num_elements], [:ni, :eid])])]),
             # t = the current step time
             # x = mesh.allnodes[1,nodeID]
             IR_operation_node(IRtypes.assign_op, [:x, 
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
                                                             [:dimension, :nnodes_partition], [1,:nodeID])])])
         ];
         if dimension > 1 # y = mesh.allnodes[2,nodeID]
             push!(coef_loop_body, IR_operation_node(IRtypes.assign_op, [:y, 
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
                                                             [:dimension, :nnodes_partition], [2,:nodeID])])]))
         else# y = 0
             push!(coef_loop_body, IR_operation_node(IRtypes.assign_op, [:y, 0]));
         end
         if dimension > 2 # z = mesh.allnodes[3,nodeID]
             push!(coef_loop_body, IR_operation_node(IRtypes.assign_op, [:z, 
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
                                                             [:dimension, :nnodes_partition], [3,:nodeID])])]))
         else# z = 0
             push!(coef_loop_body, IR_operation_node(IRtypes.assign_op, [:z, 0]));
@@ -779,49 +779,49 @@ function prepare_coefficient_values(entities, var, dimension, group)
         face_coef_full_loop_body = [
             # nodeID = mesh.loc2glb[eid, ni]
             IR_operation_node(IRtypes.assign_op,[:nodeID_L, 
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_64_data, :loc2glb, 
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_data, :loc2glb, 
                                                             [:nodes_per_element, :num_elements], [:ni, :left_el])])]),
             IR_operation_node(IRtypes.assign_op,[:nodeID_R, 
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_64_data, :loc2glb, 
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_data, :loc2glb, 
                                                             [:nodes_per_element, :num_elements], [:ni, :right_el])])]),
             # t = the current step time
             # x = mesh.allnodes[1,nodeID]
             IR_operation_node(IRtypes.assign_op, [:xL, 
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
                                                             [:dimension, :nnodes_partition], [1,:nodeID_L])])]),
             # IR_operation_node(IRtypes.assign_op, [:xR, 
-            #     IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+            #     IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
             #                                                 [:dimension, :nnodes_partition], [1,:nodeID_R])])])
         ];
         face_coef_loop_body = [
             # nodeID = mesh.face2glb[eid, ?, ni]
             IR_operation_node(IRtypes.assign_op,[:nodeID_L, 
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_64_data, :face2glb, 
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_data, :face2glb, 
                                                             [:nodes_per_element, :?, :num_elements], [:ni, 1, :left_el])])]),
             IR_operation_node(IRtypes.assign_op,[:nodeID_R, 
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_64_data, :face2glb, 
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_data, :face2glb, 
                                                             [:nodes_per_element, :?, :num_elements], [:ni, :gness, :right_el])])]),
             # t = the current step time
             # x = mesh.allnodes[1,nodeID]
             IR_operation_node(IRtypes.assign_op, [:xL, 
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
                                                             [:dimension, :nnodes_partition], [1,:nodeID_L])])]),
             # IR_operation_node(IRtypes.assign_op, [:xR, 
-            #     IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+            #     IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
             #                                                 [:dimension, :nnodes_partition], [1,:nodeID_R])])])
         ];
         if dimension > 1 # y = mesh.allnodes[2,nodeID]
             push!(face_coef_full_loop_body, IR_operation_node(IRtypes.assign_op, [:yL, 
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
                                                             [:dimension, :nnodes_partition], [2,:nodeID_L])])]))
             # push!(face_coef_full_loop_body, IR_operation_node(IRtypes.assign_op, [:yR, 
-            #     IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+            #     IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
             #                                                 [:dimension, :nnodes_partition], [2,:nodeID_R])])]))
             push!(face_coef_loop_body, IR_operation_node(IRtypes.assign_op, [:yL, 
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
                                                             [:dimension, :nnodes_partition], [2,:nodeID_L])])]))
             # push!(face_coef_loop_body, IR_operation_node(IRtypes.assign_op, [:yR, 
-            #     IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+            #     IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
             #                                                 [:dimension, :nnodes_partition], [2,:nodeID_R])])]))
         else# y = 0
             push!(face_coef_full_loop_body, IR_operation_node(IRtypes.assign_op, [:yL, 0]));
@@ -831,16 +831,16 @@ function prepare_coefficient_values(entities, var, dimension, group)
         end
         if dimension > 2 # z = mesh.allnodes[nodeID*dimension+2]
             push!(face_coef_full_loop_body, IR_operation_node(IRtypes.assign_op, [:zL, 
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
                                                             [:dimension, :nnodes_partition], [3,:nodeID_L])])]))
             # push!(face_coef_full_loop_body, IR_operation_node(IRtypes.assign_op, [:zR, 
-            #     IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+            #     IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
             #                                                 [:dimension, :nnodes_partition], [3,:nodeID_R])])]))
             push!(face_coef_loop_body, IR_operation_node(IRtypes.assign_op, [:zL, 
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
                                                             [:dimension, :nnodes_partition], [3,:nodeID_L])])]))
             # push!(face_coef_loop_body, IR_operation_node(IRtypes.assign_op, [:zR, 
-            #     IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_64_data, :allnodes, 
+            #     IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :allnodes, 
             #                                                 [:dimension, :nnodes_partition], [3,:nodeID_R])])]))
         else # z = 0
             push!(face_coef_full_loop_body, IR_operation_node(IRtypes.assign_op, [:zL, 0]));
@@ -893,7 +893,7 @@ function prepare_coefficient_values(entities, var, dimension, group)
                 
             elseif ctype == 1 # a constant wrapped in a coefficient will be replaced by a number
                 push!(coef_part, IR_operation_node(IRtypes.assign_op,[
-                    IR_data_node(IRtypes.float_64_data, Symbol(cname), [], []), cval]))
+                    IR_data_node(IRtypes.float_data, Symbol(cname), [], []), cval]))
                 
             elseif ctype == 2 || ctype == 4 # a coefficient function or indexed coefficient function
                 # Build the index IR
@@ -927,30 +927,30 @@ function prepare_coefficient_values(entities, var, dimension, group)
                     need_vol_interp_loop = true;
                     need_vol_coef_loop = true;
                     # Need to allocate NP 
-                    np_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :nodes_per_element]);
-                    nqp_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :qnodes_per_element]);
+                    np_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :nodes_per_element]);
+                    nqp_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :qnodes_per_element]);
                     nodal_coef_name = "NODAL"*cname;
                     # For the nodal values
                     push!(allocate_part, IR_operation_node(IRtypes.assign_op,[
-                        IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], []),
+                        IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], []),
                         np_allocate]));
                     # For the interpolated/differentiated quadrature values
                     push!(allocate_part, IR_operation_node(IRtypes.assign_op,[
-                        IR_data_node(IRtypes.float_64_data, Symbol(cname), [:qnodes_per_element], []),
+                        IR_data_node(IRtypes.float_data, Symbol(cname), [:qnodes_per_element], []),
                         nqp_allocate]));
                     
                     coef_index = get_coef_index(entities[i]);
                     
                     push!(coef_loop_body, IR_operation_node(IRtypes.assign_op,[
-                        IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], [:ni]),
+                        IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], [:ni]),
                         IR_operation_node(IRtypes.named_op, [:COEF_EVAL, coef_index, index_IR, :x, :y, :z, :t, :nodeID])]));
                     # Apply any needed derivative operators. Interpolate at quadrature points.
                     if length(entities[i].derivs) > 0
-                        quad_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(cname), [:qnodes_per_element], [:col]);
-                        nodal_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], [:row]);
+                        quad_coef_node = IR_data_node(IRtypes.float_data, Symbol(cname), [:qnodes_per_element], [:col]);
+                        nodal_coef_node = IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], [:row]);
                         push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
                         for di=1:length(entities[i].derivs)
-                            deriv_quad_mat = IR_data_node(IRtypes.float_64_data, Symbol("RQ"*string(entities[i].derivs[di])), 
+                            deriv_quad_mat = IR_data_node(IRtypes.float_data, Symbol("RQ"*string(entities[i].derivs[di])), 
                                                             [:qnodes_per_element, :nodes_per_element], [col_row_matrix_index]);
                             push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
                                 quad_coef_node,
@@ -959,10 +959,10 @@ function prepare_coefficient_values(entities, var, dimension, group)
                                 ]));
                         end
                     else
-                        quad_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(cname), [:qnodes_per_element], [:col]);
-                        nodal_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], [:row]);
+                        quad_coef_node = IR_data_node(IRtypes.float_data, Symbol(cname), [:qnodes_per_element], [:col]);
+                        nodal_coef_node = IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], [:row]);
                         # refelQ = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index])]);
-                        refelQ = IR_data_node(IRtypes.float_64_data, :Q, [:nodes_per_element, :nodes_per_element], [col_row_matrix_index]);
+                        refelQ = IR_data_node(IRtypes.float_data, :Q, [:nodes_per_element, :nodes_per_element], [col_row_matrix_index]);
                         push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
                         push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
                             quad_coef_node,
@@ -983,26 +983,26 @@ function prepare_coefficient_values(entities, var, dimension, group)
                         need_surf_coef_full_loop = true;
                         need_surf_interp_loop = true;
                         # Need to allocate NP 
-                        np_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :nodes_per_element]);
+                        np_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :nodes_per_element]);
                         nodal_coef_name = "NODAL"*cname;
                         # For the nodal values
                         push!(allocate_part, IR_operation_node(IRtypes.assign_op,[
-                            IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], []),
+                            IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], []),
                             np_allocate]));
                         # For the interpolated/differentiated quadrature values
                         # Although there will be fewer nodes, I'm not sure how many we need, so use Np
                         push!(allocate_part, IR_operation_node(IRtypes.assign_op,[
-                            IR_data_node(IRtypes.float_64_data, Symbol(cname), [:nodes_per_element], []),
+                            IR_data_node(IRtypes.float_data, Symbol(cname), [:nodes_per_element], []),
                             np_allocate]));
                         # evaluate at nodes in either left or right element
                         
                         if dgside == 2
                             push!(face_coef_full_loop_body, IR_operation_node(IRtypes.assign_op,[
-                                IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], [:ni]),
+                                IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], [:ni]),
                                 IR_operation_node(IRtypes.named_op, [:COEF_EVAL, coef_index, index_IR, :xL, :yL, :zL, :t, :nodeID])]));
                         else
                             push!(face_coef_full_loop_body, IR_operation_node(IRtypes.assign_op,[
-                                IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], [:ni]),
+                                IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], [:ni]),
                                 IR_operation_node(IRtypes.named_op, [:COEF_EVAL, coef_index, index_IR, :xL, :yL, :zL, :t, :nodeID])]));
                         end
                         
@@ -1014,32 +1014,32 @@ function prepare_coefficient_values(entities, var, dimension, group)
                         need_surf_coef_loop = true;
                         need_surf_interp_loop = true;
                         # Need to allocate NP 
-                        np_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :nodes_per_face]);
+                        np_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :nodes_per_face]);
                         nodal_coef_name = "NODAL"*cname;
                         # For the nodal values
                         push!(allocate_part, IR_operation_node(IRtypes.assign_op,[
-                            IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_face], []),
+                            IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_face], []),
                             np_allocate]));
                         # For the interpolated/differentiated quadrature values
                         # Although there will be fewer nodes, I'm not sure how many we need, so use Np
                         push!(allocate_part, IR_operation_node(IRtypes.assign_op,[
-                            IR_data_node(IRtypes.float_64_data, Symbol(cname), [:nodes_per_face], []),
+                            IR_data_node(IRtypes.float_data, Symbol(cname), [:nodes_per_face], []),
                             np_allocate]));
                             
                         # Interpolate at surface quadrature nodes
-                        quad_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(cname), [:qnodes_per_element], [:col]);
-                        nodal_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], [:row]);
+                        quad_coef_node = IR_data_node(IRtypes.float_data, Symbol(cname), [:qnodes_per_element], [:col]);
+                        nodal_coef_node = IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], [:row]);
                         if dgside == 2
                             push!(face_coef_loop_body, IR_operation_node(IRtypes.assign_op,[
-                                IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], [:ni]),
+                                IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], [:ni]),
                                 IR_operation_node(IRtypes.named_op, [:COEF_EVAL, coef_index, index_IR, :xL, :yL, :zL, :t, :nodeID])]));
                         else
                             push!(face_coef_loop_body, IR_operation_node(IRtypes.assign_op,[
-                                IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], [:ni]),
+                                IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], [:ni]),
                                 IR_operation_node(IRtypes.named_op, [:COEF_EVAL, coef_index, index_IR, :xL, :yL, :zL, :t, :nodeID])]));
                         end
                         # refelQ = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index])]);
-                        refelQ = IR_data_node(IRtypes.float_64_data, :Q, [:nodes_per_element, :nodes_per_element], [col_row_matrix_index]);
+                        refelQ = IR_data_node(IRtypes.float_data, :Q, [:nodes_per_element, :nodes_per_element], [col_row_matrix_index]);
                         push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
                         push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
                             quad_coef_node,
@@ -1080,28 +1080,28 @@ function prepare_coefficient_values(entities, var, dimension, group)
                     need_vol_interp_loop = true;
                     need_vol_coef_loop = true;
                     # Need to allocate NP 
-                    np_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :nodes_per_element]);
-                    nqp_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :qnodes_per_element]);
+                    np_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :nodes_per_element]);
+                    nqp_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :qnodes_per_element]);
                     nodal_coef_name = "NODAL"*cname;
                     # For the nodal values
                     push!(allocate_part, IR_operation_node(IRtypes.assign_op,[
-                        IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], []),
+                        IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], []),
                         np_allocate]));
                     # For the interpolated/differentiated quadrature values
                     push!(allocate_part, IR_operation_node(IRtypes.assign_op,[
-                        IR_data_node(IRtypes.float_64_data, Symbol(cname), [:qnodes_per_element], []),
+                        IR_data_node(IRtypes.float_data, Symbol(cname), [:qnodes_per_element], []),
                         nqp_allocate]));
                     
                     push!(coef_loop_body, IR_operation_node(IRtypes.assign_op,[
-                        IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], [:ni]),
+                        IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], [:ni]),
                         IR_operation_node(IRtypes.named_op, [:KNOWN_VAR, cval, index_IR, :nodeID])]));
                     # Apply any needed derivative operators. Interpolate at quadrature points.
                     if length(entities[i].derivs) > 0
-                        quad_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(cname), [:qnodes_per_element], [:col]);
-                        nodal_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], [:row]);
+                        quad_coef_node = IR_data_node(IRtypes.float_data, Symbol(cname), [:qnodes_per_element], [:col]);
+                        nodal_coef_node = IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], [:row]);
                         push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
                         for di=1:length(entities[i].derivs)
-                            deriv_quad_mat = IR_data_node(IRtypes.float_64_data, Symbol("RQ"*string(entities[i].derivs[di])), 
+                            deriv_quad_mat = IR_data_node(IRtypes.float_data, Symbol("RQ"*string(entities[i].derivs[di])), 
                                                             [:qnodes_per_element, :nodes_per_element], [col_row_matrix_index]);
                             push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
                                 quad_coef_node,
@@ -1109,10 +1109,10 @@ function prepare_coefficient_values(entities, var, dimension, group)
                                 ]));
                         end
                     else
-                        quad_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(cname), [:qnodes_per_element], [:col]);
-                        nodal_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], [:row]);
+                        quad_coef_node = IR_data_node(IRtypes.float_data, Symbol(cname), [:qnodes_per_element], [:col]);
+                        nodal_coef_node = IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], [:row]);
                         # refelQ = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index])]);
-                        refelQ = IR_data_node(IRtypes.float_64_data, :Q, [:nodes_per_element, :nodes_per_element], [col_row_matrix_index]);
+                        refelQ = IR_data_node(IRtypes.float_data, :Q, [:nodes_per_element, :nodes_per_element], [col_row_matrix_index]);
                         push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
                         push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
                             quad_coef_node,
@@ -1122,12 +1122,12 @@ function prepare_coefficient_values(entities, var, dimension, group)
                     
                 else # surface
                     # Need to allocate NP 
-                    np_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :nodes_per_element]);
-                    nqp_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :qnodes_per_element]);
+                    np_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :nodes_per_element]);
+                    nqp_allocate = IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :qnodes_per_element]);
                     nodal_coef_name = "NODAL"*cname;
                     
                     push!(face_coef_loop_body, IR_operation_node(IRtypes.assign_op,[
-                        IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], [:ni]),
+                        IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], [:ni]),
                         IR_operation_node(IRtypes.named_op, [:KNOWN_VAR, cval, index_IR, :nodeID])]));
                     # Apply any needed derivative operators. Interpolate at quadrature points.
                     if length(entities[i].derivs) > 0
@@ -1135,18 +1135,18 @@ function prepare_coefficient_values(entities, var, dimension, group)
                         need_surf_interp_loop = true;
                         # For the nodal values
                         push!(allocate_part, IR_operation_node(IRtypes.assign_op,[
-                            IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], []),
+                            IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], []),
                             np_allocate]));
                         # For the interpolated/differentiated quadrature values
                         push!(allocate_part, IR_operation_node(IRtypes.assign_op,[
-                            IR_data_node(IRtypes.float_64_data, Symbol(cname), [:qnodes_per_element], []),
+                            IR_data_node(IRtypes.float_data, Symbol(cname), [:qnodes_per_element], []),
                             nqp_allocate]));
                             
-                        quad_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(cname), [:qnodes_per_element], [:col]);
-                        nodal_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], [:row]);
+                        quad_coef_node = IR_data_node(IRtypes.float_data, Symbol(cname), [:qnodes_per_element], [:col]);
+                        nodal_coef_node = IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], [:row]);
                         push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
                         for di=1:length(entities[i].derivs)
-                            deriv_quad_mat = IR_data_node(IRtypes.float_64_data, Symbol("RQ"*string(entities[i].derivs[di])), 
+                            deriv_quad_mat = IR_data_node(IRtypes.float_data, Symbol("RQ"*string(entities[i].derivs[di])), 
                                                             [:qnodes_per_element, :nodes_per_element], [col_row_matrix_index]);
                             push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
                                 quad_coef_node,
@@ -1158,17 +1158,17 @@ function prepare_coefficient_values(entities, var, dimension, group)
                         need_surf_interp_loop = true;
                         # For the nodal values
                         push!(allocate_part, IR_operation_node(IRtypes.assign_op,[
-                            IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], []),
+                            IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], []),
                             np_allocate]));
                         # For the interpolated/differentiated quadrature values
                         push!(allocate_part, IR_operation_node(IRtypes.assign_op,[
-                            IR_data_node(IRtypes.float_64_data, Symbol(cname), [:qnodes_per_element], []),
+                            IR_data_node(IRtypes.float_data, Symbol(cname), [:qnodes_per_element], []),
                             nqp_allocate]));
                             
-                        quad_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(cname), [:qnodes_per_element], [:col]);
-                        nodal_coef_node = IR_data_node(IRtypes.float_64_data, Symbol(nodal_coef_name), [:nodes_per_element], [:row]);
+                        quad_coef_node = IR_data_node(IRtypes.float_data, Symbol(cname), [:qnodes_per_element], [:col]);
+                        nodal_coef_node = IR_data_node(IRtypes.float_data, Symbol(nodal_coef_name), [:nodes_per_element], [:row]);
                         # refelQ = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.array_data, :Q, [row_col_matrix_index])]);
-                        refelQ = IR_data_node(IRtypes.float_64_data, :Q, [:nodes_per_element, :nodes_per_element], [col_row_matrix_index]);
+                        refelQ = IR_data_node(IRtypes.float_data, :Q, [:nodes_per_element, :nodes_per_element], [col_row_matrix_index]);
                         push!(coef_init_loop_body, IR_operation_node(IRtypes.assign_op, [quad_coef_node, 0.0]));
                         push!(coef_interp_loop_body, IR_operation_node(IRtypes.assign_op,[
                             quad_coef_node,
@@ -1458,10 +1458,10 @@ function generate_term_calculation_fem(term, var, lorr, vors, config, refel)
         if vors == "volume"
             if length(test_ex.derivs) > 0
                 deriv_index = test_ex.derivs[1];
-                test_part = IR_data_node(IRtypes.float_64_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element], []);
+                test_part = IR_data_node(IRtypes.float_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element], []);
             else
                 # test_part = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element])]);
-                test_part = IR_data_node(IRtypes.float_64_data, :Q, [:qnodes_per_element, :nodes_per_element], []);
+                test_part = IR_data_node(IRtypes.float_data, :Q, [:qnodes_per_element, :nodes_per_element], []);
             end
         else # surface
             dgside = 0;
@@ -1472,10 +1472,10 @@ function generate_term_calculation_fem(term, var, lorr, vors, config, refel)
             end
             if length(test_ex.derivs) > 0
                 deriv_index = test_ex.derivs[1];
-                test_part = IR_data_node(IRtypes.float_64_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element], []);
+                test_part = IR_data_node(IRtypes.float_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element], []);
             else
                 # test_part = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element])]);
-                test_part = IR_data_node(IRtypes.float_64_data, :Q, [:qnodes_per_element, :nodes_per_element], []);
+                test_part = IR_data_node(IRtypes.float_data, :Q, [:qnodes_per_element, :nodes_per_element], []);
             end
         end
         
@@ -1487,10 +1487,10 @@ function generate_term_calculation_fem(term, var, lorr, vors, config, refel)
         if vors == "volume"
             if length(trial_ex.derivs) > 0
                 deriv_index = trial_ex.derivs[1];
-                trial_part = IR_data_node(IRtypes.float_64_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element], []);
+                trial_part = IR_data_node(IRtypes.float_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element], []);
             else
                 # trial_part = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element])]);
-                trial_part = IR_data_node(IRtypes.float_64_data, :Q, [:qnodes_per_element, :nodes_per_element], []);
+                trial_part = IR_data_node(IRtypes.float_data, :Q, [:qnodes_per_element, :nodes_per_element], []);
             end
             
         else # surface
@@ -1502,10 +1502,10 @@ function generate_term_calculation_fem(term, var, lorr, vors, config, refel)
             end
             if length(trial_ex.derivs) > 0
                 deriv_index = trial_ex.derivs[1];
-                trial_part = IR_data_node(IRtypes.float_64_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element], []);
+                trial_part = IR_data_node(IRtypes.float_data, Symbol("RQ"*string(deriv_index)), [:qnodes_per_element, :nodes_per_element], []);
             else
                 # test_part = IR_operation_node(IRtypes.member_op, [:refel, IR_data_node(IRtypes.matrix_data, :Q, [:qnodes_per_element, :nodes_per_element])]);
-                trial_part = IR_data_node(IRtypes.float_64_data, :Q, [:qnodes_per_element, :nodes_per_element], []);
+                trial_part = IR_data_node(IRtypes.float_data, :Q, [:qnodes_per_element, :nodes_per_element], []);
             end
         end
     else
@@ -1513,7 +1513,7 @@ function generate_term_calculation_fem(term, var, lorr, vors, config, refel)
     end
     
     # Turn the coefficient part into IR
-    wg_part = IR_data_node(IRtypes.float_64_data, :wg, [:qnodes_per_element], []);
+    wg_part = IR_data_node(IRtypes.float_data, :wg, [:qnodes_per_element], []);
     # When using simplex elements or squares jacobian is constant
     if ((config.geometry == SQUARE && config.mesh_type == UNIFORM_GRID) ||
         config.dimension == 1 ||
@@ -1524,9 +1524,9 @@ function generate_term_calculation_fem(term, var, lorr, vors, config, refel)
         constantJ = false;
     end
     if !constantJ
-        detj_part = IR_data_node(IRtypes.float_64_data, :detj, [:qnodes_per_element], []);
+        detj_part = IR_data_node(IRtypes.float_data, :detj, [:qnodes_per_element], []);
     else
-        detj_part = IR_data_node(IRtypes.float_64_data, :detj);
+        detj_part = IR_data_node(IRtypes.float_data, :detj);
     end
     
     if !(coef_ex === nothing)
@@ -1587,32 +1587,32 @@ function generate_local_to_global_fem(dofs_per_node; vec_only=false)
         
         push!(vector_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
             :glb_i,
-            IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_64_data, :loc2glb, [:nodes_per_element, :num_elements], [:ni, :eid])])
+            IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_data, :loc2glb, [:nodes_per_element, :num_elements], [:ni, :eid])])
         ]));
         push!(vector_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
-            IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], [:glb_i]),
+            IR_data_node(IRtypes.float_data, :global_vector, [:dofs_global], [:glb_i]),
             IR_operation_node(IRtypes.math_op, [:+, 
-                IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], [:glb_i]),
-                IR_data_node(IRtypes.float_64_data, :element_vector, [:dofs_per_element], [:ni])])
+                IR_data_node(IRtypes.float_data, :global_vector, [:dofs_global], [:glb_i]),
+                IR_data_node(IRtypes.float_data, :element_vector, [:dofs_per_element], [:ni])])
         ]));
         
         # only to the matrix part if not vec_only
         if !vec_only
             push!(matrix_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
                 :glb_j,
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_64_data, :loc2glb, [:nodes_per_element, :num_elements], [:nj, :eid])])
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_data, :loc2glb, [:nodes_per_element, :num_elements], [:nj, :eid])])
             ]));
             push!(matrix_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
-                IR_data_node(IRtypes.int_64_data, :global_matrix_I, [:allocated_nonzeros], [:next_ind]),
+                IR_data_node(IRtypes.int_data, :global_matrix_I, [:allocated_nonzeros], [:next_ind]),
                 :glb_i
             ]));
             push!(matrix_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
-                IR_data_node(IRtypes.int_64_data, :global_matrix_J, [:allocated_nonzeros], [:next_ind]),
+                IR_data_node(IRtypes.int_data, :global_matrix_J, [:allocated_nonzeros], [:next_ind]),
                 :glb_j
             ]));
             push!(matrix_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
-                IR_data_node(IRtypes.float_64_data, :global_matrix_V, [:allocated_nonzeros], [:next_ind]),
-                IR_data_node(IRtypes.float_64_data, :element_matrix, [:dofs_per_element, :dofs_per_element], [:ni, :nj])
+                IR_data_node(IRtypes.float_data, :global_matrix_V, [:allocated_nonzeros], [:next_ind]),
+                IR_data_node(IRtypes.float_data, :element_matrix, [:dofs_per_element, :dofs_per_element], [:ni, :nj])
             ]));
             push!(matrix_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
                 :next_ind,
@@ -1661,40 +1661,40 @@ function generate_local_to_global_fem(dofs_per_node; vec_only=false)
         
         push!(vector_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
             :glb_i,
-            IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_64_data, :loc2glb, [:nodes_per_element, :num_elements], [:ni, :eid])])
+            IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_data, :loc2glb, [:nodes_per_element, :num_elements], [:ni, :eid])])
         ]));
         push!(vector_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
             :glb_dofi,
             generate_the_one_pattern(:glb_i, 1, :dofs_per_node, IR_operation_node(IRtypes.math_op, [:+, :di, :index_offset]))
         ]));
         push!(vector_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
-            IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], [:glb_dofi]),
+            IR_data_node(IRtypes.float_data, :global_vector, [:dofs_global], [:glb_dofi]),
             IR_operation_node(IRtypes.math_op, [:+, 
-                IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], [:glb_dofi]),
-                IR_data_node(IRtypes.float_64_data, :element_vector, [:dofs_per_element], [generate_the_one_pattern(:di, 1, :nodes_per_element, :ni)])])
+                IR_data_node(IRtypes.float_data, :global_vector, [:dofs_global], [:glb_dofi]),
+                IR_data_node(IRtypes.float_data, :element_vector, [:dofs_per_element], [generate_the_one_pattern(:di, 1, :nodes_per_element, :ni)])])
         ]));
         
         # only needed if not vec_only
         if !vec_only
             push!(matrix_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
                 :glb_j,
-                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_64_data, :loc2glb, [:nodes_per_element, :num_elements], [:nj, :eid])])
+                IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_data, :loc2glb, [:nodes_per_element, :num_elements], [:nj, :eid])])
             ]));
             push!(matrix_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
                 :glb_dofj,
                 generate_the_one_pattern(:glb_j, 1, :dofs_per_node, IR_operation_node(IRtypes.math_op, [:+, :dj, :index_offset]))
             ]));
             push!(matrix_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
-                IR_data_node(IRtypes.int_64_data, :global_matrix_I, [:allocated_nonzeros], [:next_ind]),
+                IR_data_node(IRtypes.int_data, :global_matrix_I, [:allocated_nonzeros], [:next_ind]),
                 :glb_dofi
             ]));
             push!(matrix_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
-                IR_data_node(IRtypes.int_64_data, :global_matrix_J, [:allocated_nonzeros], [:next_ind]),
+                IR_data_node(IRtypes.int_data, :global_matrix_J, [:allocated_nonzeros], [:next_ind]),
                 :glb_dofj
             ]));
             push!(matrix_dof_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
-                IR_data_node(IRtypes.float_64_data, :global_matrix_V, [:allocated_nonzeros], [:next_ind]),
-                IR_data_node(IRtypes.float_64_data, :element_matrix, [:dofs_per_element, :dofs_per_element], [
+                IR_data_node(IRtypes.float_data, :global_matrix_V, [:allocated_nonzeros], [:next_ind]),
+                IR_data_node(IRtypes.float_data, :element_matrix, [:dofs_per_element, :dofs_per_element], [
                     generate_the_one_pattern(:di, 1, :nodes_per_element, :ni),
                     generate_the_one_pattern(:dj, 1, :nodes_per_element, :nj)])
             ]));
@@ -1730,7 +1730,7 @@ function generate_assembly_loop_fem(var, indices)
             elements_included = true;
             push!(index_names, "elements");
         else
-            push!(index_names, IR_data_node(IRtypes.int_64_data, Symbol("INDEX_VAL_"*string(indices[i].symbol))));
+            push!(index_names, IR_data_node(IRtypes.int_data, Symbol("INDEX_VAL_"*string(indices[i].symbol))));
         end
     end
     
@@ -1763,7 +1763,7 @@ function generate_assembly_loop_fem(var, indices)
         end
     end
     
-    el_order = IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_64_data, :elemental_order, [:num_elements], [:ei])]);
+    el_order = IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.int_data, :elemental_order, [:num_elements], [:ei])]);
     
     # Placeholder computation that will be replaced by the actual one
     placeholder = IR_block_node([
@@ -1804,9 +1804,9 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
     tloop_body = IR_block_node([]);
     stepper_nsteps = IR_operation_node(IRtypes.member_op, [:time_stepper, :Nsteps]);
     zero_el_vec = IR_operation_node(IRtypes.named_op, [
-        :FILL_ARRAY, IR_data_node(IRtypes.float_64_data, :global_vector, [:dofs_global], []), 0, :dofs_global]);
+        :FILL_ARRAY, IR_data_node(IRtypes.float_data, :global_vector, [:dofs_global], []), 0, :dofs_global]);
     zero_bdry_done = IR_operation_node(IRtypes.named_op, [
-        :FILL_ARRAY, IR_data_node(IRtypes.int_64_data, :bdry_done, [:nnodes_global], []), 0, :nnodes_global]);
+        :FILL_ARRAY, IR_data_node(IRtypes.int_data, :bdry_done, [:nnodes_global], []), 0, :nnodes_global]);
     # If pre or post-step functions have been set, include those
     if !(prob.pre_step_function === nothing)
         pre_step_call = IR_operation_node(IRtypes.function_op, [:pre_step_function]);
@@ -1884,21 +1884,21 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
             na = length(stepper.a);
             nb = length(stepper.b);
             nc = length(stepper.c);
-            tmp_pi = IR_data_node(IRtypes.float_64_data, :tmppi, [:dofs_global], []);
-            tmp_ki = IR_data_node(IRtypes.float_64_data, :tmpki, [:dofs_global], []);
+            tmp_pi = IR_data_node(IRtypes.float_data, :tmppi, [:dofs_global], []);
+            tmp_ki = IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], []);
             piki_loop_one = IR_loop_node(IRtypes.space_loop, :dofs, :piki_i, 1, :dofs_global, IR_block_node([
                 # tmpki .= stepper.dt .* sol;
                 # tmppi .= tmppi + stepper.b[rki].*tmpki;
                 IR_operation_node(IRtypes.assign_op, [
-                    IR_data_node(IRtypes.float_64_data, :tmpki, [:dofs_global], [:piki_i]),
-                    IR_operation_node(IRtypes.math_op, [:*, :dt, IR_data_node(IRtypes.float_64_data, :solution, [:dofs_global], [:piki_i])])
+                    IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:piki_i]),
+                    IR_operation_node(IRtypes.math_op, [:*, :dt, IR_data_node(IRtypes.float_data, :solution, [:dofs_global], [:piki_i])])
                 ]),
                 IR_operation_node(IRtypes.assign_op, [
-                    IR_data_node(IRtypes.float_64_data, :tmppi, [:dofs_global], [:piki_i]),
-                    IR_operation_node(IRtypes.math_op, [:+, IR_data_node(IRtypes.float_64_data, :tmppi, [:dofs_global], [:piki_i]), 
+                    IR_data_node(IRtypes.float_data, :tmppi, [:dofs_global], [:piki_i]),
+                    IR_operation_node(IRtypes.math_op, [:+, IR_data_node(IRtypes.float_data, :tmppi, [:dofs_global], [:piki_i]), 
                         IR_operation_node(IRtypes.math_op, [:*, 
-                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_64_data, :b, [nb], [:rki])]), 
-                            IR_data_node(IRtypes.float_64_data, :tmpki, [:dofs_global], [:piki_i])])
+                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_data, :b, [nb], [:rki])]), 
+                            IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:piki_i])])
                     ])
                 ])
             ]))
@@ -1906,20 +1906,20 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
                 # tmpki .= stepper.a[rki].*tmpki + stepper.dt .* sol;
                 # tmppi .= tmppi + stepper.b[rki].*tmpki;
                 IR_operation_node(IRtypes.assign_op, [
-                    IR_data_node(IRtypes.float_64_data, :tmpki, [:dofs_global], [:piki_i]),
+                    IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:piki_i]),
                     IR_operation_node(IRtypes.math_op, [:+, 
                         IR_operation_node(IRtypes.math_op, [:*, 
-                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_64_data, :a, [na], [:rki])]), 
-                            IR_data_node(IRtypes.float_64_data, :tmpki, [:dofs_global], [:piki_i])]),
-                        IR_operation_node(IRtypes.math_op, [:*, :dt, IR_data_node(IRtypes.float_64_data, :solution, [:dofs_global], [:piki_i])])
+                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_data, :a, [na], [:rki])]), 
+                            IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:piki_i])]),
+                        IR_operation_node(IRtypes.math_op, [:*, :dt, IR_data_node(IRtypes.float_data, :solution, [:dofs_global], [:piki_i])])
                     ])
                 ]),
                 IR_operation_node(IRtypes.assign_op, [
-                    IR_data_node(IRtypes.float_64_data, :tmppi, [:dofs_global], [:piki_i]),
-                    IR_operation_node(IRtypes.math_op, [:+, IR_data_node(IRtypes.float_64_data, :tmppi, [:dofs_global], [:piki_i]), 
+                    IR_data_node(IRtypes.float_data, :tmppi, [:dofs_global], [:piki_i]),
+                    IR_operation_node(IRtypes.math_op, [:+, IR_data_node(IRtypes.float_data, :tmppi, [:dofs_global], [:piki_i]), 
                         IR_operation_node(IRtypes.math_op, [:*, 
-                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_64_data, :b, [nb], [:rki])]), 
-                            IR_data_node(IRtypes.float_64_data, :tmpki, [:dofs_global], [:piki_i])])
+                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_data, :b, [nb], [:rki])]), 
+                            IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:piki_i])])
                     ])
                 ])
             ]))
@@ -1934,7 +1934,7 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
                     :t,
                     IR_operation_node(IRtypes.math_op, [:+, :t, 
                         IR_operation_node(IRtypes.math_op, [:*, :dt, 
-                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_64_data, :c, [nc], [:rki])])])])
+                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_data, :c, [nc], [:rki])])])])
                 ]),
                 # assemble
                 zero_el_vec,
@@ -1964,10 +1964,10 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
             allocate_block = IR_block_node([
                 IR_operation_node(IRtypes.assign_op, [
                     tmp_pi,
-                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])]),
+                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global])]),
                 IR_operation_node(IRtypes.assign_op, [
                     tmp_ki,
-                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])]),
+                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global])]),
             ]);
             time_loop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper_nsteps, tloop_body);
             
@@ -1984,9 +1984,9 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
             na = length(stepper.a);
             nb = length(stepper.b);
             nc = length(stepper.c);
-            tmp_last = IR_data_node(IRtypes.float_64_data, :last_result, [:dofs_global], []);
-            tmp_result = IR_data_node(IRtypes.float_64_data, :tmpresult, [:dofs_global], []);
-            tmp_ki = IR_data_node(IRtypes.float_64_data, :tmpki, [:dofs_global], []);
+            tmp_last = IR_data_node(IRtypes.float_data, :last_result, [:dofs_global], []);
+            tmp_result = IR_data_node(IRtypes.float_data, :tmpresult, [:dofs_global], []);
+            tmp_ki = IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], []);
             
             update_ki_loop_one = IR_loop_node(IRtypes.space_loop, :dofs, :k, 1, :dofs_global, IR_block_node([
                 # # Update the values in vars to be used in the next stage
@@ -1998,22 +1998,22 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
                 #     end
                 # end
                 IR_operation_node(IRtypes.assign_op, [
-                    IR_data_node(IRtypes.float_64_data, :tmpki, [:dofs_global], [:k, :rki]),
-                    IR_data_node(IRtypes.float_64_data, :solution, [:dofs_global], [:k])
+                    IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:k, :rki]),
+                    IR_data_node(IRtypes.float_data, :solution, [:dofs_global], [:k])
                 ]),
                 IR_operation_node(IRtypes.assign_op, [
-                    IR_data_node(IRtypes.float_64_data, :tmpresult, [:dofs_global], [:k]),
-                    IR_data_node(IRtypes.float_64_data, :last_result, [:dofs_global], [:k])
+                    IR_data_node(IRtypes.float_data, :tmpresult, [:dofs_global], [:k]),
+                    IR_data_node(IRtypes.float_data, :last_result, [:dofs_global], [:k])
                 ]),
                 IR_loop_node(IRtypes.time_loop, :stage, :j, 1, :rki, IR_block_node([
                     IR_operation_node(IRtypes.assign_op, [
-                        IR_data_node(IRtypes.float_64_data, :tmpresult, [:dofs_global], [:k]),
+                        IR_data_node(IRtypes.float_data, :tmpresult, [:dofs_global], [:k]),
                         IR_operation_node(IRtypes.math_op, [:+,
-                            IR_data_node(IRtypes.float_64_data, :tmpresult, [:dofs_global], [:k]),
+                            IR_data_node(IRtypes.float_data, :tmpresult, [:dofs_global], [:k]),
                             IR_operation_node(IRtypes.math_op, [:*, :dt, 
                                 IR_operation_node(IRtypes.member_op, [:time_stepper, 
-                                    IR_data_node(IRtypes.float_64_data, :a, [na], [IR_operation_node(IRtypes.math_op, [:+, :rki, 1]), :j])]),
-                                IR_data_node(IRtypes.float_64_data, :tmpki, [:dofs_global], [:k, :j])
+                                    IR_data_node(IRtypes.float_data, :a, [na], [IR_operation_node(IRtypes.math_op, [:+, :rki, 1]), :j])]),
+                                IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:k, :j])
                             ])
                         ])
                     ])
@@ -2024,8 +2024,8 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
                 #     tmpki[k,stage] = solution[k];
                 # end
                 IR_operation_node(IRtypes.assign_op, [
-                    IR_data_node(IRtypes.float_64_data, :tmpki, [:dofs_global], [:k, :rki]),
-                    IR_data_node(IRtypes.float_64_data, :solution, [:dofs_global], [:k])
+                    IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:k, :rki]),
+                    IR_data_node(IRtypes.float_data, :solution, [:dofs_global], [:k])
                 ])
             ]))
             update_ki_condition = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:<, :rki, stepper.stages]),
@@ -2045,7 +2045,7 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
                     :t,
                     IR_operation_node(IRtypes.math_op, [:+, :t, 
                         IR_operation_node(IRtypes.math_op, [:*, :dt, 
-                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_64_data, :c, [nc], [:rki])])])])
+                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_data, :c, [nc], [:rki])])])])
                 ]),
                 # assemble
                 zero_el_vec,
@@ -2068,12 +2068,12 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
             combine_loop_body = IR_block_node([
                 IR_loop_node(IRtypes.time_loop, :stages, :rki, 1, stepper.stages, IR_block_node([
                     IR_operation_node(IRtypes.assign_op, [
-                        IR_data_node(IRtypes.float_64_data, :last_result, [:dofs_global], [:k]),
+                        IR_data_node(IRtypes.float_data, :last_result, [:dofs_global], [:k]),
                         IR_operation_node(IRtypes.math_op, [:+,
-                            IR_data_node(IRtypes.float_64_data, :last_result, [:dofs_global], [:k]), 
+                            IR_data_node(IRtypes.float_data, :last_result, [:dofs_global], [:k]), 
                             IR_operation_node(IRtypes.math_op, [:*, :dt, 
-                                IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_64_data, :b, [nb], [:rki])]),
-                                IR_data_node(IRtypes.float_64_data, :tmpki, [:dofs_global], [:k, :rki])
+                                IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_data, :b, [nb], [:rki])]),
+                                IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:k, :rki])
                             ])
                         ])
                     ])
@@ -2096,13 +2096,13 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
             allocate_block = IR_block_node([
                 IR_operation_node(IRtypes.assign_op, [
                     tmp_last,
-                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])]),
+                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global])]),
                 IR_operation_node(IRtypes.assign_op, [
                     tmp_result,
-                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global])]),
+                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global])]),
                 IR_operation_node(IRtypes.assign_op, [
                     tmp_ki,
-                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_64_data, :dofs_global, stepper.stages])])
+                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global, stepper.stages])])
             ]);
             time_loop = IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper_nsteps, tloop_body);
             
@@ -2208,7 +2208,7 @@ function generate_difference_norms_and_update(vec_a, vec_b, val_c, val_d)
         # loop over vector
         IR_loop_node(IRtypes.index_loop, :dofs, :norm_i, 1, :dofs_global, IR_block_node([
             # add to norm val_c = val_c + (vec_a[norm_i] - vec_b[norm_i])
-            IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_64_data, :tmp), dif]),
+            IR_operation_node(IRtypes.assign_op, [IR_data_node(IRtypes.float_data, :tmp), dif]),
             IR_operation_node(IRtypes.assign_op, [val_c, 
                 IR_operation_node(IRtypes.math_op, [:+, val_c, 
                     IR_operation_node(IRtypes.math_op, [:*, :tmp, :tmp])

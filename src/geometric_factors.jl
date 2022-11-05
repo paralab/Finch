@@ -10,15 +10,15 @@ include("tensor_ops.jl");
 # Used by the "geometric_factors" function
 =#
 struct Jacobian
-    rx::Array{Float64,1}
-    ry::Array{Float64,1}
-    rz::Array{Float64,1}
-    sx::Array{Float64,1}
-    sy::Array{Float64,1}
-    sz::Array{Float64,1}
-    tx::Array{Float64,1}
-    ty::Array{Float64,1}
-    tz::Array{Float64,1}
+    rx::Vector
+    ry::Vector
+    rz::Vector
+    sx::Vector
+    sy::Vector
+    sz::Vector
+    tx::Vector
+    ty::Vector
+    tz::Vector
 end
 
 #=
@@ -26,12 +26,12 @@ Stores all of the geometric factors for the grid.
 =#
 struct GeometricFactors
     J::Array{Jacobian,1}        # Jacobian for each element
-    detJ::Array{Float64}      # Determinant of Jacobian for each element
+    detJ::Array      # Determinant of Jacobian for each element
     
     # These below are only computed if needed, otherwise empty arrays
-    volume::Array{Float64,1}    # Volume of each element (used by FV)
-    face_detJ::Array{Float64} # Determinant of Jacobian for each face (used by DG and FV)
-    area::Array{Float64,1}      # Area of each face (used by FV)
+    volume::Vector    # Volume of each element (used by FV)
+    face_detJ::Array  # Determinant of Jacobian for each face (used by DG and FV)
+    area::Vector      # Area of each face (used by FV)
 end
 
 import Base.copy
@@ -48,16 +48,16 @@ function build_geometric_factors(refel, grid; do_face_detj=false, do_vol_area=fa
     qnodes_per_element = refel.Nqp;
     
     if constant_jacobian
-        detJ = zeros(1, nel);
+        detJ = zeros(config.float_type, 1, nel);
     else
-        detJ = zeros(qnodes_per_element, nel);
+        detJ = zeros(config.float_type, qnodes_per_element, nel);
     end
     
     J = Array{Jacobian,1}(undef, nel);
     
     if do_vol_area
-        volume = zeros(nel);
-        area = zeros(totalfaces);
+        volume = zeros(config.float_type, nel);
+        area = zeros(config.float_type, totalfaces);
     else
         volume = [];
         area = [];
@@ -82,7 +82,7 @@ function build_geometric_factors(refel, grid; do_face_detj=false, do_vol_area=fa
     end
     
     if do_face_detj
-        face_detj = zeros(totalfaces);
+        face_detj = zeros(config.float_type, totalfaces);
         for fi=1:totalfaces
             xf = grid.allnodes[:,grid.face2glb[:,1,fi]];
             
@@ -236,7 +236,7 @@ function geometric_factors_face(refel, face, pts)
 end
 
 # builds one derivative matrix in place
-function build_derivative_matrix(refel::Refel, geofacs, direction::Int, eid::Int, type::Int, mat::Array{Float64, 2})
+function build_derivative_matrix(refel::Refel, geofacs, direction::Int, eid::Int, type::Int, mat::Matrix)
     @timeit timer_output "deriv-mat" begin
     N = size(mat,2);
     M = size(mat,1);
@@ -288,48 +288,48 @@ function build_derivative_matrix(refel::Refel, geofacs, direction::Int, eid::Int
     end # timer
 end
 
-function build_deriv_matrix(refel, J)
-    if refel.dim == 1
-        RQ1 = zeros(size(refel.Q));
-        RD1 = zeros(size(refel.Q));
-        # Multiply rows of Qr and Ddr by J.rx
-        for i=1:size(RQ1,2) # loop over columns
-            RQ1[:,i] = J.rx .* refel.Qr[:,i];
-            RD1[:,i] = J.rx .* refel.Ddr[:,i];
-        end
-        return (RQ1,RD1);
+# function build_deriv_matrix(refel, J)
+#     if refel.dim == 1
+#         RQ1 = zeros(size(refel.Q));
+#         RD1 = zeros(size(refel.Q));
+#         # Multiply rows of Qr and Ddr by J.rx
+#         for i=1:size(RQ1,2) # loop over columns
+#             RQ1[:,i] = J.rx .* refel.Qr[:,i];
+#             RD1[:,i] = J.rx .* refel.Ddr[:,i];
+#         end
+#         return (RQ1,RD1);
         
-    elseif refel.dim == 2
-        RQ1 = zeros(size(refel.Q));
-        RQ2 = zeros(size(refel.Q));
-        RD1 = zeros(size(refel.Q));
-        RD2 = zeros(size(refel.Q));
-        for i=1:size(RQ1,2)
-            RQ1[:,i] = J.rx .* refel.Qr[:,i] + J.sx .* refel.Qs[:,i];
-            RQ2[:,i] = J.ry .* refel.Qr[:,i] + J.sy .* refel.Qs[:,i];
-            RD1[:,i] = J.rx .* refel.Ddr[:,i] + J.sx .* refel.Dds[:,i];
-            RD2[:,i] = J.ry .* refel.Ddr[:,i] + J.sy .* refel.Dds[:,i];
-        end
-        return (RQ1, RQ2, RD1, RD2);
+#     elseif refel.dim == 2
+#         RQ1 = zeros(size(refel.Q));
+#         RQ2 = zeros(size(refel.Q));
+#         RD1 = zeros(size(refel.Q));
+#         RD2 = zeros(size(refel.Q));
+#         for i=1:size(RQ1,2)
+#             RQ1[:,i] = J.rx .* refel.Qr[:,i] + J.sx .* refel.Qs[:,i];
+#             RQ2[:,i] = J.ry .* refel.Qr[:,i] + J.sy .* refel.Qs[:,i];
+#             RD1[:,i] = J.rx .* refel.Ddr[:,i] + J.sx .* refel.Dds[:,i];
+#             RD2[:,i] = J.ry .* refel.Ddr[:,i] + J.sy .* refel.Dds[:,i];
+#         end
+#         return (RQ1, RQ2, RD1, RD2);
         
-    elseif refel.dim == 3
-        RQ1 = zeros(size(refel.Q));
-        RQ2 = zeros(size(refel.Q));
-        RQ3 = zeros(size(refel.Q));
-        RD1 = zeros(size(refel.Q));
-        RD2 = zeros(size(refel.Q));
-        RD3 = zeros(size(refel.Q));
-        for i=1:size(RQ1,2)
-            RQ1[:,i] = J.rx .* refel.Qr[:,i] + J.sx .* refel.Qs[:,i] + J.tx .* refel.Qt[:,i];
-            RQ2[:,i] = J.ry .* refel.Qr[:,i] + J.sy .* refel.Qs[:,i] + J.ty .* refel.Qt[:,i];
-            RQ3[:,i] = J.rz .* refel.Qr[:,i] + J.sz .* refel.Qs[:,i] + J.tz .* refel.Qt[:,i];
-            RD1[:,i] = J.rx .* refel.Ddr[:,i] + J.sx .* refel.Dds[:,i] + J.tx .* refel.Ddt[:,i];
-            RD2[:,i] = J.ry .* refel.Ddr[:,i] + J.sy .* refel.Dds[:,i] + J.ty .* refel.Ddt[:,i];
-            RD3[:,i] = J.rz .* refel.Ddr[:,i] + J.sz .* refel.Dds[:,i] + J.tz .* refel.Ddt[:,i];
-        end
-        return (RQ1, RQ2, RQ3, RD1, RD2, RD3);
-    end
-end
+#     elseif refel.dim == 3
+#         RQ1 = zeros(size(refel.Q));
+#         RQ2 = zeros(size(refel.Q));
+#         RQ3 = zeros(size(refel.Q));
+#         RD1 = zeros(size(refel.Q));
+#         RD2 = zeros(size(refel.Q));
+#         RD3 = zeros(size(refel.Q));
+#         for i=1:size(RQ1,2)
+#             RQ1[:,i] = J.rx .* refel.Qr[:,i] + J.sx .* refel.Qs[:,i] + J.tx .* refel.Qt[:,i];
+#             RQ2[:,i] = J.ry .* refel.Qr[:,i] + J.sy .* refel.Qs[:,i] + J.ty .* refel.Qt[:,i];
+#             RQ3[:,i] = J.rz .* refel.Qr[:,i] + J.sz .* refel.Qs[:,i] + J.tz .* refel.Qt[:,i];
+#             RD1[:,i] = J.rx .* refel.Ddr[:,i] + J.sx .* refel.Dds[:,i] + J.tx .* refel.Ddt[:,i];
+#             RD2[:,i] = J.ry .* refel.Ddr[:,i] + J.sy .* refel.Dds[:,i] + J.ty .* refel.Ddt[:,i];
+#             RD3[:,i] = J.rz .* refel.Ddr[:,i] + J.sz .* refel.Dds[:,i] + J.tz .* refel.Ddt[:,i];
+#         end
+#         return (RQ1, RQ2, RQ3, RD1, RD2, RD3);
+#     end
+# end
 
 # Build the regular deriv matrices, then extract the relevant face parts
 function build_face_deriv_matrix(refel, face, J, full = false)

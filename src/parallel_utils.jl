@@ -66,7 +66,7 @@ function share_time_step_info(stepper::Stepper, config::Finch_config)
         max_nsteps = maximum(recv_buf);
         end_time = stepper.dt * stepper.Nsteps;
         stepper.Nsteps = max_nsteps;
-        stepper.dt = end_time / max_steps;
+        stepper.dt = end_time / max_nsteps;
     end
 end
 
