@@ -67,7 +67,7 @@ exportCode("addiff1dindexedcode") # uncomment to export generated code to a file
 
 solve(u)
 
-finalize_finch()
+finalizeFinch()
 
 ##### Uncomment below to plot solution
 

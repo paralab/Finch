@@ -59,7 +59,7 @@ exportCode("fvad1dcode") # uncomment to export generated code to a file
 
 solve([u,v,w])
 
-finalize_finch()
+finalizeFinch()
 
 ##### Uncomment below to compare to exact solution
 
