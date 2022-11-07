@@ -1085,7 +1085,7 @@ end
 # end
 
 function finalize()
-    finalize_finch();
+    finalizeFinch();
 end
 
 end # module
