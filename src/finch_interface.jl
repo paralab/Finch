@@ -86,7 +86,7 @@ function useLog(name=project_name; dir=output_dir, level=2)
 end
 
 """
-    indexDataType(type)
+    indexDataType(type<:Integer)
 
 Set the data type to be used for indices.
 The default is Int64.
@@ -100,7 +100,7 @@ function indexDataType(type)
 end
 
 """
-    floatDataType(type)
+    floatDataType(type<:AbstractFloat)
 
 Set the data type to be used for floating point data.
 The default is Float64.

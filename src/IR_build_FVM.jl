@@ -1333,13 +1333,24 @@ function generate_local_to_global_fvm(dofs_per_node, offset_ind; vec_only=false)
         end
         
         if !vec_only # matrix also needed
-            # global_matrix_V[eid] = source_mat[1,1] + 1;
+            # global_matrix_I[next_nonzero_index] = eid;
+            # global_matrix_J[next_nonzero_index] = eid;
+            # global_matrix_V[next_nonzero_index] = source_mat[1, 1] + 1;
             push!(result_block.parts, IR_operation_node(IRtypes.assign_op, [
-                IR_data_node(IRtypes.float_data, :global_matrix_V, [:allocatedNZ], [:eid]),
+                IR_data_node(IRtypes.float_data, :global_matrix_I, [:allocatedNZ], [next_nonzero]), :eid
+            ]));
+            push!(result_block.parts, IR_operation_node(IRtypes.assign_op, [
+                IR_data_node(IRtypes.float_data, :global_matrix_J, [:allocatedNZ], [next_nonzero]), :eid
+            ]));
+            push!(result_block.parts, IR_operation_node(IRtypes.assign_op, [
+                IR_data_node(IRtypes.float_data, :global_matrix_V, [:allocatedNZ], [next_nonzero]),
                 IR_operation_node(IRtypes.math_op, [:+,
                     IR_data_node(IRtypes.float_data, :source_mat, [:dofs_per_loop, :dofs_per_node], [1,1]),
                     1
                 ])
+            ]));
+            push!(result_block.parts, IR_operation_node(IRtypes.assign_op, [next_nonzero,
+                IR_operation_node(IRtypes.math_op, [:+, next_nonzero, 1])
             ]));
             
             fid = IR_data_node(IRtypes.int_data, :fid, [], []); # Face ID
@@ -1389,7 +1400,7 @@ function generate_local_to_global_fvm(dofs_per_node, offset_ind; vec_only=false)
                 ]),
                 IR_operation_node(IRtypes.assign_op, [
                     IR_data_node(IRtypes.float_data, :global_matrix_V, [:allocatedNZ], [next_nonzero]),
-                    IR_data_node(IRtypes.float_data, :flux_mat, [:dofs_per_loop, :?], [1,fi])
+                    IR_data_node(IRtypes.float_data, :flux_mat, [:dofs_per_loop, :?], [1, :fi])
                 ]),
                 IR_operation_node(IRtypes.assign_op, [next_nonzero,
                     IR_operation_node(IRtypes.math_op, [:+, next_nonzero, 1])

@@ -5,48 +5,48 @@
 
 struct Grid
     # nodes
-    allnodes::Array{Float64}        # All node coordinates size = (dim, nnodes)
+    allnodes::Array                 # All node coordinates size = (dim, nnodes)
     
     # boundaries
-    bdry::Array{Array{Int,1},1}     # Indices of boundary nodes for each BID (bdry[bid][nodes])*note:array of arrays
-    bdryface::Array{Array{Int,1},1} # Indices of faces touching each BID (bdryface[bid][faces])*note:array of arrays
-    bdrynorm::Array{Array{Float64,2},1} # Normal vector for boundary nodes for each BID (bdrynorm[bid][dim, nodes])*note:array of arrays
-    bids::Array{Int,1}              # BID corresponding to rows of bdrynodes
-    nodebid::Array{Int,1}           # BID for every node in allnodes order(interior=0)
+    bdry::Vector{Vector}        # Indices of boundary nodes for each BID (bdry[bid][nodes])*note:array of arrays
+    bdryface::Vector{Vector}    # Indices of faces touching each BID (bdryface[bid][faces])*note:array of arrays
+    bdrynorm::Vector{Matrix}    # Normal vector for boundary nodes for each BID (bdrynorm[bid][dim, nodes])*note:array of arrays
+    bids::Vector                # BID corresponding to rows of bdrynodes
+    nodebid::Vector             # BID for every node in allnodes order(interior=0)
     
     # elements
-    loc2glb::Array{Int,2}           # local to global map for each element's nodes (size is (Np, nel))
-    glbvertex::Array{Int,2}         # global indices of each elements' vertices (size is (Nvertex, nel))
+    loc2glb::Matrix             # local to global map for each element's nodes (size is (Np, nel))
+    glbvertex::Matrix           # global indices of each elements' vertices (size is (Nvertex, nel))
     
     # faces (For CG, G=1. For DG, G=2)
-    face2glb::Array{Int,3}          # local to global map for faces (size is (Nfp, G, Nfaces))
-    element2face::Array{Int,2}      # face indices for each element (size is (Nfaces, nel))
-    face2element::Array{Int,2}      # elements on both sides of a face, 0=boundary (size is (2, Nfaces))
-    facenormals::Array{Float64,2}   # normal vector for each face
-    faceRefelInd::Array{Int,2}      # Index for face within the refel for each side
-    facebid::Array{Int,1}           # BID of each face (0=interior face)
+    face2glb::Array             # local to global map for faces (size is (Nfp, G, Nfaces))
+    element2face::Matrix        # face indices for each element (size is (Nfaces, nel))
+    face2element::Matrix        # elements on both sides of a face, 0=boundary (size is (2, Nfaces))
+    facenormals::Matrix         # normal vector for each face
+    faceRefelInd::Matrix        # Index for face within the refel for each side
+    facebid::Vector             # BID of each face (0=interior face)
     
     # When partitioning the grid, this stores the ghost info.
     # Items specifying (for solver type) will be empty/0 for other types.
-    is_subgrid::Bool                # Is this a partition of a greater grid?
-    elemental_order::Vector{Int}    # Order used in elemental loops
-    nel_global::Int                 # Number of global elements
-    nel_owned::Int                  # Number of elements owned by this partition
-    nel_ghost::Int                  # Number of ghost elements (for FV)
-    nface_owned::Int                # Number of faces owned by this partition
-    nface_ghost::Int                # Number of ghost faces that are not owned (for FV)
-    nnodes_global::Int              # Number of global nodes
-    nnodes_borrowed::Int            # Number of nodes borrowed from another partition (for CG)
-    element_owner::Vector{Int}      # The rank of each element's owner or -1 if locally owned (for FV)
-    node_owner::Vector{Int}         # The rank of each node's owner (for FE)
-    grid2mesh::Vector{Int}          # Map from partition elements to global mesh element index
-    partition2global::Vector{Int}   # Global index of nodes (for CG,DG)
-    global_bdry_index::Vector{Int8} # Index in bids for every global node, or 0 for interior (Only proc 0 holds, only for FE)
+    is_subgrid::Bool            # Is this a partition of a greater grid?
+    elemental_order::Vector     # Order used in elemental loops
+    nel_global::Int             # Number of global elements
+    nel_owned::Int              # Number of elements owned by this partition
+    nel_ghost::Int              # Number of ghost elements (for FV)
+    nface_owned::Int            # Number of faces owned by this partition
+    nface_ghost::Int            # Number of ghost faces that are not owned (for FV)
+    nnodes_global::Int          # Number of global nodes
+    nnodes_borrowed::Int        # Number of nodes borrowed from another partition (for CG)
+    element_owner::Vector       # The rank of each element's owner or -1 if locally owned (for FV)
+    node_owner::Vector          # The rank of each node's owner (for FE)
+    grid2mesh::Vector           # Map from partition elements to global mesh element index
+    partition2global::Vector    # Global index of nodes (for CG,DG)
+    global_bdry_index::Vector   # Index in bids for every global node, or 0 for interior (Only proc 0 holds, only for FE)
     
-    num_neighbor_partitions::Int        # number of partitions that share ghosts with this.
-    neighboring_partitions::Vector{Int} # IDs of neighboring partitions
-    ghost_counts::Vector{Int}           # How many ghost elements for each neighbor (for FV)
-    ghost_index::Vector{Array{Int}}   # Lists of ghost elements to send/recv for each neighbor (for FV)
+    num_neighbor_partitions::Int   # number of partitions that share ghosts with this.
+    neighboring_partitions::Vector # IDs of neighboring partitions
+    ghost_counts::Vector           # How many ghost elements for each neighbor (for FV)
+    ghost_index::Vector{Array}     # Lists of ghost elements to send/recv for each neighbor (for FV)
     
     # constructors
     Grid(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
@@ -76,6 +76,16 @@ etypetoftype=[0,1, 1, 2, 3, 3, 3, 0, 1, 1, 2, 3, 3, 3, 0, 0, 0, 0, 0]; # type of
 function grid_from_mesh(mesh; grid_type=CG, order=1)
     log_entry("Building full grid from mesh data. Types = "*string(grid_type), 2);
     t_grid_from_mesh = Base.Libc.time();
+    int_type = config.index_type;
+    float_type = config.float_type;
+    if float_type==Float64
+        tol = 1e-8;
+    elseif float_type==Float32
+        tol = 1e-4;
+    else
+        tol = 1e-4;
+    end
+    
     dim = config.dimension;
     ord = order;
     nfaces = etypetonf[mesh.etypes[1]];
@@ -98,7 +108,7 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
         Gness = 1;
     end
     
-    tol = 1e-12; # tolerance for is_same_node
+    vertex_dist_scale = zeros(float_type, nel); # a scale for relative tolerance
     
     Np = refel.Np;                      # number of nodes per element
     bdry = [];                          # index(in x) of boundary nodes for each BID
@@ -107,25 +117,31 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
     bids = collectBIDs(mesh);           # BID list
     nbids = length(bids);
     for i=1:nbids
-        push!(bdry, zeros(Int, 0));
-        push!(bdryfc, zeros(Int,0));
-        push!(bdrynorm, zeros(config.dimension,0));
+        push!(bdry, zeros(int_type, 0));
+        push!(bdryfc, zeros(int_type,0));
+        push!(bdrynorm, zeros(float_type, config.dimension,0));
     end
-    loc2glb = zeros(Int, Np, nel)       # local to global index map for each element's nodes
-    glbvertex = zeros(Int, nvtx, nel);     # local to global for vertices
-    f2glb = zeros(Int, refel.Nfp[1], Gness, totalfaces);  # face node local to global
-    element2face = zeros(Int, nfaces, nel);  # element to face map
-    face2element = zeros(Int, 2, size(mesh.face2element,2));  # face to element map
-    facenormals = zeros(dim, totalfaces); # normal vectors for every face
-    faceRefelInd = zeros(Int, 2, totalfaces); # Index in refel for this face for elements on both sides
-    facebid = zeros(Int, totalfaces); # BID of each face
+    loc2glb = zeros(int_type, Np, nel)       # local to global index map for each element's nodes
+    glbvertex = zeros(int_type, nvtx, nel);     # local to global for vertices
+    f2glb = zeros(int_type, refel.Nfp[1], Gness, totalfaces);  # face node local to global
+    element2face = zeros(int_type, nfaces, nel);  # element to face map
+    face2element = zeros(int_type, 2, size(mesh.face2element,2));  # face to element map
+    facenormals = zeros(float_type, dim, totalfaces); # normal vectors for every face
+    faceRefelInd = zeros(int_type, 2, totalfaces); # Index in refel for this face for elements on both sides
+    facebid = zeros(int_type, totalfaces); # BID of each face
     
-    tmpallnodes = zeros(dim, mesh.nel*refel.Np);
+    tmpallnodes = zeros(float_type, dim, mesh.nel*refel.Np);
     t_nodes1 = Base.Libc.time();
     for ei=1:nel
         # Find this element's nodes
         n_vert = etypetonv[mesh.etypes[ei]];
         e_vert = mesh.nodes[1:dim, mesh.elements[1:n_vert, ei]];
+        
+        # sample distance betweeen vertices
+        for i=2:n_vert
+            vertex_dist_scale[ei] += sum(abs.(e_vert[:,i] .- e_vert[:,i-1]));
+        end
+        vertex_dist_scale[ei] /= (n_vert-1);
         
         if dim == 1
             e_x = line_refel_to_x(refel.r[:,1], e_vert);
@@ -170,7 +186,7 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
     end
     
     # bid for every node start with 0 for interior
-    node_bids = zeros(Int, size(allnodes,2));
+    node_bids = zeros(int_type, size(allnodes,2));
     
     # vertices, faces and boundary
     t_faces1 = Base.Libc.time();
@@ -178,14 +194,14 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
         n_vert = etypetonv[mesh.etypes[ei]];
         mfids = mesh.element2face[:,ei];
         normals = mesh.normals[:,mfids];
-        el_center = zeros(dim);
+        el_center = zeros(float_type, dim);
         
         # vertices and center
         for ni=1:Np
             el_center += allnodes[:,loc2glb[ni,ei]];
             
             for vi=1:n_vert
-                if is_same_node(mesh.nodes[:, mesh.elements[vi,ei]], allnodes[:,loc2glb[ni,ei]], tol)
+                if is_same_node(mesh.nodes[:, mesh.elements[vi,ei]], allnodes[:,loc2glb[ni,ei]], tol, vertex_dist_scale[ei])
                     glbvertex[vi, ei] = loc2glb[ni,ei];
                 end
             end
@@ -211,7 +227,7 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
             
             for mfi=1:nfaces
                 thisfaceind = meshfaces[mfi];
-                if test_same_face(mesh.nodes[:,mesh.face2vertex[:,thisfaceind]], allnodes[:, tmpf2glb], tol)
+                if test_same_face(mesh.nodes[:,mesh.face2vertex[:,thisfaceind]], allnodes[:, tmpf2glb], tol, vertex_dist_scale[ei])
                     # This mesh face corresponds to this tmpf2glb face
                     # Put the tmpf2glb map into f2glb at the mesh index(thisfaceind).
                     # Move the f2glb[:,1,ind] to f2glb[:,2,ind] first if DG (Gness==2)
@@ -226,7 +242,7 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
                     # Find the normal for every face. The normal points from e1 to e2 or outward for boundary.
                     # Note that the normal stored in mesh_data could be pointing either way.
                     thisnormal = normals[:, mfi];
-                    f_center = zeros(dim);
+                    f_center = zeros(float_type, dim);
                     for ni=1:length(tmpf2glb)
                         f_center += allnodes[:, tmpf2glb[ni]];
                     end
@@ -251,7 +267,7 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
                         push!(bdryfc[gbid], thisfaceind);
                         facebid[thisfaceind] = gbid;
                         thisnormal = normals[:, mfi];
-                        normchunk = zeros(config.dimension, nfacenodes);
+                        normchunk = zeros(float_type, config.dimension, nfacenodes);
                         for ni=1:nfacenodes
                             normchunk[:,ni] = thisnormal;
                         end
@@ -270,8 +286,8 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
     newbdry = similar(bdry);
     newbdrynorm = similar(bdrynorm);
     for i=1:length(bdry)
-        newbdry[i] = zeros(length(bdry[i]));
-        newbdrynorm[i] = zeros(size(bdrynorm[i]));
+        newbdry[i] = zeros(int_type, length(bdry[i]));
+        newbdrynorm[i] = zeros(float_type, size(bdrynorm[i]));
     end
     
     for bidi=1:length(bids)
@@ -309,9 +325,11 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
     
     # Refel index for each face
     for fi=1:totalfaces
-        faceRefelInd[1,fi] = which_refel_face(f2glb[:,1,fi], allnodes, refel, loc2glb[:,face2element[1,fi]]);
-        if face2element[2,fi] > 0
-            faceRefelInd[2,fi] = which_refel_face(f2glb[:,Gness,fi], allnodes, refel, loc2glb[:,face2element[2,fi]]);
+        eL = face2element[1,fi];
+        eR = face2element[2,fi];
+        faceRefelInd[1,fi] = which_refel_face(f2glb[:,1,fi], allnodes, refel, loc2glb[:,eL], tol, vertex_dist_scale[eL]);
+        if eR > 0
+            faceRefelInd[2,fi] = which_refel_face(f2glb[:,Gness,fi], allnodes, refel, loc2glb[:,eR], tol, vertex_dist_scale[eR]);
         end
     end
     
@@ -347,6 +365,16 @@ end
 function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     log_entry("Building partitioned grid from mesh data", 2);
     t_grid_from_mesh = Base.Libc.time();
+    int_type = config.index_type;
+    float_type = config.float_type;
+    if float_type==Float64
+        tol = 1e-8;
+    elseif float_type==Float32
+        tol = 1e-4;
+    else
+        tol = 1e-4;
+    end
+    
     dim = config.dimension;
     ord = order;
     nfaces = etypetonf[mesh.etypes[1]]; # faces per elements
@@ -363,11 +391,11 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     element_status = fill(-1, mesh.nel); # 2 for node ghosts, 1 for face ghosts, 0 for owned, -1 for other
     face_status = fill(-1, size(mesh.normals,2)); # 1 for face to ghosts, 0 for owned, -1 for other
     mesh2grid_face = fill(-1, size(mesh.normals,2)); # -1 if this face is not in the partition, otherwise the index of the grid face
-    partition2global = zeros(Int,0); # global index of nodes
+    partition2global = zeros(int_type,0); # global index of nodes
     num_neighbors = 0; # number of partitions neighboring this
-    neighbor_ids = zeros(Int,0); # ID of neighbors
-    ghost_counts = zeros(Int,0); # number of ghosts per neighbor
-    # ghost_inds = [zeros(Int,2,0)]; # local index of ghost elements
+    neighbor_ids = zeros(int_type,0); # ID of neighbors
+    ghost_counts = zeros(int_type,0); # number of ghosts per neighbor
+    # ghost_inds = [zeros(int_type,2,0)]; # local index of ghost elements
     
     # - Label each vertex with the lowest partition index that touches it.
     # - Label each element with its lowest and highest labeled vertex.
@@ -498,7 +526,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         Gness = 1;
     end
     
-    tol = 1e-12; # tolerance for is_same_node
+    vertex_dist_scale = zeros(float_type, nel); # a scale for relative tolerance
     
     Np = refel.Np;                      # number of nodes per element
     bdry = [];                          # index(in x) of boundary nodes for each BID
@@ -507,27 +535,27 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     bids = collectBIDs(mesh);           # BID list
     nbids = length(bids);
     for i=1:nbids
-        push!(bdry, zeros(Int, 0));
-        push!(bdryfc, zeros(Int,0));
-        push!(bdrynorm, zeros(config.dimension,0));
+        push!(bdry, zeros(int_type, 0));
+        push!(bdryfc, zeros(int_type,0));
+        push!(bdrynorm, zeros(float_type, config.dimension,0));
     end
-    loc2glb = zeros(Int, Np, nel)           # local to global index map for each element's nodes
-    glbvertex = zeros(Int, nvtx, nel);      # local to global for vertices
-    f2glb = zeros(Int, refel.Nfp[1], Gness, totalfaces);  # face node local to global
-    element2face = zeros(Int, nfaces, nel); # element to face map
-    face2element = zeros(Int, 2, totalfaces); # face to element map
-    facenormals = zeros(dim, totalfaces);   # normal vectors for every face
-    faceRefelInd = zeros(Int, 2, totalfaces); # Index in refel for this face for elements on both sides
-    facebid = zeros(Int, totalfaces);       # BID of each face
+    loc2glb = zeros(int_type, Np, nel)           # local to global index map for each element's nodes
+    glbvertex = zeros(int_type, nvtx, nel);      # local to global for vertices
+    f2glb = zeros(int_type, refel.Nfp[1], Gness, totalfaces);  # face node local to global
+    element2face = zeros(int_type, nfaces, nel); # element to face map
+    face2element = zeros(int_type, 2, totalfaces); # face to element map
+    facenormals = zeros(float_type, dim, totalfaces);   # normal vectors for every face
+    faceRefelInd = zeros(int_type, 2, totalfaces); # Index in refel for this face for elements on both sides
+    facebid = zeros(int_type, totalfaces);       # BID of each face
     
-    grid2mesh = zeros(Int, nel); # maps partition elements to global mesh elements
+    grid2mesh = zeros(int_type, nel); # maps partition elements to global mesh elements
     
     if grid_type == FV
-        tmpallnodes = zeros(dim, nel*refel.Np);
+        tmpallnodes = zeros(float_type, dim, nel*refel.Np);
         element_owners = fill(-1, nel) # partition number of each ghost, or -1 for owned elements
     else
-        tmpallnodes = zeros(dim, (nel + nel_node_ghost + nel_face_ghost) * refel.Np);
-        loc2glb = zeros(Int, Np, nel + nel_node_ghost + nel_face_ghost); # This will be trimmed later
+        tmpallnodes = zeros(float_type, dim, (nel + nel_node_ghost + nel_face_ghost) * refel.Np);
+        loc2glb = zeros(int_type, Np, nel + nel_node_ghost + nel_face_ghost); # This will be trimmed later
         element_owners = fill(-1, nel + nel_node_ghost + nel_face_ghost) # partition number of each element
     end
     
@@ -542,6 +570,12 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
             # Find this element's nodes
             n_vert = etypetonv[mesh.etypes[ei]];
             e_vert = mesh.nodes[1:dim, mesh.elements[1:n_vert, ei]];
+            
+            # sample distance betweeen vertices
+            for i=2:n_vert
+                vertex_dist_scale[ei] += sum(abs.(e_vert[:,i] .- e_vert[:,i-1]));
+            end
+            vertex_dist_scale[ei] /= (n_vert-1);
             
             if dim == 1
                 e_x = line_refel_to_x(refel.r[:,1], e_vert);
@@ -619,7 +653,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     end
     
     # bid for every node start with 0 for interior
-    node_bids = zeros(Int, size(allnodes,2));
+    node_bids = zeros(int_type, size(allnodes,2));
     
     # vertices, faces and boundary
     # first make a map from mesh faces to grid faces
@@ -631,7 +665,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
             n_vert = etypetonv[mesh.etypes[ei]];
             mfids = mesh.element2face[:,ei];
             normals = mesh.normals[:,mfids];
-            el_center = zeros(dim);
+            el_center = zeros(float_type, dim);
             
             if element_status[ei] == 0 # owned
                 next_index = next_e_index;
@@ -646,7 +680,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
                 el_center += allnodes[:,loc2glb[ni,next_index]];
                 
                 for vi=1:n_vert
-                    if is_same_node(mesh.nodes[:, mesh.elements[vi,ei]], allnodes[:,loc2glb[ni,next_index]], tol)
+                    if is_same_node(mesh.nodes[:, mesh.elements[vi,ei]], allnodes[:,loc2glb[ni,next_index]], tol, vertex_dist_scale[ei])
                         glbvertex[vi, next_index] = loc2glb[ni,next_index];
                     end
                 end
@@ -674,7 +708,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
                     if !found_face
                         meshfaceind = meshfaces[mfi];
                         gridfaceind = mesh2grid_face[meshfaceind]; # the face index in the grid
-                        if gridfaceind > 0 && test_same_face(mesh.nodes[:,mesh.face2vertex[:,meshfaceind]], allnodes[:, tmpf2glb], tol)
+                        if gridfaceind > 0 && test_same_face(mesh.nodes[:,mesh.face2vertex[:,meshfaceind]], allnodes[:, tmpf2glb], tol, vertex_dist_scale[ei])
                             found_face = true;
                             # This mesh face corresponds to this tmpf2glb face
                             # Put the tmpf2glb map into f2glb at the mesh index(meshfaceind).
@@ -690,7 +724,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
                             # Find the normal for every face. The normal points from e1 to e2 or outward for boundary.
                             # Note that the normal stored in mesh_data could be pointing either way.
                             thisnormal = normals[:, mfi];
-                            f_center = zeros(dim);
+                            f_center = zeros(float_type, dim);
                             for ni=1:length(tmpf2glb)
                                 f_center += allnodes[:, tmpf2glb[ni]];
                             end
@@ -710,7 +744,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
                                 push!(bdryfc[gbid], gridfaceind);
                                 facebid[gridfaceind] = gbid;
                                 thisnormal = normals[:, mfi];
-                                normchunk = zeros(config.dimension, nfacenodes);
+                                normchunk = zeros(float_type, config.dimension, nfacenodes);
                                 for ni=1:nfacenodes
                                     normchunk[:,ni] = thisnormal;
                                 end
@@ -733,8 +767,8 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     newbdry = similar(bdry);
     newbdrynorm = similar(bdrynorm);
     for i=1:length(bdry)
-        newbdry[i] = zeros(Int, length(bdry[i]));
-        newbdrynorm[i] = zeros(size(bdrynorm[i]));
+        newbdry[i] = zeros(int_type, length(bdry[i]));
+        newbdrynorm[i] = zeros(float_type, size(bdrynorm[i]));
     end
     
     for bidi=1:length(bids)
@@ -772,9 +806,11 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     
     # Refel index for each face
     for fi=1:totalfaces
-        faceRefelInd[1,fi] = which_refel_face(f2glb[:,1,fi], allnodes, refel, loc2glb[:,face2element[1,fi]]);
-        if face2element[2,fi] > 0
-            faceRefelInd[2,fi] = which_refel_face(f2glb[:,Gness,fi], allnodes, refel, loc2glb[:,face2element[2,fi]]);
+        eL = face2element[1,fi];
+        eR = face2element[2,fi];
+        faceRefelInd[1,fi] = which_refel_face(f2glb[:,1,fi], allnodes, refel, loc2glb[:,eL], tol, vertex_dist_scale[eL]);
+        if eR > 0
+            faceRefelInd[2,fi] = which_refel_face(f2glb[:,Gness,fi], allnodes, refel, loc2glb[:,eR], tol, vertex_dist_scale[eR]);
         end
     end
     
@@ -793,7 +829,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     # Form ghost pairs for send/recv
     # First count how many pairs are needed for each neighbor
     if grid_type == FV
-        ghost_counts = zeros(Int, num_neighbors)
+        ghost_counts = zeros(int_type, num_neighbors)
         for fi=1:owned_faces
             e1 = face2element[1,fi];
             e2 = face2element[2,fi];
@@ -829,7 +865,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         # Then build the lists of ghost pairs for each neighbor
         ghost_inds = Vector{Array{Int,2}}(undef, num_neighbors);
         for ni=1:num_neighbors
-            ghost_inds[ni] = zeros(Int, 2, ghost_counts[ni]);
+            ghost_inds[ni] = zeros(int_type, 2, ghost_counts[ni]);
         end
         # Need to loop over mesh faces to be sure they are built in the same order on each partition
         for i=1:length(mesh2grid_face)
@@ -936,7 +972,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         end
         
         # The ultimate goal
-        partition2global = zeros(Int, highest_kept); # zero means it hasn't been determined yet
+        partition2global = zeros(int_type, highest_kept); # zero means it hasn't been determined yet
         
         # Have all processes gather their [partition index, nodes_owned, nodes_shared, nodes_borrowed].
         p_data = zeros(Int, config.num_procs * 4);
@@ -946,11 +982,11 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         
         start_offset = 0;
         nnodes_global = 0;
-        owned_nodes_per_partition = zeros(Int, config.num_partitions);
-        shared_nodes_per_partition = zeros(Int, config.num_partitions);
-        borrowed_nodes_per_partition = zeros(Int, config.num_partitions);
-        nodes_to_share_per_proc = zeros(Int, config.num_procs);
-        proc2partition = zeros(Int, config.num_procs);
+        owned_nodes_per_partition = zeros(int_type, config.num_partitions);
+        shared_nodes_per_partition = zeros(int_type, config.num_partitions);
+        borrowed_nodes_per_partition = zeros(int_type, config.num_partitions);
+        nodes_to_share_per_proc = zeros(int_type, config.num_procs);
+        proc2partition = zeros(int_type, config.num_procs);
         total_shared_node_size = 0;
         i_need_to_send_shared = false;
         for proc_i = 1:config.num_procs
@@ -997,7 +1033,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         # Then each process will search for their borrowed nodes and set the global index.
         # The buffer must be total_shared_node_size * (dimension+1)
         chunk_sizes = nodes_to_share_per_proc .* (config.dimension + 1);
-        displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+        displacements = zeros(int_type, config.num_procs); # for the irregular gatherv
         d = 0;
         for proc_i=1:config.num_procs
             displacements[proc_i] = d;
@@ -1006,7 +1042,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         p_data = zeros(total_shared_node_size * (config.dimension + 1));
         p_data_in = MPI.VBuffer(p_data, chunk_sizes, displacements, MPI.Datatype(Float64));
         if i_need_to_send_shared
-            p_data_out = zeros((config.dimension + 1), nnodes_shared);
+            p_data_out = zeros(float_type, (config.dimension + 1), nnodes_shared);
             next_index = 1;
             for ni=1:size(allnodes, 2)
                 if node_shared_flag[ni] && node_owner_index[ni] == config.partition_index
@@ -1058,7 +1094,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         for bi=1:length(bids)
             nbdrynodes += length(bdry[bi]);
         end
-        bidmap = zeros(Int, 2, nbdrynodes);
+        bidmap = zeros(int_type, 2, nbdrynodes);
         next_ind = 1;
         for bi=1:length(bids)
             for ni=1:length(bdry[bi])
@@ -1069,20 +1105,20 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         end
         
         # gather the numbers of bdry nodes
-        p_data = zeros(Int, config.num_procs);
+        p_data = zeros(int_type, config.num_procs);
         p_data_in = MPI.UBuffer(p_data, 1, config.num_procs, MPI.Datatype(Int));
         p_data_out = [nbdrynodes * 2];
         MPI.Allgather!(p_data_out, p_data_in, MPI.COMM_WORLD);
         
         # gather the bidmaps
         chunk_sizes = p_data;
-        displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+        displacements = zeros(int_type, config.num_procs); # for the irregular gatherv
         d = 0;
         for proc_i=1:config.num_procs
             displacements[proc_i] = d;
             d += p_data[proc_i];
         end
-        p_data = zeros(Int, d);
+        p_data = zeros(int_type, d);
         p_data_in = MPI.VBuffer(p_data, chunk_sizes, displacements, MPI.Datatype(Int));
         p_data_out = bidmap[:];
         
@@ -1095,7 +1131,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         
         # There is a chance that a partition owns a boundary node without owning an 
         # adjoining boundary face.
-        bdry_adjustment = zeros(Int,0);
+        bdry_adjustment = zeros(int_type,0);
         for ni=1:length(partition2global)
             if global_bdry_flag[partition2global[ni]] > 0
                 # make sure it is in bdry
@@ -1143,20 +1179,20 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         
         # Share bdry_adjustment and change owners as needed
         # gather the numbers of adjusted nodes
-        p_data = zeros(Int, config.num_procs);
+        p_data = zeros(int_type, config.num_procs);
         p_data_in = MPI.UBuffer(p_data, 1, config.num_procs, MPI.Datatype(Int));
         p_data_out = [length(bdry_adjustment)];
         MPI.Allgather!(p_data_out, p_data_in, MPI.COMM_WORLD);
         
         # gather the adjustments
         chunk_sizes = p_data;
-        displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+        displacements = zeros(int_type, config.num_procs); # for the irregular gatherv
         d = 0;
         for proc_i=1:config.num_procs
             displacements[proc_i] = d;
             d += p_data[proc_i];
         end
-        p_data = zeros(Int, d);
+        p_data = zeros(int_type, d);
         p_data_in = MPI.VBuffer(p_data, chunk_sizes, displacements, MPI.Datatype(Int));
         p_data_out = bdry_adjustment;
         
@@ -1191,13 +1227,13 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     if grid_type == FV
         return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
-            true, Array(1:nel_owned), nel_global, nel_owned, nel_face_ghost, owned_faces, ghost_faces, nnodes_global, 0, element_owners, zeros(Int,0), grid2mesh, zeros(Int,0), 
+            true, Array(1:nel_owned), nel_global, nel_owned, nel_face_ghost, owned_faces, ghost_faces, nnodes_global, 0, element_owners, zeros(int_type,0), grid2mesh, zeros(int_type,0), 
             zeros(Int8, 0), num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
     else
         return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
-            true, Array(1:nel_owned), nel_global, nel_owned, 0, owned_faces, 0, nnodes_global, nnodes_borrowed, zeros(Int,0), node_owner_index, grid2mesh, partition2global, 
-            global_bdry_flag, num_neighbors, neighbor_ids, zeros(Int,0), [zeros(Int,0)]));
+            true, Array(1:nel_owned), nel_global, nel_owned, 0, owned_faces, 0, nnodes_global, nnodes_borrowed, zeros(int_type,0), node_owner_index, grid2mesh, partition2global, 
+            global_bdry_flag, num_neighbors, neighbor_ids, zeros(int_type,0), [zeros(int_type,0)]));
     end
 end
 
@@ -1230,10 +1266,12 @@ function collectBIDs(mesh)
 end
 
 # Removes duplicate nodes and updates local to global maps
-function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, depth=5, mincount=50, other2glb=[])
+function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, scale=1, depth=5, mincount=50, other2glb=[])
     # defaults
     # depth = 5; # 32768 for 3D
     # mincount = 50; # don't subdivide if less than this
+    int_type = config.index_type;
+    float_type = config.float_type;
     
     # Strategy: divide nodes into bins compare against nodes in bin
     tmpNnodes = size(nodes,2);
@@ -1277,7 +1315,7 @@ function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, depth=5, mincount=50,
             if replace_with[abins[ni]] == 0 # It may have already been handled
                 for nj=startind:(ni-1)
                     # If node[nj] == node[ni], keep nj, remove ni
-                    if is_same_node(nodes[:,abins[ni]], nodes[:,abins[nj]], tol)
+                    if is_same_node(nodes[:,abins[ni]], nodes[:,abins[nj]], tol, scale)
                         remove_count += 1;
                         replace_with[abins[ni]] = abins[nj];
                         break;
@@ -1293,7 +1331,7 @@ function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, depth=5, mincount=50,
     for ni=2:length(cbin)
         if replace_with[cbin[ni]] == 0 # It may have already been handled
             for nj=1:ni-1
-                if is_same_node(nodes[:,cbin[ni]], nodes[:,cbin[nj]], tol)
+                if is_same_node(nodes[:,cbin[ni]], nodes[:,cbin[nj]], tol, scale)
                     # make sure I'm not replacing with something replaced by this
                     if replace_with[cbin[nj]] > 0
                         tmp = replace_with[cbin[nj]];
@@ -1343,7 +1381,7 @@ function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, depth=5, mincount=50,
     # Loop over nodes and place in new allnodes array while adjusting replace_with
     Nnodes = tmpNnodes-remove_count;
     next_ind = 1;
-    newnodes = zeros(size(nodes,1), Nnodes);
+    newnodes = zeros(float_type, size(nodes,1), Nnodes);
     new_homes = zeros(Int, tmpNnodes);
     for i=1:tmpNnodes
         if replace_with[i] == 0
@@ -1746,7 +1784,7 @@ function tetrahedron_refel_to_xyz(r, s, t, v)
     A = [p2-p1   p3-p1   p4-p1];
     
     np = length(r);
-    mv = zeros(3,np);
+    mv = zeros(config.float_type, 3,np);
     for i=1:np
         tmp = [(r[i]+1)/2, (s[i]+1)/2, (t[i]+1)/2];
         mv[:,i] = A*tmp + p1;
@@ -1760,16 +1798,17 @@ function tetrahedron_refel_to_xyz(r, s, t, v)
 end
 
 # Returns true if the nodes are within tol of each other.
-function is_same_node(x1, x2, tol)
-    return sum(abs.(x1 - x2)) < tol
+# If scale is provided, it is a relative tolerance.
+function is_same_node(x1, x2, tol, scale=1)
+    return (sum(abs.(x1 - x2)) / scale) < tol
 end
 
 # Returns true if the centroid of each line is close enough.
-function is_same_face_center(l1, l2, tol)
+function is_same_face_center(l1, l2, tol, scale=1)
     n1 = size(l1,2);
     n2 = size(l2,2);
-    center1 = zeros(size(l1,1));
-    center2 = zeros(size(l2,1));
+    center1 = zeros(config.float_type, size(l1,1));
+    center2 = zeros(config.float_type, size(l2,1));
     for i=1:n1
         center1 = center1 .+ l1[:,i];
     end
@@ -1780,15 +1819,15 @@ function is_same_face_center(l1, l2, tol)
     end
     center2 = center2 ./ n2;
     
-    return is_same_node(center1, center2, tol);
+    return is_same_node(center1, center2, tol, scale);
 end
 
 # Returns the distance between face centers.
 function face_center_distance(l1, l2)
     n1 = size(l1,2);
     n2 = size(l2,2);
-    center1 = zeros(size(l1,1));
-    center2 = zeros(size(l2,1));
+    center1 = zeros(config.float_type, size(l1,1));
+    center2 = zeros(config.float_type, size(l2,1));
     for i=1:n1
         center1 = center1 .+ l1[:,i];
     end
@@ -1803,13 +1842,13 @@ function face_center_distance(l1, l2)
 end
 
 # Returns true if the two node lists have at least two of the same nodes.
-function is_same_line(l1, l2, tol)
+function is_same_line(l1, l2, tol, scale=1)
     found = 0;
     n1 = size(l1,2);
     n2 = size(l2,2);
     for i=1:n1
         for j=1:n2
-            if is_same_node(l1[:,i], l2[:,j], tol)
+            if is_same_node(l1[:,i], l2[:,j], tol, scale)
                 found += 1;
             end
             if found >= 2
@@ -1822,13 +1861,13 @@ function is_same_line(l1, l2, tol)
 end
 
 # Returns true if the two node lists have at least three of the same nodes.
-function is_same_plane(p1, p2, tol)
+function is_same_plane(p1, p2, tol, scale=1)
     found = 0;
     n1 = size(p1,2);
     n2 = size(p2,2);
     for i=1:n1
         for j=1:n2
-            if is_same_node(p1[:,i], p2[:,j], tol)
+            if is_same_node(p1[:,i], p2[:,j], tol, scale)
                 found += 1;
             end
             if found >= 3
@@ -1840,13 +1879,13 @@ function is_same_plane(p1, p2, tol)
     return false;
 end
 
-function which_refel_face(f2glb, nodes, ref, elem)
+function which_refel_face(f2glb, nodes, ref, elem, tol, scale)
     # Check f2glb against the face2local in refel
     fnodes = nodes[:,f2glb];
     for fi=1:ref.Nfaces
         refnodes = nodes[:, elem[ref.face2local[fi]]];
         
-        if is_same_face(fnodes, refnodes, ref.dim)
+        if is_same_face(fnodes, refnodes, ref.dim, tol, scale)
             return fi;
         end
     end
@@ -1854,19 +1893,20 @@ function which_refel_face(f2glb, nodes, ref, elem)
     printerr("Couldn't match face when building grid (see which_refel_face() in grid.jl)");
 end
 
-function is_same_face(f1, f2, dim)
-    tol = 1e-12;
+function is_same_face(f1, f2, dim, tol, scale=1)
     if dim == 1 # one point
-        return is_same_node(f1, f2, tol);
+        return is_same_node(f1, f2, tol, scale);
     elseif dim == 2 # same line(two same points)
-        return is_same_line(f1, f2, tol);
+        return is_same_line(f1, f2, tol, scale);
     elseif dim == 3 # same plane(three same points)
-        return is_same_plane(f1, f2, tol);
+        return is_same_plane(f1, f2, tol, scale);
     end
 end
 
 # Adds a boundary ID to some region. Find boundary points satifying on_bdry and moves them to a new set for this bid.
 function add_boundary_ID_to_grid(bid, on_bdry, grid)
+    int_type = config.index_type;
+    float_type = config.float_type;
     # Find if this bid exists. If so, just add points to it, removing from others.
     ind = indexin([bid], grid.bids)[1];
     nbids = length(grid.bids);
@@ -1875,17 +1915,17 @@ function add_boundary_ID_to_grid(bid, on_bdry, grid)
         ind = nbids + 1;
         nbids += 1;
         push!(grid.bids, bid);
-        push!(grid.bdry, zeros(Int, 0));
-        push!(grid.bdryface, zeros(Int, 0));
-        push!(grid.bdrynorm, zeros(config.dimension, 0));
+        push!(grid.bdry, zeros(int_type, 0));
+        push!(grid.bdryface, zeros(int_type, 0));
+        push!(grid.bdrynorm, zeros(float_type, config.dimension, 0));
     end
     
     # Search all other bids for nodes and faces on this segment. Remove them there and add them here.
     # First find indices and count them. Then move.
     move_nodes = Array{Array{Int,1},1}(undef,nbids);
-    node_count = zeros(Int, nbids);
+    node_count = zeros(int_type, nbids);
     move_faces = Array{Array{Int,1},1}(undef,nbids);
-    face_count = zeros(Int, nbids);
+    face_count = zeros(int_type, nbids);
     for i=1:nbids
         bi = grid.bids[i];
         move_nodes[i] = [];
@@ -1918,7 +1958,7 @@ function add_boundary_ID_to_grid(bid, on_bdry, grid)
                 nfp = size(grid.face2glb,1)
                 isbdryface = true
                 # find the center
-                fcenter = zeros(size(grid.allnodes,1));
+                fcenter = zeros(float_type, size(grid.allnodes,1));
                 for ni=1:nfp
                     fcenter = fcenter + grid.allnodes[:,grid.face2glb[ni,1,fj]];
                 end
@@ -1965,7 +2005,7 @@ function add_boundary_ID_to_grid(bid, on_bdry, grid)
             # Remove bdrynorm and bdryfacenorm
             numremove = length(move_nodes[i]);
             if numremove > 0
-                newbdrynorm = zeros(config.dimension, size(grid.bdrynorm[i],2) - numremove);
+                newbdrynorm = zeros(float_type, config.dimension, size(grid.bdrynorm[i],2) - numremove);
                 nextind = 1;
                 for j=1:length(grid.bdry[i])
                     keepit = true;
