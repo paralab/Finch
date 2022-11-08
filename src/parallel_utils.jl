@@ -294,7 +294,6 @@ function exchange_ghosts_fv(var::Vector, grid::Grid, dofs_per_node::Int, tag::In
     end
     
     # send ghosts
-    tag += 55555;
     for ni=1:n_neighbors
         requests[ni*2-1] = MPI.Isend(send_arrays[ni], grid.neighboring_partitions[ni], tag, MPI.COMM_WORLD);
     end

@@ -45,7 +45,7 @@ exportCode("elasticitycode")
 solve(u)
 
 # Write result to vtk file
-#output_values(u, "elasticity", format="vtk");
+#outputValues(u, "elasticity", format="vtk");
 
 finalizeFinch()
 

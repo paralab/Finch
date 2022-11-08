@@ -567,15 +567,24 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         if (element_status[ei] == 0 || # owned
             (element_status[ei] == 1 && grid_type == FV) || # face_ghost && FV
             (element_status[ei] > 0 && !(grid_type == FV))) # any ghost && FE
+            
+            if element_status[ei] == 0 # owned
+                next_index = next_e_index;
+                next_e_index += 1;
+            else # ghost
+                next_index = next_g_index;
+                next_g_index += 1;
+            end
+            
             # Find this element's nodes
             n_vert = etypetonv[mesh.etypes[ei]];
             e_vert = mesh.nodes[1:dim, mesh.elements[1:n_vert, ei]];
             
             # sample distance betweeen vertices
             for i=2:n_vert
-                vertex_dist_scale[ei] += sum(abs.(e_vert[:,i] .- e_vert[:,i-1]));
+                vertex_dist_scale[next_index] += sum(abs.(e_vert[:,i] .- e_vert[:,i-1]));
             end
-            vertex_dist_scale[ei] /= (n_vert-1);
+            vertex_dist_scale[next_index] /= (n_vert-1);
             
             if dim == 1
                 e_x = line_refel_to_x(refel.r[:,1], e_vert);
@@ -593,13 +602,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
                 end
             end
             
-            if element_status[ei] == 0 # owned
-                next_index = next_e_index;
-                next_e_index += 1;
-            else # ghost
-                next_index = next_g_index;
-                next_g_index += 1;
-            end
+            
             # Add them to the tmp global nodes
             tmpallnodes[1, ((next_index-1)*Np+1):(next_index*Np)] = e_x;
             if dim > 1
@@ -680,7 +683,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
                 el_center += allnodes[:,loc2glb[ni,next_index]];
                 
                 for vi=1:n_vert
-                    if is_same_node(mesh.nodes[:, mesh.elements[vi,ei]], allnodes[:,loc2glb[ni,next_index]], tol, vertex_dist_scale[ei])
+                    if is_same_node(mesh.nodes[:, mesh.elements[vi,ei]], allnodes[:,loc2glb[ni,next_index]], tol, vertex_dist_scale[next_index])
                         glbvertex[vi, next_index] = loc2glb[ni,next_index];
                     end
                 end
@@ -708,7 +711,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
                     if !found_face
                         meshfaceind = meshfaces[mfi];
                         gridfaceind = mesh2grid_face[meshfaceind]; # the face index in the grid
-                        if gridfaceind > 0 && test_same_face(mesh.nodes[:,mesh.face2vertex[:,meshfaceind]], allnodes[:, tmpf2glb], tol, vertex_dist_scale[ei])
+                        if gridfaceind > 0 && test_same_face(mesh.nodes[:,mesh.face2vertex[:,meshfaceind]], allnodes[:, tmpf2glb], tol, vertex_dist_scale[next_index])
                             found_face = true;
                             # This mesh face corresponds to this tmpf2glb face
                             # Put the tmpf2glb map into f2glb at the mesh index(meshfaceind).

@@ -99,6 +99,6 @@ exportCode("bte3dcode") # uncomment to export generated code to a file
 
 solve(I)
 
-output_values(temperature, "bte3dTemp", format="vtk");
+outputValues(temperature, "bte3dTemp", format="vtk");
 
 finalizeFinch()
