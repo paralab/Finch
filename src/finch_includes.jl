@@ -65,10 +65,15 @@ catch e
         println("Note that MPI may require some manual configuration to work properly.")
         println("Now attempting to build the MPI package using an MPI implementation installed on your system.");
         println("You will need to restart Julia.");
-        Pkg.add("MPIPreferences")
-        using MPIPreferences
-        MPIPreferences.use_system_binary()
-        global need_restart = true;
+        try
+            Pkg.add("MPIPreferences")
+            using MPIPreferences
+            MPIPreferences.use_system_binary()
+            global need_restart = true;
+        catch e2
+            println("There was a problem setting up MPI.jl. Please do this manually before attempting a parallel run.");
+            println("Continuing without MPI.");
+        end
         
     else
         println("MPI package is not yet installed. It is optional.\nWould you like to install now? y/n.");
@@ -80,10 +85,15 @@ catch e
             println("Note that MPI may require some manual configuration to work properly.")
             println("Now attempting to build the MPI package using an MPI implementation installed on your system.");
             println("You will need to restart Julia.");
-            Pkg.add("MPIPreferences")
-            using MPIPreferences
-            MPIPreferences.use_system_binary()
-            global need_restart = true;
+            try
+                Pkg.add("MPIPreferences")
+                using MPIPreferences
+                MPIPreferences.use_system_binary()
+                global need_restart = true;
+            catch e2
+                println("There was a problem setting up MPI.jl. Please do this manually before attempting a parallel run.");
+                println("Continuing without MPI.");
+            end
         else
             println("Continuing without MPI.")
         end
