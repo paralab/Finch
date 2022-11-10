@@ -14,6 +14,10 @@ defined. In particular, Finch's use of MPI is not yet configured to
 communicate custom data types, so unexpected conversions may occur 
 when using MPI.
 
+When using these optional commands, be sure to call them near the beginning 
+of the script before setting a mesh or creating any variables. That 
+way things will be initialized with the desired type.
+
 ```@index
 Pages = ["datatypes.md"]
 ```

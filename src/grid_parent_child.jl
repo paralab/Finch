@@ -17,6 +17,10 @@ end
 
 # Divides all elements in a grid
 function divide_parent_grid(grid, order)
+    # Types used in grid
+    int_type = config.index_type;
+    float_type = config.float_type;
+    
     # The convention for n numbers is: N->global, n->local
     dim = size(grid.allnodes,1);
     Nparent = size(grid.glbvertex,2);
@@ -125,18 +129,19 @@ function divide_parent_grid(grid, order)
     # Pieces needed for the new child grid
     # Refer to grid.jl for details
     # allnodes = zeros(dim, Ncnodes); # First build DG grid, then remove duplicates
-    bdry = Array{Array{Int,1},1}(undef,nbids);
-    bdryface = Array{Array{Int,1},1}(undef,nbids);
-    bdrynorm = Array{Array{Float64,2},1}(undef,nbids);
+    bdry = Vector{Vector{int_type}}(undef,nbids);
+    bdryface = Vector{Vector{int_type}}(undef,nbids);
+    bdrynorm = Vector{Matrix{float_type}}(undef,nbids);
     bids = copy(grid.bids);
-    loc2glb = zeros(Int, ncvertex, Nchildren);
+    loc2glb = zeros(int_type, ncvertex, Nchildren);
     # glbvertex = zeros(Int, ncvertex, Nchildren); # will be identical to loc2glb
-    face2glb = zeros(Int, nfacevertex, 1, Ncfaces);
-    element2face = zeros(Int, nfaceperchild, Nchildren);
-    face2element = zeros(Int, 2, Ncfaces);
+    face2glb = zeros(int_type, nfacevertex, 1, Ncfaces);
+    element2face = zeros(int_type, nfaceperchild, Nchildren);
+    face2element = zeros(int_type, 2, Ncfaces);
     facenormals = zeros(dim, Ncfaces);
-    faceRefelInd = zeros(Int, 2, Ncfaces);
-    facebid = zeros(Int, Ncfaces);
+    faceRefelInd = zeros(int_type, 2, Ncfaces);
+    facebid = zeros(int_type, Ncfaces);
+    nodebid = zeros(int_type, Ncnodes);
     
     if grid.is_subgrid
         nel_owned = grid.nel_owned * nchildren;
@@ -149,18 +154,18 @@ function divide_parent_grid(grid, order)
         num_neighbor_partitions = grid.num_neighbor_partitions;
         neighboring_partitions = grid.neighboring_partitions;
         ghost_counts = grid.ghost_counts .* nchildren;
-        ghost_index = fill(zeros(Int,2,0), num_neighbor_partitions); # TBD
+        ghost_index = fill(zeros(int_type,2,0), num_neighbor_partitions); # TBD
     end
     
     for i=1:nbids
         if dim==1
-            bdry[i] = zeros(Int, length(grid.bdry[i])); # same number
+            bdry[i] = zeros(int_type, length(grid.bdry[i])); # same number
         elseif dim==2
-            bdry[i] = zeros(Int, length(grid.bdry[i]) + length(grid.bdryface[i])); # add one for each bdry face
+            bdry[i] = zeros(int_type, length(grid.bdry[i]) + length(grid.bdryface[i])); # add one for each bdry face
         else
-            bdry[i] = zeros(Int, length(grid.bdry[i])); # TODO
+            bdry[i] = zeros(int_type, length(grid.bdry[i])); # TODO
         end
-        bdryface[i] = zeros(Int, length(grid.bdryface[i]) * cfaceperpface);
+        bdryface[i] = zeros(int_type, length(grid.bdryface[i]) * cfaceperpface);
         bdrynorm[i] = zeros(dim, length(bdry[i]));
     end
     
@@ -217,6 +222,7 @@ function divide_parent_grid(grid, order)
                 facenormals[1,next_face] = leftx < rightx ? -1 : 1 #grid.facenormals[1,leftface];
                 faceRefelInd[1, next_face] = 1; # left of element
                 facebid[next_face] = grid.facebid[leftface];
+                nodebid[next_node] = grid.nodebid[leftnode];
                 
                 fbid = facebid[next_face];
                 if fbid > 0
@@ -256,6 +262,7 @@ function divide_parent_grid(grid, order)
                 faceRefelInd[1, next_face] = 2; # right of element
                 faceRefelInd[2, next_face] = 1; # left of element
                 facebid[next_face] = 0;
+                nodebid[next_node] = 0;
                 
                 next_node += 1;
                 next_face += 1;
@@ -274,6 +281,7 @@ function divide_parent_grid(grid, order)
                 facenormals[1,next_face] = leftx < rightx ? 1 : -1 
                 faceRefelInd[1, next_face] = 2; # right of element
                 facebid[next_face] = grid.facebid[rightface];
+                nodebid[next_node] = grid.nodebid[rightnode];
                 
                 fbid = facebid[next_face];
                 if fbid > 0
@@ -668,14 +676,16 @@ function divide_parent_grid(grid, order)
             end
         end
         
-        child_grid = Grid(allnodes, bdry, bdryface, bdrynorm, bids, loc2glb, loc2glb, face2glb, 
+        child_grid = Grid(allnodes, bdry, bdryface, bdrynorm, bids, nodebid, loc2glb, loc2glb, face2glb, 
                         element2face, face2element, facenormals, faceRefelInd, facebid, 
-                        true, nel_owned, nel_ghost, nface_owned, nface_ghost, 0, 0, element_owner, 
+                        true, Array(1:nel_owned), grid.nel_global*nchildren, nel_owned, nel_ghost, 
+                        nface_owned, nface_ghost, 0, 0, element_owner, 
                         zeros(Int,0), grid2mesh, zeros(Int,0), zeros(Int8, 0), 
                         num_neighbor_partitions, neighboring_partitions, ghost_counts, ghost_index);
         
     else # not a subgrid
-        child_grid = Grid(allnodes, bdry, bdryface, bdrynorm, bids, loc2glb, loc2glb, face2glb, element2face, face2element, facenormals, faceRefelInd, facebid);
+        child_grid = Grid(allnodes, bdry, bdryface, bdrynorm, bids, nodebid, loc2glb, loc2glb, face2glb, element2face, 
+                            face2element, facenormals, faceRefelInd, facebid);
     end
     
     tmp_parent_maps = ParentMaps(c2p, p2c, p2f, p2n, zeros(Int,0,0)); # no patches built yet

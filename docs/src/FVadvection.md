@@ -26,9 +26,9 @@ mesh(QUADMESH, elsperdim=n, bids=4)
 ```
 Define the variable and coefficient symbols. Note the use of CELL to define this variable as cell averages.
 ```
-u = variable("u", SCALAR, CELL)
+u = variable("u", location=CELL)
 
-coefficient("a", ["cos(pi*x/2)","sin(pi*x/2)"], VECTOR) # advection velocity
+coefficient("a", ["cos(pi*x/2)","sin(pi*x/2)"], type=VECTOR) # advection velocity
 ```
 The boundary condition is specified.
 ```

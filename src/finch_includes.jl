@@ -64,8 +64,10 @@ catch e
         using MPI
         println("Note that MPI may require some manual configuration to work properly.")
         println("Now attempting to build the MPI package using an MPI implementation installed on your system.");
-        ENV["JULIA_MPI_BINARY"] = "system";
-        Pkg.build("MPI"; verbose=true);
+        println("You will need to restart Julia.");
+        Pkg.add("MPIPreferences")
+        using MPIPreferences
+        MPIPreferences.use_system_binary()
         global need_restart = true;
         
     else
@@ -77,8 +79,10 @@ catch e
             using MPI
             println("Note that MPI may require some manual configuration to work properly.")
             println("Now attempting to build the MPI package using an MPI implementation installed on your system.");
-            ENV["JULIA_MPI_BINARY"] = "system";
-            Pkg.build("MPI"; verbose=true);
+            println("You will need to restart Julia.");
+            Pkg.add("MPIPreferences")
+            using MPIPreferences
+            MPIPreferences.use_system_binary()
             global need_restart = true;
         else
             println("Continuing without MPI.")

@@ -28,12 +28,12 @@ mesh(HEXMESH, elsperdim=n, bids=2, interval=bounds)
 ```
 Define the variable, test function, and coefficient symbols.
 ```
-u = variable("u", VECTOR)
-testSymbol("v", VECTOR)
+u = variable("u", type=VECTOR)
+testSymbol("v", type=VECTOR)
 
 coefficient("mu", "x>0.5 ? 0.2 : 10") # discontinuous mu
 coefficient("lambda", 1.25)
-coefficient("f", VECTOR, ["0","0","-0.1"]) # gravitational force
+coefficient("f", ["0","0","-0.1"], type=VECTOR) # gravitational force
 ```
 Convert the PDE
 into the weak form

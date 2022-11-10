@@ -336,7 +336,8 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
     t_grid_from_mesh = Base.Libc.time() - t_grid_from_mesh;
     log_entry("Total grid building time: "*string(t_grid_from_mesh), 2);
     
-    return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, face2element, facenormals, faceRefelInd, facebid));
+    return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, 
+                        element2face, face2element, facenormals, faceRefelInd, facebid));
 end
 
 #######################################################################################################

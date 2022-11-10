@@ -33,10 +33,10 @@ diff = index("diff", range = [1,ndiffs])
 ```
 Define the variable and coefficient symbols using the type keyword VAR_ARRAY and the previously defined index objects. The indexed coefficients will also need the type VAR_ARRAY.
 ```
-u = variable("u", VAR_ARRAY, CELL, index = [speed, diff])
+u = variable("u", type=VAR_ARRAY, location=CELL, index=[speed, diff])
 
-coefficient("a", speeds, VAR_ARRAY) # advection velocity
-coefficient("d", diffs, VAR_ARRAY) # diffusion rate
+coefficient("a", speeds, type=VAR_ARRAY) # advection velocity
+coefficient("d", diffs, type=VAR_ARRAY) # diffusion rate
 ```
 The PDE must be in a conservation form for finite volume. Note the `[speed, diff]` indices on u and the respective indices on a and d.
 ```
