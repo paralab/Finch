@@ -40,9 +40,9 @@ dg_grid_data = nothing; # This DG version is only made if using mixed CG/DG. Oth
 geo_factors = nothing;  # Geometric factors
 refel = nothing;        # Reference element(s?)
 # FVM specific
+fv_order = 1;           # Order of reconstruction for FV
 fv_info = nothing;      # Finite volume info
 fv_refel = nothing;     # Reference element for FV
-parent_maps = nothing;  # For high order FV
 fv_grid = nothing;      # Similar to grid_data, but only first order CG elements, and includes ghost info when partitioned.
 fv_geo_factors = nothing;# Geometric factors for FV
 
@@ -59,12 +59,6 @@ variable_transforms = [];
 genfunc_count = 0;
 genfunctions = [];
 callback_functions = [];
-# #rhs
-# linears = [];
-# face_linears = [];
-# #lhs
-# bilinears = [];
-# face_bilinears = [];
 # solve functions for each variable
 solve_function = [];
 #assembly loop functions
@@ -112,10 +106,10 @@ function init_finch(name="unnamedProject")
     global grid_data = nothing;
     global dg_grid_data = nothing;
     global geo_factors = nothing;
+    global fv_order = 1;
     global fv_info = nothing;
     global refel = nothing;
     global fv_refel = nothing;
-    global parent_maps = nothing;
     global fv_grid = nothing;
     global fv_geo_factors = nothing;
     global var_count = 0;
@@ -129,11 +123,6 @@ function init_finch(name="unnamedProject")
     global genfunc_count = 0;
     global genfunctions = [];
     global callback_functions = [];
-    global linears = [];
-    global bilinears = [];
-    global face_linears = [];
-    global face_bilinears = [];
-    global assembly_loops = [];
     global symexpressions = [[],[],[],[]];
     global code_strings = [[],[],[],[],[]];
     global time_stepper = nothing;
@@ -406,15 +395,22 @@ function output_mesh(file, format)
     end
 end
 
+# For higher order FV, a finer child map is used for calculation, but the 
+# coarse parent map is partitioned.
 function set_parent_and_child(p_maps, c_grid, order)
-    global parent_maps = p_maps;
+    global fv_order = order;
+    # If the mesh has not meen made yet, this will be done after that.
+    if c_grid === nothing
+        return;
+    end
+    
     global fv_grid = c_grid;
     dim = config.dimension;
     nfaces = size(fv_grid.element2face,1);
     global fv_refel = build_refel(dim, 1, nfaces, config.elemental_nodes);
     global fv_geo_factors = build_geometric_factors(fv_refel, fv_grid, do_face_detj=true, do_vol_area=true, constant_jacobian=true);
-    global fv_info = build_FV_info(fv_grid, order);
-    log_entry("Created parent-child grid with "*string(size(c_grid.allnodes,2))*" nodes and "*string(size(c_grid.loc2glb,2))*" elements.", 2);
+    global fv_info = build_FV_info(fv_grid, order, p_maps);
+    log_entry("Set child grid with "*string(size(c_grid.allnodes,2))*" nodes and "*string(size(c_grid.loc2glb,2))*" elements.", 2);
     
     # If CELL variables exist, resize their values
     N = size(fv_grid.loc2glb, 2);
@@ -541,11 +537,6 @@ function add_variable(var)
     global variables = [variables; var];
     
     global solve_function = [solve_function; nothing];
-    global linears = [linears; nothing];
-    global bilinears = [bilinears; nothing];
-    global face_linears = [face_linears; nothing];
-    global face_bilinears = [face_bilinears; nothing];
-    global assembly_loops = [assembly_loops; nothing];
     global symexpressions[1] = [symexpressions[1]; nothing];
     global symexpressions[2] = [symexpressions[2]; nothing];
     global symexpressions[3] = [symexpressions[3]; nothing];

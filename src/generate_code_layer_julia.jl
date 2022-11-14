@@ -334,7 +334,11 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
             ", " * string(IR.args[7]) * ", " * string(IR.args[8]) * ")";
         
     elseif op === :KNOWN_VAR
-        code = "variables[" * string(IR.args[2]) * "].values["*generate_from_IR_julia(IR.args[3], IRtypes)*", "*string(IR.args[4])*"]";
+        if length(IR.args) > 3
+            code = "variables[" * string(IR.args[2]) * "].values["*generate_from_IR_julia(IR.args[3], IRtypes)*", "*string(IR.args[4])*"]";
+        elseif length(IR.args) == 2
+            code = "variables[" * string(IR.args[2]) * "].values";
+        end
         
     elseif op === :ROWCOL_TO_INDEX
         # code = string(IR.args[2]) * " + (" * string(IR.args[3]) * "-1)*" * string(IR.args[4]);

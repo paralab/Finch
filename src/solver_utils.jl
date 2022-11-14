@@ -160,6 +160,155 @@ end
 ## Specific to FVM
 ######################################################################################################
 
+# Reconstructs var_component at face center x based on a neighborhood of cells around it.
+# childid and faceid are relative to the parent
+# side could be 0,3=centered, 1=left, 2=right
+function FV_reconstruct_face_value(var::Array, component::Int, faceid::Int, side::Int, mesh::Grid, fv_info::FVInfo, derivs...)
+    dim = size(mesh.allnodes,1);
+    # Is it a centered approximation, or one side?
+    if (side == 1 || side == 2) && length(derivs)==0
+        left_cells = fv_info.parentMaps.face_neighborhoods[1,faceid];
+        right_cells = fv_info.parentMaps.face_neighborhoods[2,faceid];
+        # get coordinates and values of cells
+        left_cellx = fv_info.cellCenters[:,left_cells];
+        left_cellu = var[component, left_cells];
+        right_cellx = fv_info.cellCenters[:,right_cells];
+        right_cellu = var[component, right_cells];
+        # coordinates ofthe face
+        x = fv_info.faceCenters[:, faceid];
+        
+        (left_val, right_val) = FV_reconstruct_value_left_right(left_cellx, right_cellx, left_cellu, right_cellu, x, limiter="vanleer");
+        if side == 1
+            return left_val;
+        else
+            return right_val;
+        end
+        
+    else # centered or derivatives
+        left_cells = fv_info.parentMaps.face_neighborhoods[1,faceid];
+        right_cells = fv_info.parentMaps.face_neighborhoods[2,faceid];
+        count = Int(floor((order+1)/2));
+        cells = zeros(Int, count*2);
+        nnz = 0;
+        ind = 0;
+        while ind < count
+            if length(left_cells) >= ind
+                nnz += 1;
+                cells[nnz] = left_cells[ind];
+            end
+            if length(right_cells) >= ind
+                nnz += 1;
+                cells[nnz] = right_cells[ind];
+            end
+            ind += 1;
+        end
+        if nnz < count*2
+            cells = cells[1:nnz];
+        end
+        
+        # extract the cell coordinates and values and face center coordinates
+        cellx = fv_info.cellCenters[:,cells];
+        cellu = var[component, cells];
+        x = fv_info.faceCenters[:, faceid];
+        
+        return polyharmonic_interp(x, cellx, cellu)[1];
+    end
+end
+
+# # Reconstructs var_component at face center x based on a neighborhood of cells around it.
+# # childid and faceid are relative to the parent
+# # side could be 0,3=centered, 1=left, 2=right
+# function FV_reconstruct_value(var::Array, component::Int, childid::Int, faceid::Int, parentid::Int, side::Int, 
+#                                 patch_cells::Vector{Int}, mesh::Grid, fv_info::FVInfo, derivs...)
+#     dim = size(mesh.allnodes,1);
+#     order = fv_info.fluxOrder;
+#     min_needed = max(order, length(derivs)+1);
+#     # Reconstructing a cell value or a face value?
+#     # only one of these can be positive
+#     if faceid > 0 # face value
+#         # Is it a centered approximation, or one side?
+#         if (side == 1 || side == 2) && length(derivs)==0
+#             # collect cell indices
+#             left_cells = fv_info.parentMaps.leftCells[faceid];
+#             if length(left_cells) > min_needed
+#                 left_cells = patch_cells[left_cells[1:min_needed]];
+#             else
+#                 left_cells = patch_cells[left_cells];
+#             end
+            
+#             right_cells = fv_info.parentMaps.rightCells[faceid];
+#             if length(right_cells) > min_needed
+#                 right_cells = patch_cells[right_cells[1:min_needed]];
+#             else
+#                 right_cells = patch_cells[right_cells];
+#             end
+            
+#             # remove zeros
+#             first_zero = 1;
+#             for i=1:length(left_cells)
+#                 if left_cells[i] == 0
+#                     break;
+#                 end
+#                 first_zero += 1;
+#             end
+#             left_cells = left_cells[1:(first_zero-1)];
+            
+#             first_zero = 1;
+#             for i=1:length(right_cells)
+#                 if right_cells[i] == 0
+#                     break;
+#                 end
+#                 first_zero += 1;
+#             end
+#             right_cells = right_cells[1:(first_zero-1)];
+            
+#             left_cellx = fv_info.cellCenters[:,left_cells];
+#             left_cellu = var[component, left_cells];
+#             right_cellx = fv_info.cellCenters[:,right_cells];
+#             right_cellu = var[component, right_cells];
+#             x = fv_info.faceCenters[:, fv_info.parentMaps.parent2face[faceid, parentid]];
+            
+#             (left_val, right_val) = FV_reconstruct_value_left_right(left_cellx, right_cellx, left_cellu, right_cellu, x, limiter="vanleer");
+#             if side == 1
+#                 return left_val;
+#             else
+#                 return right_val;
+#             end
+            
+#         else # centered or derivatives
+#             cellsL = fv_info.parentMaps.leftCells[faceid];
+#             cellsR = fv_info.parentMaps.rightCells[faceid];
+#             cellsL = patch_cells[cellsL];
+#             cellsR = patch_cells[cellsR];
+#             cells = zeros(Int, min_needed);
+#             nnz = 0;
+#             ind = 1;
+#             while nnz < min_needed
+#                 if cellsL[ind] > 0
+#                     nnz += 1;
+#                     cells[nnz] = cellsL[ind];
+#                 end
+#                 if cellsR[ind] > 0 && nnz <= min_needed
+#                     nnz += 1;
+#                     cells[nnz] = cellsR[ind];
+#                 end
+#                 ind += 1;
+#             end
+            
+#             # extract the cell coordinates and values and face center coordinates
+#             cellx = fv_info.cellCenters[:,cells];
+#             cellu = var[component, cells];
+#             x = fv_info.faceCenters[:, fv_info.parentMaps.parent2face[faceid, parentid]];
+            
+#             return polyharmonic_interp(x, cellx, cellu)[1];
+#         end
+        
+#     else # cell value
+#         #TODO
+#     end
+    
+# end
+
 # reconstructs u at x based on a cell set
 function FV_reconstruct_value(cellx::Matrix, cellu::Vector, x::Vector)
     # If only one cell given, return that value
@@ -242,7 +391,7 @@ function FV_reconstruct_value_left_right(leftx::Matrix, rightx::Matrix,
 end
 
 # Returns arrays of left and right cells
-function get_left_right_cells(patch::Vector{Int}, face::Int, maps::ParentMaps, dim::Int, order::Int)
+function FV_get_left_right_cells_old(patch::Vector{Int}, face::Int, maps::ParentMaps, dim::Int, order::Int)
     # Provide all of the cells that can be used for this face in a particular order.
     # Make two arrays, one for left one for right, starting from the nearest neighbor.
     left_cells = [];

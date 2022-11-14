@@ -12,11 +12,13 @@ Also has functions useful for FV such as
 
 struct FVInfo
     fluxOrder::Int                  # Order for flux reconstruction
-    cellCenters::Array{Float64}     # Coordinates of cell centers
-    faceCenters::Array{Float64}     # Coordinates of face centers
+    cellCenters::Matrix             # Coordinates of cell centers
+    faceCenters::Matrix             # Coordinates of face centers
     
-    cell2node::Array{Array{Int64,1}}            # Neighboring cell indices for each node
-    cell2nodeWeight::Array{Array{Float64,1}}    # Cell to node interpolation weights
+    cell2node::Vector{Vector}       # Neighboring cell indices for each node
+    cell2nodeWeight::Vector{Vector} # Cell to node interpolation weights
+    
+    parentMaps::Union{Nothing, ParentMaps} # For when there is a parent-child mesh
 end
 
 etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices for each type
@@ -25,56 +27,53 @@ etypetonf = [2, 3, 4, 4, 6, 5, 5, 2, 3, 4, 4, 6, 5, 5, 1, 4, 6, 5, 5]; # number 
 etypetoftype=[0,1, 1, 2, 3, 3, 3, 0, 1, 1, 2, 3, 3, 3, 0, 0, 0, 0, 0]; # type of faces for this element type
 
 # Build the FVInfo from a given grid
-function build_FV_info(grid, order=1)
+function build_FV_info(grid, order=1, p_maps=nothing)
+    int_type = config.index_type;
+    float_type = config.float_type;
+    
     nel = size(grid.loc2glb, 2);
     nface = size(grid.face2glb, 3);
     nnode = size(grid.allnodes, 2);
     dim = size(grid.allnodes, 1);
     
-    cell_centers = zeros(dim, nel);
-    face_centers = zeros(dim, nface);
-    cell2node = Array{Array{Int64,1},1}(undef,nnode);
-    cell2nodeWeight = Array{Array{Float64,1},1}(undef,nnode);
+    cell_centers = zeros(float_type, dim, nel);
+    face_centers = zeros(float_type, dim, nface);
+    cell2node = fill(zeros(int_type,0),nnode);
+    cell2nodeWeight = fill(zeros(float_type,0),nnode);
     
     # Find cell centers
+    center = zeros(float_type, dim);
+    nvtx = size(grid.loc2glb, 1);
     for ei=1:nel
-        center = zeros(dim);
-        nvtx = size(grid.loc2glb, 1);
+        center .= 0;
         for ni=1:nvtx
             center .+= grid.allnodes[:, grid.loc2glb[ni, ei]];
         end
-        cell_centers[:, ei] = center ./ nvtx;
+        cell_centers[:, ei] .= center ./ nvtx;
     end
     
     # Find face centers
+    nvtx = size(grid.face2glb, 1);
     for fi=1:nface
-        center = zeros(dim);
-        nvtx = size(grid.face2glb, 1);
+        center .= 0;
         for ni=1:nvtx
             center .+= grid.allnodes[:, grid.face2glb[ni, 1, fi]];
         end
-        face_centers[:, fi] = center ./ nvtx;
+        face_centers[:, fi] .= center ./ nvtx;
     end
     
     # Build cell2node map
     # Check all elements to find ones touching this node.
     nvtx = size(grid.loc2glb, 1);
-    for ni=1:nnode
-        cell2node[ni] = zeros(Int,0);
-        for ei=1:nel
-            for nj=1:nvtx
-                if grid.loc2glb[nj, ei] == ni
-                    # This cell touches this node
-                    push!(cell2node[ni], ei);
-                    break;
-                end
-            end
+    for ei=1:nel
+        for ni=1:nvtx
+            push!(cell2node[grid.loc2glb[ni, ei]], ei);
         end
     end
     
     # Compute cell2node interpolation weights
     for ni=1:nnode
-        cell2nodeWeight[ni] = zeros(length(cell2node[ni]));
+        cell2nodeWeight[ni] = zeros(float_type, length(cell2node[ni]));
         sumweight = 0;
         for ei=1:length(cell2node[ni])
             dist = norm(grid.allnodes[:,ni] - cell_centers[:, cell2node[ni][ei]]);
@@ -86,7 +85,7 @@ function build_FV_info(grid, order=1)
         end
     end
     
-    return FVInfo(order, cell_centers, face_centers, cell2node, cell2nodeWeight);
+    return FVInfo(order, cell_centers, face_centers, cell2node, cell2nodeWeight, p_maps);
 end
 
 # Interpolate nodal values for one cell.

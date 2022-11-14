@@ -210,6 +210,7 @@ include("mesh_data.jl");
 include("mesh_read.jl");
 include("mesh_write.jl")
 include("grid.jl");
+include("grid_parent_child.jl");
 include("simple_mesh.jl");
 include("recursive_ordering.jl");
 include("tiled_ordering.jl");
@@ -230,7 +231,7 @@ include("dg_utils.jl");
 include("time_steppers.jl");
 include("fv_utils.jl");
 include("fv_neighborhood.jl");
-include("grid_parent_child.jl");
+
 include("polyharmonic_interp.jl");
 include("solver_utils.jl");
 include("boundary_utils.jl");

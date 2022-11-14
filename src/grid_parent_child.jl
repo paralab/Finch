@@ -7,12 +7,22 @@ considered and the resulting grid will only have vertex nodes.
 
 # Struct for keeping the parent info.
 struct ParentMaps
-    child2parent::Array{Int,2}     # size = (2, allChildren) 1 = index of parent, 2 = location within parent
-    parent2child::Array{Int,2}     # size = (myChildren, allParents) global index of each child in each parent
-    parent2face::Array{Int,2}      # size = (myFaces, allParents) global index of each face in each parent
-    parent2neighbor::Array{Int,2}  # size = (outerFaces, allParents) index of neighboring parents
+    num_parents::Int                # Number of parents including ghosts
+    children_per_parent::Int        # Number of children per parent assuming similar element types
+    faces_per_parent::Int           # Number of child faces in a parent
+    patch_size::Int                 # Number of children in a patch (parent plus neighboring parents)
     
-    patches::Array{Int, 2}         # size = (outerfaces*neighborChildren) local patch around each parent
+    child2parent::Array{Int,2}      # size = (2, allChildren) 1 = index of parent, 2 = location within parent
+    parent2child::Array{Int,2}      # size = (myChildren, allParents) global index of each child in each parent
+    parent2face::Array{Int,2}       # size = (myFaces, allParents) global index of each face in each parent
+    cface2pface::Array{Int,3}       # size = (elementFaces, myChildren, allParents) relative face index in parent
+    parent2neighbor::Array{Int,2}   # size = (outerFaces, allParents) index of neighboring parents
+    
+    patches::Array{Int, 2}          # size = (outerfaces*neighborChildren) local patch around each parent
+    leftCells::Vector               # Patch indices for left and right cell groups for each face
+    rightCells::Vector              #
+    
+    face_neighborhoods::Matrix      # indices of a group of elements to the left and right of each face
 end
 
 # Divides all elements in a grid
@@ -34,12 +44,18 @@ function divide_parent_grid(grid, order)
     if order < 2 && dim==1
         #nothing needs to happen to the grid, but we should make the maps anyway
         nchildren = 1;
-        c2p = ones(2, Nparent);
+        nfaces = 2;
+        Ncfaces = Npfaces;
+        ncells_in_patch = (nneighbor+1)*nchildren;
+        
+        c2p = ones(Int, 2, Nparent);
         c2p[1,:] = 1:Nparent;
         p2c = Array(1:Nparent)';
         p2f = grid.element2face;
-        p2n = zeros(nneighbor, Nparent);
+        cf2pf = zeros(Int, nneighbor, 1, Nparent);
+        p2n = zeros(Int, nneighbor, Nparent);
         for i=1:Nparent
+            cf2pf[:,1,i] .= 1:Ncfaces;
             for j=1:nneighbor
                 fid = grid.element2face[j,i];
                 if grid.face2element[1,fid] == i
@@ -50,14 +66,47 @@ function divide_parent_grid(grid, order)
             end
         end
         
-        tmp_parent_maps = ParentMaps(c2p, p2c, p2f, p2n, zeros(Int,0,0)); # no patches built yet
+        tmp_parent_maps = ParentMaps(Nparent, nchildren, nfaces, ncells_in_patch, c2p, p2c, p2f, cf2pf, p2n, 
+                                        zeros(Int,0,0), [], [], zeros(Int,0,0)); # no patches built yet
+        
         # build patches
-        ncells_in_patch = (nneighbor+1)*nchildren;
         patches = zeros(Int, ncells_in_patch, Nparent);
         for ei=1:Nparent
             patches[:, ei] = build_local_patch(tmp_parent_maps, grid, ei);
         end
-        parent_maps = ParentMaps(c2p, p2c, p2f, p2n, patches);
+        (left_cells, right_cells) = get_left_right_cells(dim, nfaces, nneighbor, order);
+        
+        # Build left and right neighborhoods for each face
+        f_neighborhoods = fill(zeros(Int,0), 2, Ncfaces);
+        for parentid=1:Nparent
+            for fi=1:nfaces
+                fid = p2f[fi,parentid];
+                f_neighborhoods[1,fid] = patches[left_cells[fi], parentid];
+                f_neighborhoods[2,fid] = patches[right_cells[fi], parentid];
+                
+                # remove zeros
+                first_zero = 1;
+                for i=1:length(f_neighborhoods[1,fid])
+                    if f_neighborhoods[1,fid][i] == 0
+                        break;
+                    end
+                    first_zero += 1;
+                end
+                f_neighborhoods[1,fid] = f_neighborhoods[1,fid][1:(first_zero-1)];
+                
+                first_zero = 1;
+                for i=1:length(f_neighborhoods[2,fid])
+                    if f_neighborhoods[2,fid][i] == 0
+                        break;
+                    end
+                    first_zero += 1;
+                end
+                f_neighborhoods[2,fid] = f_neighborhoods[2,fid][1:(first_zero-1)];
+            end
+        end
+        
+        parent_maps = ParentMaps(Nparent, nchildren, Ncfaces, ncells_in_patch, c2p, p2c, p2f, cf2pf, p2n, 
+                                patches, left_cells, right_cells, f_neighborhoods);
         return (parent_maps, grid);
     end
     
@@ -124,6 +173,7 @@ function divide_parent_grid(grid, order)
     c2p = zeros(Int, 2, Nchildren);         # child to parent
     p2c = zeros(Int, nchildren, Nparent);   # parent to child
     p2f = zeros(Int, nfaces, Nparent);      # parent to face
+    cf2pf = zeros(Int, nneighbor, nchildren, Nparent); # cface to pface
     p2n = zeros(Int, nneighbor, Nparent);            # parent to neighbor
     
     # Pieces needed for the new child grid
@@ -688,18 +738,69 @@ function divide_parent_grid(grid, order)
                             face2element, facenormals, faceRefelInd, facebid);
     end
     
-    tmp_parent_maps = ParentMaps(c2p, p2c, p2f, p2n, zeros(Int,0,0)); # no patches built yet
+    # Map child faces to parent faces
+    for i=1:Nparent
+        for j=1:nchildren
+            eid = p2c[j,i];
+            for k=1:nneighbor
+                fid = child_grid.element2face[k, eid];
+                for m=1:Ncfaces
+                    if p2f[m,i] == fid
+                        cf2pf[k,j,i] = m;
+                        break;
+                    end
+                end
+            end
+        end
+    end
+    
+    ncells_in_patch = (nneighbor+1)*nchildren;
+    tmp_parent_maps = ParentMaps(Nparent, nchildren, Ncfaces, ncells_in_patch, c2p, p2c, p2f, cf2pf, p2n, 
+                                    zeros(Int,0,0), [], [], zeros(Int,0,0)); # no patches built yet
     
     # Normal vectors may be pointing the wrong way. Reorient them.
     check_normal_vectors!(child_grid);
     
     # build patches
-    ncells_in_patch = (nneighbor+1)*nchildren;
     patches = zeros(Int, ncells_in_patch, Nparent);
     for ei=1:Nparent
         patches[:, ei] = build_local_patch(tmp_parent_maps, child_grid, ei);
     end
-    parent_maps = ParentMaps(c2p, p2c, p2f, p2n, patches);
+    
+    # patch indices of left and right cells for patch faces
+    (left_cells, right_cells) = get_left_right_cells(dim, nfaces, nneighbor, order);
+    
+    # Build left and right neighborhoods for each face
+    f_neighborhoods = fill(zeros(Int,0), 2, Ncfaces);
+    for parentid=1:Nparent
+        for fi=1:nfaces
+            fid = p2f[fi,parentid];
+            f_neighborhoods[1,fid] = patches[left_cells[fi], parentid];
+            f_neighborhoods[2,fid] = patches[right_cells[fi], parentid];
+            
+            # remove zeros
+            first_zero = 1;
+            for i=1:length(f_neighborhoods[1,fid])
+                if f_neighborhoods[1,fid][i] == 0
+                    break;
+                end
+                first_zero += 1;
+            end
+            f_neighborhoods[1,fid] = f_neighborhoods[1,fid][1:(first_zero-1)];
+            
+            first_zero = 1;
+            for i=1:length(f_neighborhoods[2,fid])
+                if f_neighborhoods[2,fid][i] == 0
+                    break;
+                end
+                first_zero += 1;
+            end
+            f_neighborhoods[2,fid] = f_neighborhoods[2,fid][1:(first_zero-1)];
+        end
+    end
+    
+    parent_maps = ParentMaps(Nparent, nchildren, Ncfaces, ncells_in_patch, c2p, p2c, p2f, cf2pf, p2n, 
+                            patches, left_cells, right_cells, f_neighborhoods);
     
     return (parent_maps, child_grid);
 end
@@ -853,4 +954,141 @@ function build_local_patch(maps, grid, center)
     end
     
     return patch;
+end
+
+# Build maps for left and right cells for each face
+function get_left_right_cells(dim::Int, faces::Int, neighbors::Int, order::Int)
+    # Provide all of the cells that can be used for this face in a particular order.
+    # Make two arrays, one for left one for right, starting from the nearest neighbor.
+    left_cells = fill(zeros(Int,0), faces);
+    right_cells = fill(zeros(Int,0), faces);
+    if dim == 1
+        left_cell_table = [
+            [ # children=1
+                [2],
+                [1, 2]
+            ],
+            [ # children=2
+                [4, 3],
+                [1, 4, 3],
+                [2, 1, 4, 3]
+            ],
+            [ # children=3
+                [6, 5, 4],
+                [1, 6, 5, 4],
+                [2, 1, 6, 5, 4],
+                [3, 2, 1, 6, 5, 4]
+            ],
+            [ # children=4
+                [8, 7, 6, 5],
+                [1, 8, 7, 6, 5],
+                [2, 1, 8, 7, 6, 5],
+                [3, 2, 1, 8, 7, 6, 5],
+                [4, 3, 2, 1, 8, 7, 6, 5],
+            ]
+        ]
+        right_cell_table = [
+            [ # children=1
+                [1, 3],
+                [3]
+            ],
+            [ # children=2
+                [1, 2, 5, 6],
+                [2, 5, 6],
+                [5, 6]
+            ],
+            [ # children=3
+                [1, 2, 3, 7, 8, 9],
+                [2, 3, 7, 8, 9],
+                [3, 7, 8, 9],
+                [7, 8, 9]
+            ],
+            [ # children=4
+                [1, 2, 3, 4, 9, 10, 11, 12],
+                [2, 3, 4, 9, 10, 11, 12],
+                [3, 4, 9, 10, 11, 12],
+                [4, 9, 10, 11, 12],
+                [9, 10, 11, 12]
+            ]
+        ]
+        for i=1:faces
+            left_cells[i] = left_cell_table[order][i];
+            right_cells[i] = right_cell_table[order][i];
+        end
+        
+    elseif dim == 2
+        if neighbors == 3 # triangles
+            # Triangle parents have 9 faces, patches have 16 cells
+            # Here Left means toward the center of the central parent
+            left_cells = [
+                [1, 4, 3, 15, 16, 13, 2],
+                [2, 4, 3, 9, 12, 11, 1],
+                [2, 4, 1, 7, 8, 5, 3],
+                [3, 4, 1, 13, 16, 15, 2],
+                [3, 4, 2, 11, 12, 9, 1],
+                [1, 4, 2, 5, 8, 7, 3],
+                [4, 2, 3, 9, 11, 12],
+                [4, 1, 3, 15, 13, 16],
+                [4, 1, 2, 5, 7, 8]
+            ]
+            right_cells = [
+                [5, 8, 6, 7],
+                [7, 8, 6, 5],
+                [9, 12, 10, 11],
+                [11, 12, 10, 9],
+                [13, 16, 14, 15],
+                [15, 16, 14, 13],
+                [1, 5, 15, 8, 16],
+                [2, 7, 9, 8, 12],
+                [3, 11, 13, 12, 16]
+            ]
+            
+        else # quads
+            # Quad parents have 12 faces, patches have 20 cells
+            # Here Left means toward the center of the central parent
+            left_cells = [
+                [1, 4, 2, 16, 15, 3, 13, 14],
+                [2, 3, 1, 13, 14, 4, 16, 15],
+                [2, 1, 3, 20, 19, 4, 17, 18],
+                [3, 4, 2, 17, 18, 1, 20, 19],
+                [3, 2, 4, 8, 7, 1, 5, 6],
+                [4, 1, 3, 5, 6, 2, 8, 7],
+                [4, 3, 1, 12, 11, 2, 9, 10],
+                [1, 2, 4, 9, 10, 3, 12, 11],
+                [1, 20, 4, 19, 17, 18, 5],
+                [2, 8, 1, 7, 5, 6, 9],
+                [3, 12, 2, 11, 9, 10, 13],
+                [4, 16, 3, 15, 13, 14, 17]
+            ]
+            right_cells = [
+                [5, 6, 8, 7],
+                [8, 7, 5, 6],
+                [9, 10, 12, 11],
+                [12, 11, 9, 10],
+                [13, 14, 16, 15],
+                [16, 15, 13, 14],
+                [17, 18, 20, 19],
+                [20, 19, 17, 18],
+                [2, 9, 3, 10, 12, 11],
+                [3, 13, 4, 14, 16, 15],
+                [4, 17, 1, 18, 20, 19],
+                [1, 5, 2, 6, 8, 7]
+            ]
+        end
+        
+    elseif dim == 3
+        #TODO
+    end
+    
+    # Shorten lists depending on order
+    for fi=1:faces
+        if length(left_cells[fi]) > order
+            left_cells[fi] = left_cells[fi][1:order];
+        end
+        if length(right_cells[fi]) > order
+            right_cells[fi] = right_cells[fi][1:order];
+        end
+    end
+    
+    return (left_cells, right_cells);
 end

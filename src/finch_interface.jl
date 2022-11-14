@@ -219,13 +219,14 @@ function setSteps(dt, steps)
 end
 
 """
-    matrixFree(shallwe=true; maxiters=100, tol=1e-6)
+    matrixFree(matfree=true; maxiters=100, tol=1e-6)
 
-Select a matrix free method for FEM with the given max iterations and tolerance.
-This will use a basic conjugate gradient method.
+Select a matrix free method for linear systems with the given max iterations 
+and tolerance. The exact meaning of the iterations and tolerance will depend 
+on the iterative method being used.
 """
-function matrixFree(shallwe=true; maxiters=100, tol=1e-6)
-    config.linalg_matrixfree = shallwe;
+function matrixFree(matfree=true; maxiters=100, tol=1e-6)
+    config.linalg_matrixfree = matfree;
     config.linalg_matfree_max = maxiters;
     config.linalg_matfree_tol = tol;
 end
@@ -364,6 +365,11 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
         end
     end
     
+    # If FV order was already set to > 1, set it here
+    if fv_order > 1
+        finiteVolumeOrder(fv_order);
+    end
+    
     end # timer block
 end
 
@@ -389,12 +395,21 @@ For order > 1 this will cause the mesh to be subdivided into a parent/child mesh
 Take this into account when designing the mesh.
 """
 function finiteVolumeOrder(order)
-    if config.dimension > 2
-        printerr("Sorry, higher order FV is not ready for 3D (TODO: build parent/child grid)\n Continuing with first order.");
+    if config.dimension > 2 && order > 1
+        printerr("Sorry, higher order FV is not ready for 3D (TODO: build parent/child mesh)\n Continuing with first order.");
         return;
     end
-    (parent, child) = divide_parent_grid(grid_data, order);
-    set_parent_and_child(parent, child, order);
+    if order > 1
+        if grid_data === nothing
+            # mesh hasn't been set yet
+            set_parent_and_child(nothing, nothing, order);
+        else
+            (parent, child) = divide_parent_grid(grid_data, order);
+            set_parent_and_child(parent, child, order);
+        end
+    else # order == 1
+        set_parent_and_child(nothing, fv_grid, order);
+    end
 end
 
 """
@@ -1399,10 +1414,10 @@ function solve(var)
             func = solve_function[varind];
             
             if prob.nonlinear
-                TimerOutputs.@timeit timer_output "FV_solve" func.func(var, grid_data, refel, geo_factors, fv_info, config, 
+                TimerOutputs.@timeit timer_output "FV_solve" func.func(var, fv_grid, fv_refel, fv_geo_factors, fv_info, config, 
                                             coefficients, variables, test_functions, ordered_indexers, prob, time_stepper, nl_var);
             else
-                TimerOutputs.@timeit timer_output "FV_solve" func.func(var, grid_data, refel, geo_factors, fv_info, config, 
+                TimerOutputs.@timeit timer_output "FV_solve" func.func(var, fv_grid, fv_refel, fv_geo_factors, fv_info, config, 
                                             coefficients, variables, test_functions, ordered_indexers, prob, time_stepper);
             end
             
@@ -1436,75 +1451,6 @@ function solve(var)
                 end
             end
             
-            vol_lhs = [];
-            vol_rhs = [];
-            surf_lhs = [];
-            surf_rhs = [];
-            if fe_var_index > 0
-                push!(vol_lhs, bilinears[fe_var_index]);
-                push!(vol_rhs, linears[fe_var_index]);
-                push!(surf_lhs, face_bilinears[fe_var_index]);
-                push!(surf_rhs, face_linears[fe_var_index]);
-            else
-                push!(vol_lhs, nothing);
-                push!(vol_rhs, nothing);
-                push!(surf_lhs, nothing);
-                push!(surf_rhs, nothing);
-            end
-            
-            if fv_var_index > 0
-                push!(vol_lhs, bilinears[fv_var_index]);
-                push!(vol_rhs, linears[fv_var_index]);
-                push!(surf_lhs, face_bilinears[fv_var_index]);
-                push!(surf_rhs, face_linears[fv_var_index]);
-            else
-                push!(vol_lhs, nothing);
-                push!(vol_rhs, nothing);
-                push!(surf_lhs, nothing);
-                push!(surf_rhs, nothing);
-            end
-            
-            if prob.time_dependent
-                if typeof(time_stepper) <: Array
-                    time_stepper[1] = init_stepper(grid_data.allnodes, time_stepper[1]);
-                    time_stepper[2] = init_stepper(grid_data.allnodes, time_stepper[2]);
-                    
-                    if use_specified_steps
-                        time_stepper[1].dt = specified_dt;
-                        time_stepper[1].Nsteps = specified_Nsteps;
-                        time_stepper[2].dt = specified_dt;
-                        time_stepper[2].Nsteps = specified_Nsteps;
-                    else
-                        min_dt = min(time_stepper[1].dt, time_stepper[2].dt);
-                        max_Nsteps = max(time_stepper[1].Nsteps, time_stepper[2].Nsteps);
-                        time_stepper[1].dt = min_dt;
-                        time_stepper[1].Nsteps = max_Nsteps;
-                        time_stepper[2].dt = min_dt;
-                        time_stepper[2].Nsteps = max_Nsteps;
-                    end
-                    share_time_step_info(time_stepper, config);
-                else
-                    time_stepper = init_stepper(grid_data.allnodes, time_stepper);
-                    if use_specified_steps
-                        time_stepper.dt = specified_dt;
-                        time_stepper.Nsteps = specified_Nsteps;
-                    end
-                    share_time_step_info(time_stepper, config);
-                end
-                
-				if (prob.nonlinear)
-                	printerr("Nonlinear solver not ready for mixed solver");
-                    return;
-				else
-                	t = @elapsed(result = MixedSolver.linear_solve(var, vol_lhs, vol_rhs, surf_lhs, surf_rhs, time_stepper, loop_func));
-				end
-                # result is already stored in variables
-                log_entry("Solved for "*varnames*".(took "*string(t)*" seconds)", 1);
-            else
-                # does this make sense?
-                printerr("FV assumes time dependence. Set initial conditions etc.");
-            end
-            
         end
     end
     
@@ -1533,11 +1479,8 @@ function cachesimSolve(var)
             varnames = string(var.symbol);
             varind = var.index;
         end
-
-        lhs = bilinears[varind];
-        rhs = linears[varind];
         
-        t = @elapsed(result = linear_solve_cachesim(var, lhs, rhs));
+        # t = @elapsed(result = linear_solve_cachesim(var, lhs, rhs));
         log_entry("Generated cachesim ouput for "*varnames*".(took "*string(t)*" seconds)", 1);
     end
 end

@@ -179,12 +179,12 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     end
     
     # vol loop
-    (allocate, coef) = prepare_coefficient_values(separate_entities[1], var, dimension, 1); # LHS volume
+    (allocate, coef) = prepare_coefficient_values_fem(separate_entities[1], var, dimension, 1); # LHS volume
     push!(allocate_block.parts, IR_comment_node("Allocate coefficient vectors."));
     append!(allocate_block.parts, allocate);
     push!(coefficient_block.parts, IR_comment_node("Evaluate coefficients."));
     append!(coefficient_block.parts, coef);
-    (allocate, coef) = prepare_coefficient_values(separate_entities[2], var, dimension, 2); # RHS volume
+    (allocate, coef) = prepare_coefficient_values_fem(separate_entities[2], var, dimension, 2); # RHS volume
     append!(allocate_block.parts, allocate);
     append!(coefficient_block.parts, coef);
     push!(time_coefficient_block.parts, IR_comment_node("Evaluate coefficients."));
@@ -233,11 +233,11 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     end
     
     # surface coefficients
-    (allocate, coef) = prepare_coefficient_values(separate_entities[3], var, dimension, 3); # LHS surface
+    (allocate, coef) = prepare_coefficient_values_fem(separate_entities[3], var, dimension, 3); # LHS surface
     append!(allocate_block.parts, allocate);
     push!(face_coefficient_block.parts, IR_comment_node("Evaluate coefficients."));
     append!(face_coefficient_block.parts, coef);
-    (allocate, coef) = prepare_coefficient_values(separate_entities[4], var, dimension, 4); # RHS surface
+    (allocate, coef) = prepare_coefficient_values_fem(separate_entities[4], var, dimension, 4); # RHS surface
     append!(allocate_block.parts, allocate);
     append!(face_coefficient_block.parts, coef);
     
@@ -720,7 +720,7 @@ end
 
 # Allocate, compute, or fetch all needed values
 # group determines lhs_vol=1, rhs_vol=2, lhs_surf=3, rhs_surf=4
-function prepare_coefficient_values(entities, var, dimension, group)
+function prepare_coefficient_values_fem(entities, var, dimension, group)
     IRtypes = IR_entry_types();
     row_col_matrix_index = IR_operation_node(IRtypes.named_op, [:ROWCOL_TO_INDEX, :row, :col, :nodes_per_element]);
     col_row_matrix_index = IR_operation_node(IRtypes.named_op, [:ROWCOL_TO_INDEX, :col, :row, :nodes_per_element]);
