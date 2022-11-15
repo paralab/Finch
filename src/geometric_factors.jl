@@ -237,7 +237,6 @@ end
 
 # builds one derivative matrix in place
 function build_derivative_matrix(refel::Refel, geofacs, direction::Int, eid::Int, type::Int, mat::Matrix)
-    @timeit timer_output "deriv-mat" begin
     N = size(mat,2);
     M = size(mat,1);
     J = geofacs.J[eid];
@@ -285,7 +284,6 @@ function build_derivative_matrix(refel::Refel, geofacs, direction::Int, eid::Int
     end
     
     end # inbounds
-    end # timer
 end
 
 # function build_deriv_matrix(refel, J)

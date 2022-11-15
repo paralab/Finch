@@ -13,9 +13,11 @@ mutable struct Finch_config
     dimension::Int          # 1,2,3
     geometry::String        # square, irregular
     mesh_type::String       # unstructured, tree, uniform grid
-
-    # FEM details
+    
+    # Discretization details
     solver_type::String     # cg, dg, fv
+    
+    # FEM
     trial_function::String  # Legendre
     test_function::String   # same as above
     elemental_nodes::String # uniform, gauss, lobatto (higher order node distribution within elements)
@@ -24,14 +26,23 @@ mutable struct Finch_config
     basis_order_min::Int    # minimum order to use in p-refinement, or if p_adaptive is false
     basis_order_max::Int    # maximum order
     
-    # Other solver details
-    linear::Bool            # Is the equation linear?
+    # Time stepping
     t_adaptive::Bool        # Do adaptive t_refinement?
     stepper::String         # Euler-explicit/implicit, RK4, LSRK4, etc. Type of time stepper to use
-    linalg_matrixfree::Bool # Use matrix free methods?
-    linalg_matfree_max::Int # max iters for matrix free
-    linalg_matfree_tol::Float64 # tolerance for matrix free
-    linalg_backend::String  # default, petsc, ?? (What to use for linear algebra)
+    
+    # Other solver details
+    linear::Bool            # Is the equation linear?
+    linalg_matrixfree::Bool             # Use matrix free methods?
+    linalg_iterative::Bool              # Use an iterative solver?
+    linalg_iterative_method::String     # GMRES or CG
+    linalg_iterative_pc::String         # AMG or ILU
+    linalg_iterative_maxiter::Int       # max iters for iterative solver
+    linalg_iterative_abstol::Float64    # absolute tolerance
+    linalg_iterative_reltol::Float64    # relative tolerance
+    linalg_iterative_gmresRestart::Int  # GMRES restart iterations
+    linalg_iterative_verbose::Bool      # print convergence info?
+    
+    linalg_usePetsc::Bool   # use PETSc?
     
     # Output
     output_format::String   # VTK, raw, custom (format for storing solutions)
@@ -53,6 +64,7 @@ mutable struct Finch_config
         1,
         SQUARE,
         UNIFORM_GRID,
+        
         CG,
         LEGENDRE,
         LEGENDRE,
@@ -61,20 +73,31 @@ mutable struct Finch_config
         false,
         1,
         1,
-        true,
+        
         false,
         EULER_IMPLICIT,
+        
+        true,
         false,
-        1,
-        1.0,
-        DEFAULT_SOLVER,
+        false,
+        "GMRES",
+        "ILU",
+        0,
+        0,
+        1e-8,
+        0,
+        false,
+        false,
+        
         VTK,
+        
         false,
         1,
         0,
         1,
         1,
         0,
+        
         Int64,
         Float64
     );

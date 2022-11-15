@@ -38,7 +38,7 @@ finch_symbols_to_import = [
     :ParentMaps, :fv_grid, :fv_refel, :fv_geo_factors, :build_local_patch,
     
     # Packages? should this be done here?
-    :MPI, :TimerOutputs, :Zygote
+    :LinearMaps, :IterativeSolvers, :AlgebraicMultigrid, :IncompleteLU, :MPI, :TimerOutputs, :Zygote
 ];
 
 macro import_finch_symbols()

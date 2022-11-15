@@ -4,7 +4,7 @@ Many of them simply call corresponding functions in jl.
 =#
 export initFinch, generateFor, useLog, indexDataType, floatDataType,
         domain, solverType, functionSpace, trialSpace, testSpace, finiteVolumeOrder,
-        nodeType, timeStepper, setSteps, matrixFree, customOperator, customOperatorFile,
+        nodeType, timeStepper, setSteps, linAlgOptions, usePetsc, customOperator, customOperatorFile,
         mesh, exportMesh, variable, coefficient, parameter, testSymbol, index, boundary, addBoundaryID,
         referencePoint, timeInterval, initial, preStepFunction, postStepFunction, callbackFunction,
         variableTransform, transformVariable,
@@ -131,14 +131,12 @@ function domain(dims; shape=SQUARE, grid=UNIFORM_GRID)
 end
 
 """
-    solverType(method, backend=DEFAULT_SOLVER)
+    solverType(method)
 
-Select between CG, DG, FV, or MIXED methods. The backend refers to the tools used
-for solving linear systems: DEFAULT_SOLVER, PETSC_SOLVER, CUDA_SOLVER. 
-Not all combinations of options are available yet.
+Select between CG, DG, or FV methods.
 """
-function solverType(method, backend=DEFAULT_SOLVER)
-    set_solver(method, backend);
+function solverType(method)
+    set_solver(method);
 end
 
 """
@@ -219,16 +217,75 @@ function setSteps(dt, steps)
 end
 
 """
-    matrixFree(matfree=true; maxiters=100, tol=1e-6)
+    linAlgOptions(kwargs...)
 
-Select a matrix free method for linear systems with the given max iterations 
-and tolerance. The exact meaning of the iterations and tolerance will depend 
-on the iterative method being used.
+Set options for solving the linear system.
+Matrix-free must use an iterative method.
+Iterative methods include GMRES or CG provided by IterativeSolvers.jl
+Available preconditioners are AMG and ILU provided by
+AlgebraicMultigrid.jl and IncompleteLU.jl.
+Defaults maxiter=0, abstol=0, and gmresRestart=0 will use the 
+corresponding defaults from IterativeSolvers.jl
+
+**Keywords**
+* `matrixFree=false`
+* `iterative=false`
+* `method="GMRES"` or `"CG"`
+* `pc="ILU"` or `"AMG"`
+* `maxiter::Int=0` 0 will result in `size(A, 2)`
+* `abstol=0`
+* `reltol=1e-8`
+* `gmresRestart=0` 0 will result in `min(20, size(A, 2))`
+* `verbose::Bool=false` Print convergence info for each iteration.
+
 """
-function matrixFree(matfree=true; maxiters=100, tol=1e-6)
-    config.linalg_matrixfree = matfree;
-    config.linalg_matfree_max = maxiters;
-    config.linalg_matfree_tol = tol;
+function linAlgOptions(;matrixFree::Bool=false, iterative::Bool=false, method::String="GMRES", 
+                    pc::String="ILU", maxiter::Int=0, abstol=0, reltol=1e-8, 
+                    gmresRestart::Int=0, verbose::Bool=false)
+    config.linalg_matrixfree = matrixFree;
+    config.linalg_iterative = iterative;
+    config.linalg_iterative_method = method;
+    config.linalg_iterative_pc = pc;
+    config.linalg_iterative_maxiter = maxiter;
+    config.linalg_iterative_abstol = abstol;
+    config.linalg_iterative_reltol = reltol;
+    config.linalg_iterative_gmresRestart = gmresRestart;
+    config.linalg_iterative_verbose = verbose;
+    
+    if matrixFree
+        log_entry("Using matrix-free with: "*method*"(pc="*pc*")", 2);
+    elseif iterative
+        log_entry("Set iterative solver to "*method*"(pc="*pc*")", 2);
+    else
+        log_entry("Using default A\\b", 2);
+    end
+end
+
+"""
+    usePetsc(useit::Bool=true)
+
+If PETSc is available, use it.
+If it is not available, this won't work.
+"""
+function usePetsc(useit::Bool=true)
+    if @isdefined(PETSc)
+        # Initialize using the first available library.
+        # This should have been set up beforehand.
+        if length(PETSc.petsclibs) == 0
+            printerr(
+"No PETSc library found. Please build PETSc first.
+If you have a preferred PETSc library or the one supplied with PETSc.jl
+is causing trouble, do this:
+\$ export JULIA_PETSC_LIBRARY=/path/to/your/petsc_lib.so
+julia> ]build PETSc", fatal=true);
+        end
+        petsclib = PETSc.petsclibs[1];
+        PETSc.initialize(petsclib)
+        
+        config.linalg.usePetsc = useit;
+    else
+        printerr("Cannot use PETSc. Set up PETSc.jl manually first. Proceeding with default.")
+    end
 end
 
 """

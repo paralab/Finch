@@ -8,6 +8,7 @@ Pages = ["misc.md"]
 
 ```@docs
 initFinch(name="unnamedProject")
+finalizeFinch()
 customOperator(name, handle)
 customOperatorFile(filename)
 VariableTransform
@@ -19,7 +20,6 @@ callbackFunction(fun; name="", args=[], body="")
 assemblyLoops(indices, parallel_type=[])
 exportCode(filename)
 importCode(filename)
-finalizeFinch()
 cachesim(use)
 cachesimSolve(var)
 ```

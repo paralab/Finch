@@ -190,9 +190,9 @@ function set_codegen_parameters(params)
 end
 
 # Set the needed discretizations and backend
-function set_solver(stype, backend)
-    config.linalg_backend = backend;
+function set_solver(stype)
     if typeof(stype) <: Array
+        printerr("Mixed discretizations are not ready in this version of Finch.", fatal=true);
         config.solver_type = MIXED;
         for s in stype
             if s == CG
@@ -212,21 +212,6 @@ function set_solver(stype, backend)
     elseif stype == FV
         config.solver_type = stype;
         global needed_grid_types[3] = true;
-    end
-    
-    if backend == PETSC_SOLVER && !(PETSc===nothing)
-        # Initialize using the first available library.
-        # This should have been set up beforehand.
-        if length(PETSc.petsclibs) == 0
-            printerr(
-"No PETSc library found. Please build PETSc first.
-If you have a preferred PETSc library or the one supplied with PETSc.jl
-is causing trouble, do this:
-\$ export JULIA_PETSC_LIBRARY=/path/to/your/petsc_lib.so
-julia> ]build PETSc", fatal=true);
-        end
-        petsclib = PETSc.petsclibs[1];
-        PETSc.initialize(petsclib)
     end
 end
 
@@ -256,13 +241,6 @@ function set_specified_steps(dt, steps)
     log_entry("Set time stepper values to dt="*string(dt)*", Nsteps="*string(steps), 1);
 end
 
-# Uses matrix free iterative solver with the given max iterations and error tolerance.
-function set_matrix_free(max, tol)
-    config.linalg_matrixfree = true;
-    config.linalg_matfree_max = max;
-    config.linalg_matfree_tol = tol;
-end
-
 # Adds a mesh and builds the full grid and reference elements.
 function add_mesh(mesh; partitions=0)
     global mesh_data = mesh;
@@ -277,7 +255,7 @@ function add_mesh(mesh; partitions=0)
     
     # If no method has been specified, assume CG
     if !(needed_grid_types[1] || needed_grid_types[2] || needed_grid_types[3])
-        set_solver(CG, DEFAULT_SOLVER);
+        set_solver(CG);
     end
     
     if partitions==0

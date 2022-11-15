@@ -5,8 +5,12 @@ version = "0.1.0"
 
 [deps]
 AbstractTrees = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+AlgebraicMultigrid = "2169fc97-5a83-5252-b627-83903c6c433c"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+IncompleteLU = "40713840-3770-5561-ab4c-a76e7d0d7895"
+IterativeSolvers = "42fd0dbc-a981-5370-80f2-aaf504508153"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+LinearMaps = "7a12625a-238d-50fd-b39a-03d52299707e"
 METIS_jll = "d00139f3-1899-568f-a2f0-47f597d42d70"
 MPI = "da04e1cc-30fd-572f-bb4f-1f8673147195"
 Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"

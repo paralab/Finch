@@ -377,7 +377,10 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         end
         
     elseif op === :GLOBAL_SOLVE
-        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " .= linear_system_solve("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* generate_from_IR_julia(IR.args[4], IRtypes) *", config);"
+        # not in-place
+        # code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " .= linear_system_solve("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* generate_from_IR_julia(IR.args[4], IRtypes) *", config);"
+        # in-place
+        code = indent * "linear_system_solve!("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* generate_from_IR_julia(IR.args[4], IRtypes) *", "* generate_from_IR_julia(IR.args[2], IRtypes) * ", config);"
         
     elseif op === :GLOBAL_DISTRIBUTE_VECTOR
         code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = distribute_solution("*generate_from_IR_julia(IR.args[2], IRtypes) * ", nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config);"

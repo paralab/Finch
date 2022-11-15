@@ -17,5 +17,5 @@ nodeType(type)
 timeStepper(type; cfl=0)
 timeInterval(T)
 setSteps(dt, steps)
-matrixFree(shallwe=true; maxiters=100, tol=1e-6)
+linAlgOptions(;matrixFree::Bool=false, iterative::Bool=false, method::String="GMRES", pc::String="ILU", maxiter::Int=0, abstol=0, reltol=1e-8, gmresRestart::Int=0, verbose::Bool=false)
 ```

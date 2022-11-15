@@ -4,17 +4,73 @@ These will be called by the generated solve code
 so they should be made as efficient as possible.
 =#
 
-# Solves a sparse system
-function linear_system_solve(A::SparseMatrixCSC, b::Vector, config::Finch_config)
+# Solves a sparse system IN PLACE
+function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x::Vector, config::Finch_config)
     if config.num_procs > 1 && config.proc_rank > 0
         # Other procs don't have the full A, just return b
         return b;
     end
     
-    if config.linalg_backend == DEFAULT_SOLVER
-        return A\b;
+    if config.linalg_usePetsc == false
+        if config.linalg_matrixfree
+            # How should we handle preconditioners for matrix-free?
+            preconditioner = IterativeSolvers.Identity();
+            
+            if config.linalg_iterative_method == "GMRES"
+                if config.linalg_iterative_maxiter == 0
+                    config.linalg_iterative_maxiter = 500;
+                end
+                if config.linalg_iterative_gmresRestart == 0
+                    config.linalg_iterative_gmresRestart = 20;
+                end
+                IterativeSolvers.gmres!(x, A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                            maxiter=config.linalg_iterative_maxiter, restart=config.linalg_iterative_gmresRestart, 
+                            Pl=preconditioner, verbose=config.linalg_iterative_verbose);
+                            
+            else # "CG"
+                if config.linalg_iterative_maxiter == 0
+                    config.linalg_iterative_maxiter = 500;
+                end
+                IterativeSolvers.cg!(x, A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                            maxiter=config.linalg_iterative_maxiter, 
+                            Pl=preconditioner, verbose=config.linalg_iterative_verbose);
+            end
+            
+        elseif config.linalg_iterative
+            if config.linalg_iterative_pc == "ILU"
+                preconditioner = IncompleteLU.ilu(A);
+            elseif config.linalg_iterative_pc == "AMG"
+                preconditioner = AlgebraicMultigrid.aspreconditioner(ruge_stuben(A));
+            else
+                preconditioner = IterativeSolvers.Identity();
+            end
+            
+            if config.linalg_iterative_method == "GMRES"
+                if config.linalg_iterative_maxiter == 0
+                    config.linalg_iterative_maxiter = size(A,2);
+                end
+                if config.linalg_iterative_gmresRestart == 0
+                    config.linalg_iterative_gmresRestart = min(20,size(A,2));
+                end
+                IterativeSolvers.gmres!(x, A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                            maxiter=config.linalg_iterative_maxiter, restart=config.linalg_iterative_gmresRestart, 
+                            Pl=preconditioner, verbose=config.linalg_iterative_verbose);
+                            
+            else # "CG"
+                if config.linalg_iterative_maxiter == 0
+                    config.linalg_iterative_maxiter = size(A,2);
+                end
+                IterativeSolvers.cg!(x, A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                            maxiter=config.linalg_iterative_maxiter, 
+                            Pl=preconditioner, verbose=config.linalg_iterative_verbose);
+            end
+            
+        else # default
+            # Yes, this is not truly in-place. Sparse factorizations are not available in-place.
+            x .= A\b;
+        end
         
-    elseif config.linalg_backend == PETSC_SOLVER
+    else
         # For now try this simple setup.
         # There will be many options that need to be available to the user. TODO
         # The matrix should really be constructed from the begninning as a PETSc one. TODO
@@ -36,13 +92,120 @@ function linear_system_solve(A::SparseMatrixCSC, b::Vector, config::Finch_config
         end
         PETSc.assemble(petscA);
         
-        ksp = PETSc.KSP(petscA; ksp_rtol=1e-8, pc_type="jacobi", ksp_monitor=false); # Options should be available to user
+        if config.linalg_iterative_pc == "AMG"
+            pcType = "mg";
+        else
+            pcType = "ilu";
+        end
         
-        return ksp\b;
+        ksp = PETSc.KSP(petscA; ksp_rtol=config.linalg_iterative_reltol, ksp_atol=config.linalg_iterative_abstol, 
+                        ksp_max_it=config.linalg_iterative_maxiter, pc_type=pcType, 
+                        ksp_monitor=config.linalg_iterative_verbose); # Options should be available to user
+        
+        x .= ksp\b;
+    end
+    
+    return x;
+end
+
+# Solves a sparse system
+function linear_system_solve(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, config::Finch_config)
+    if config.num_procs > 1 && config.proc_rank > 0
+        # Other procs don't have the full A, just return b
+        return b;
+    end
+    
+    if config.linalg_usePetsc == false
+        if config.linalg_matrixfree
+            # How should we handle preconditioners for matrix-free?
+            preconditioner = IterativeSolvers.Identity();
+            
+            if config.linalg_iterative_method == "GMRES"
+                if config.linalg_iterative_maxiter == 0
+                    config.linalg_iterative_maxiter = 500;
+                end
+                if config.linalg_iterative_gmresRestart == 0
+                    config.linalg_iterative_gmresRestart = 20;
+                end
+                return IterativeSolvers.gmres(A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                            maxiter=config.linalg_iterative_maxiter, restart=config.linalg_iterative_gmresRestart, 
+                            Pl=preconditioner, verbose=config.linalg_iterative_verbose);
+                            
+            else # "CG"
+                if config.linalg_iterative_maxiter == 0
+                    config.linalg_iterative_maxiter = 500;
+                end
+                return IterativeSolvers.cg(A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                            maxiter=config.linalg_iterative_maxiter, 
+                            Pl=preconditioner, verbose=config.linalg_iterative_verbose);
+            end
+            
+        elseif config.linalg_iterative
+            if config.linalg_iterative_pc == "ILU"
+                preconditioner = IncompleteLU.ilu(A);
+            elseif config.linalg_iterative_pc == "AMG"
+                preconditioner = AlgebraicMultigrid.aspreconditioner(ruge_stuben(A));
+            else
+                preconditioner = IterativeSolvers.Identity();
+            end
+            
+            if config.linalg_iterative_method == "GMRES"
+                if config.linalg_iterative_maxiter == 0
+                    config.linalg_iterative_maxiter = size(A,2);
+                end
+                if config.linalg_iterative_gmresRestart == 0
+                    config.linalg_iterative_gmresRestart = min(20,size(A,2));
+                end
+                return IterativeSolvers.gmres(A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                            maxiter=config.linalg_iterative_maxiter, restart=config.linalg_iterative_gmresRestart, 
+                            Pl=preconditioner, verbose=config.linalg_iterative_verbose);
+                            
+            else # "CG"
+                if config.linalg_iterative_maxiter == 0
+                    config.linalg_iterative_maxiter = size(A,2);
+                end
+                return IterativeSolvers.cg(A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                            maxiter=config.linalg_iterative_maxiter, 
+                            Pl=preconditioner, verbose=config.linalg_iterative_verbose);
+            end
+            
+        else # default
+            return A\b;
+        end
         
     else
-        printerr("unsupported linear system solve type: "*string(config.linalg_backend)*" - using default");
-        return A\b;
+        # For now try this simple setup.
+        # There will be many options that need to be available to the user. TODO
+        # The matrix should really be constructed from the begninning as a PETSc one. TODO
+        
+        petsclib = PETSc.petsclibs[1]           #
+        inttype = PETSc.inttype(petsclib);      # These should maybe be kept in config
+        scalartype = PETSc.scalartype(petsclib);#
+        
+        (I, J, V) = findnz(A);
+        (n,n) = size(A);
+        nnz = zeros(inttype, n); # number of non-zeros per row
+        for i=1:length(I)
+            nnz[I[i]] += 1;
+        end
+        
+        petscA = PETSc.MatSeqAIJ{scalartype}(n,n,nnz);
+        for i=1:length(I)
+            petscA[I[i],J[i]] = V[i];
+        end
+        PETSc.assemble(petscA);
+        
+        if config.linalg_iterative_pc == "AMG"
+            pcType = "mg";
+        else
+            pcType = "ilu";
+        end
+        
+        ksp = PETSc.KSP(petscA; ksp_rtol=config.linalg_iterative_reltol, ksp_atol=config.linalg_iterative_abstol, 
+                        ksp_max_it=config.linalg_iterative_maxiter, pc_type=pcType, 
+                        ksp_monitor=config.linalg_iterative_verbose); # Options should be available to user
+        
+        return ksp\b;
     end
 end
 

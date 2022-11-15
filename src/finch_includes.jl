@@ -30,7 +30,6 @@ catch e
             exit(0);
         end
     end
-    
 end
 try
     using WriteVTK
@@ -52,7 +51,6 @@ catch e
             println("Continuing without WriteVTK. Note that VTK output will not be possible.")
         end
     end
-    
 end
 try
     using MPI
@@ -98,7 +96,6 @@ catch e
             println("Continuing without MPI.")
         end
     end
-    
 end
 if @isdefined(MPI)
     try
@@ -121,8 +118,96 @@ if @isdefined(MPI)
                 println("Continuing without METIS_jll.")
             end
         end
-        
     end
+end
+
+try
+    using LinearMaps
+catch e
+    if force_package_install
+        println("LinearMaps package is not yet installed. Installing now.");
+        using Pkg
+        Pkg.add("LinearMaps")
+        using LinearMaps
+        
+    else
+        println("LinearMaps package is not yet installed. It is optional.\nWould you like to install now? y/n.");
+        response = readline();
+        if response=="Y" || response=="y"
+            using Pkg
+            Pkg.add("LinearMaps")
+            using LinearMaps
+        else
+            println("Continuing without LinearMaps. Note that matrix-free solvers will not be available.")
+        end
+    end
+end
+
+try
+    using IncompleteLU
+catch e
+    if force_package_install
+        println("IncompleteLU package is not yet installed. Installing now.");
+        using Pkg
+        Pkg.add("IncompleteLU")
+        using IncompleteLU
+        
+    else
+        println("IncompleteLU package is not yet installed. It is optional.\nWould you like to install now? y/n.");
+        response = readline();
+        if response=="Y" || response=="y"
+            using Pkg
+            Pkg.add("IncompleteLU")
+            using IncompleteLU
+        else
+            println("Continuing without IncompleteLU.")
+        end
+    end
+end
+
+try
+    using AlgebraicMultigrid
+catch e
+    if force_package_install
+        println("AlgebraicMultigrid package is not yet installed. Installing now.");
+        using Pkg
+        Pkg.add("AlgebraicMultigrid")
+        using AlgebraicMultigrid
+        
+    else
+        println("AlgebraicMultigrid package is not yet installed. It is optional.\nWould you like to install now? y/n.");
+        response = readline();
+        if response=="Y" || response=="y"
+            using Pkg
+            Pkg.add("AlgebraicMultigrid")
+            using AlgebraicMultigrid
+        else
+            println("Continuing without AlgebraicMultigrid.")
+        end
+    end
+end
+
+try
+    using IterativeSolvers
+catch e
+    if force_package_install
+        println("IterativeSolvers package is not yet installed. Installing now.");
+        using Pkg
+        Pkg.add("IterativeSolvers")
+        using IterativeSolvers
+        
+    else
+        println("IterativeSolvers package is not yet installed. It is optional.\nWould you like to install now? y/n.");
+        response = readline();
+        if response=="Y" || response=="y"
+            using Pkg
+            Pkg.add("IterativeSolvers")
+            using WriteVTK
+        else
+            println("Continuing without IterativeSolvers. Note that iterative solvers will not be available.")
+        end
+    end
+    
 end
 
 try
@@ -168,7 +253,6 @@ catch e
             exit(0);
         end
     end
-    
 end
 
 try
@@ -191,7 +275,6 @@ catch e
             println("Continuing without Zygote")
         end
     end
-    
 end
 
 ######################
