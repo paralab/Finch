@@ -182,7 +182,7 @@ end
     timeStepper(type; cfl=0)
 
 Set the type of time stepping method and optionally the CFL number.
-Options include EULER_EXPLICIT, EULER_IMPLICIT, CRANK_NICHOLSON, RK4, LSRK4, PECE.
+Options include `EULER_EXPLICIT`, `EULER_IMPLICIT`, `CRANK_NICHOLSON`, `RK4`, `LSRK4`, `PECE`.
 If no CFL number is provided, one will be chosen based on the mesh and stepper type.
 """
 function timeStepper(type; cfl=0)
