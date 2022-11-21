@@ -74,7 +74,7 @@ finalizeFinch()
 # # The exact solution with constant velocity v
 # a = 1;
 # ini = zeros(n);
-# x = Finch.fv_info.cellCenters[:]
+# x = Finch.finch_state.fv_info.cellCenters[:]
 # for i=1:n
 #     if x[i] <= 0.3 && x[i] > 0.1
 #         ini[i] = 1

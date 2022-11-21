@@ -67,7 +67,7 @@ function divide_parent_grid(grid, order)
         end
         
         tmp_parent_maps = ParentMaps(Nparent, nchildren, nfaces, ncells_in_patch, c2p, p2c, p2f, cf2pf, p2n, 
-                                        zeros(Int,0,0), [], [], zeros(Int,0,0)); # no patches built yet
+            zeros(Int,0,0),Vector{Vector{Int}}(undef,0),Vector{Vector{Int}}(undef,0),Matrix{Vector{Int}}(undef,0,0)); # no patches built yet
         
         # build patches
         patches = zeros(Int, ncells_in_patch, Nparent);
@@ -756,7 +756,7 @@ function divide_parent_grid(grid, order)
     
     ncells_in_patch = (nneighbor+1)*nchildren;
     tmp_parent_maps = ParentMaps(Nparent, nchildren, Ncfaces, ncells_in_patch, c2p, p2c, p2f, cf2pf, p2n, 
-                                    zeros(Int,0,0), [], [], zeros(Int,0,0)); # no patches built yet
+        zeros(Int,0,0),Vector{Vector{Int}}(undef,0),Vector{Vector{Int}}(undef,0),Matrix{Vector{Int}}(undef,0,0)); # no patches built yet
     
     # Normal vectors may be pointing the wrong way. Reorient them.
     check_normal_vectors!(child_grid);

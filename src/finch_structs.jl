@@ -235,9 +235,9 @@ end
 Two sets of variables and a function that transforms one into the other.
 This is built with the `variableTransform` function.
 """
-struct VariableTransform
-    from::Union{Variable, Array{Variable}}  # Transformed from this
-    to::Union{Variable, Array{Variable}}    # to this
+struct VariableTransform{T<:AbstractFloat}
+    from::Union{Variable{T}, Array{Variable{T}}}  # Transformed from this
+    to::Union{Variable{T}, Array{Variable{T}}}    # to this
     func::Function                          # using this function
     # This function takes one number(or array matching from) 
     # and returns one number(or an array matching to)
@@ -318,13 +318,13 @@ struct ParentMaps
     parent2neighbor::Array{Int,2}   # size = (outerFaces, allParents) index of neighboring parents
     
     patches::Array{Int, 2}          # size = (outerfaces*neighborChildren) local patch around each parent
-    leftCells::Vector{Int}          # Patch indices for left and right cell groups for each face
-    rightCells::Vector{Int}         #
+    leftCells::Vector{Vector{Int}}          # Patch indices for left and right cell groups for each face
+    rightCells::Vector{Vector{Int}}         #
     
-    face_neighborhoods::Matrix{Int} # indices of a group of elements to the left and right of each face
+    face_neighborhoods::Matrix{Vector{Int}} # indices of a group of elements to the left and right of each face
     
     ParentMaps() = new(0,0,0,0,zeros(Int,0,0),zeros(Int,0,0),zeros(Int,0,0),zeros(Int,0,0,0),
-    zeros(Int,0,0),zeros(Int,0,0),zeros(Int,0),zeros(Int,0),zeros(Int,0,0))
+    zeros(Int,0,0),zeros(Int,0,0),Vector{Vector{Int}}(undef,0),Vector{Vector{Int}}(undef,0),Matrix{Vector{Int}}(undef,0,0))
     
     ParentMaps(num_parents,children_per_parent,face_per_parent,patch_size,child2parent,parent2child,parent2face,
     cface2pface, parent2neighbor,patches,leftCells,rightCells,face_neighborhoods) = 
