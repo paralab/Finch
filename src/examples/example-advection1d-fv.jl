@@ -16,8 +16,6 @@ initFinch("advection1d");
 
 useLog("advection1dlog", level=3)
 
-# floatDataType(Float32)
-
 # Configuration setup
 domain(1)
 solverType(FV)

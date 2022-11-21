@@ -60,8 +60,8 @@ function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=fa
         volume = zeros(ftype, nel);
         area = zeros(ftype, totalfaces);
     else
-        volume = zeros(0);
-        area = zeros(0);
+        volume = zeros(ftype, 0);
+        area = zeros(ftype, 0);
     end
     
     for e=1:nel
@@ -134,14 +134,14 @@ function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=fa
     return GeometricFactors(J, detJ, volume, face_detj, area);
 end
 
-function geometric_factors(refel::Refel, pts::Matrix{Float64}; constantJ::Bool=false, do_J::Bool=true)
+function geometric_factors(refel::Refel, pts::Matrix{FT}; constantJ::Bool=false, do_J::Bool=true) where FT<:AbstractFloat
     # pts = element node global coords
     # detJ = determinant(J)
     # J = Jacobian
     if refel.dim == 0
         detJ = [1];
         if do_J
-            J = Jacobian([1.0],zeros(0),zeros(0),zeros(0),zeros(0),zeros(0),zeros(0),zeros(0),zeros(0));
+            J = Jacobian([1.0],zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0));
         end
         
     elseif refel.dim == 1
@@ -149,7 +149,7 @@ function geometric_factors(refel::Refel, pts::Matrix{Float64}; constantJ::Bool=f
             # 0D face refels can only have 1 point
             detJ = [1];
             if do_J
-                J = Jacobian([1],zeros(0),zeros(0),zeros(0),zeros(0),zeros(0),zeros(0),zeros(0),zeros(0));
+                J = Jacobian([1],zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0));
             end
         else
             xr  = refel.Dg*pts[:];
@@ -161,7 +161,7 @@ function geometric_factors(refel::Refel, pts::Matrix{Float64}; constantJ::Bool=f
                 rx = 1 ./ detJ;
             end
             if do_J
-                J = Jacobian(rx,zeros(0),zeros(0),zeros(0),zeros(0),zeros(0),zeros(0),zeros(0),zeros(0));
+                J = Jacobian(rx,zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0));
             end
         end
         
@@ -192,7 +192,7 @@ function geometric_factors(refel::Refel, pts::Matrix{Float64}; constantJ::Bool=f
             sx = -yr./detJ;
             ry = -xs./detJ;
             sy =  xr./detJ;
-            J = Jacobian(rx,ry,zeros(0),sx,sy,zeros(0),zeros(0),zeros(0),zeros(0));
+            J = Jacobian(rx,ry,zeros(FT,0),sx,sy,zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0));
         end
         
     else
@@ -253,7 +253,7 @@ end
 
 # NOTE: Only returns the Jacobian determinant. Use the volume Jacobian for derivatives.
 # Also, this refel is a lower dimensional refel
-function geometric_factors_face(refel::Refel, pts::Matrix{Float64}, normal::Vector{Float64}, constantJ::Bool=true)
+function geometric_factors_face(refel::Refel, pts::Matrix{FT}, normal::Vector{Float64}, constantJ::Bool=true) where FT<:AbstractFloat
     # pts = face node global coords
     if refel.dim == 0
         # A 1D face is just a point
@@ -321,7 +321,7 @@ function geometric_factors_face(refel::Refel, pts::Matrix{Float64}, normal::Vect
 end
 
 # Transforms a 3D surface into a 2D space with the first vertex at the origin
-function flatten_face(normal::Vector{Float64}, pts::Matrix{Float64})
+function flatten_face(normal::Vector{FT}, pts::Matrix{FT}) where FT<:AbstractFloat
     newpts = copy(pts);
     if abs(normal[1]) + abs(normal[2]) < 1e-15
         # The face is already in the x-y plane
@@ -360,7 +360,7 @@ end
 #############################################################################################################
 
 # builds one derivative matrix in place
-function build_derivative_matrix(refel::Refel, geofacs::GeometricFactors, direction::Int, eid::Int, type::Int, mat::Matrix{Float64})
+function build_derivative_matrix(refel::Refel, geofacs::GeometricFactors, direction::Int, eid::Int, type::Int, mat::Matrix{FT}) where FT<:AbstractFloat
     N = size(mat,2);
     M = size(mat,1);
     J = geofacs.J[eid];

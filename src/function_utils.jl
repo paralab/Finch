@@ -33,7 +33,11 @@ function add_genfunction(genfun)
 end
 
 # Makes either: a constant number, a genfunction, or an array of genfunctions
-function makeFunctions(ex; args="x::Float64,y::Float64,z::Float64,t::Float64,node_index::Int,face_index::Int,indices::Vector{Int}")
+function makeFunctions(ex; args="DEFAULT_ARGS")
+    if args == "DEFAULT_ARGS"
+        ftype = "Union{Float64,"*string(finch_state.config.float_type)*"}";
+        args="x::$ftype,y::$ftype,z::$ftype,t::$ftype,node_index::Int,face_index::Int,indices::Vector{Int}"
+    end
     nfuns = 0;
     if typeof(ex) <: Array
         for i=1:length(ex)

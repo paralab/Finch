@@ -413,10 +413,11 @@ end
 # Adds a coefficient with either constant value or some generated function of (x,y,z,t)
 function add_coefficient(state::FinchState, c, type, location, val, nfuns, element_array=false, time_dependent=false)
     # The values of c will have the same array structure as val
+    ftype = finch_state.config.float_type;
     if typeof(val) <: Array
-        vals = Vector{Union{Float64,GenFunction}}(undef,length(val));
+        vals = Vector{Union{ftype,GenFunction}}(undef,length(val));
     else
-        vals = Vector{Union{Float64,GenFunction}}(undef,1);
+        vals = Vector{Union{ftype,GenFunction}}(undef,1);
         val = [val];
     end
     
@@ -426,7 +427,7 @@ function add_coefficient(state::FinchState, c, type, location, val, nfuns, eleme
             vals[i] = state.genfunctions[ind];
             ind += 1;
         else
-            vals[i] = Float64(val[i]);
+            vals[i] = ftype(val[i]);
         end
     end
     

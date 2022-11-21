@@ -186,9 +186,9 @@ end
 # - the value of constant BCs
 # - evaluate a genfunction.func for BCs defined by strings->genfunctions
 # - evaluate a function for BCs defined by callback functions
-function evaluate_at_node(val::Union{Float64,GenFunction,CallbackFunction}, node::Int, face::Int, 
-                            t::Float64, grid::Grid, indices::Vector{Int})
-    if typeof(val) == Float64
+function evaluate_at_node(val::Union{VT,GenFunction,CallbackFunction}, node::Int, face::Int, 
+                            t::Union{Float64, FT}, grid::Grid, indices::Vector{Int}) where {FT<:AbstractFloat, VT<:AbstractFloat}
+    if typeof(val) <: AbstractFloat
         return val;
     end
     
@@ -207,7 +207,7 @@ function evaluate_at_node(val::Union{Float64,GenFunction,CallbackFunction}, node
     return result;
 end
 
-function evaluate_callback_node(val::CallbackFunction, node::Int, face::Int, t::Float64, grid::Grid, indices::Vector{Int})
+function evaluate_callback_node(val::CallbackFunction, node::Int, face::Int, t::FT, grid::Grid, indices::Vector{Int}) where FT<:AbstractFloat
     #form a dict for the arguments. x,y,z,t are always included
     arg_list = [];
     append!(arg_list, [("x", x), ("y", y), ("z", z), ("t", t)]);
@@ -278,8 +278,8 @@ end
 # - the value of constant BCs
 # - evaluate a genfunction.func for BCs defined by strings->genfunctions
 # - evaluate a function for BCs defined by callback functions
-function FV_evaluate_bc(val::Union{Float64,GenFunction,CallbackFunction}, eid::Int, fid::Int, 
-                        facex::Vector{Float64}, t::Float64, dim::Int, fv_info::FVInfo, indices::Vector{Int})
+function FV_evaluate_bc(val::Union{VT,GenFunction,CallbackFunction}, eid::Int, fid::Int, 
+                        facex::Vector{FT}, t::Union{Float64, FT}, dim::Int, fv_info::FVInfo, indices::Vector{Int}) where {FT<:AbstractFloat, VT<:AbstractFloat}
     if typeof(val) == Float64
         result = val;
         
@@ -299,8 +299,8 @@ function FV_evaluate_bc(val::Union{Float64,GenFunction,CallbackFunction}, eid::I
     return Float64(result);
 end
 
-function FV_evaluate_callback(val::CallbackFunction, eid::Int, fid::Int, facex::Vector{Float64}, 
-                                t::Float64, dim::Int, fv_info::FVInfo, indices::Vector{Int})
+function FV_evaluate_callback(val::CallbackFunction, eid::Int, fid::Int, facex::Vector{FT}, 
+                                t::Union{Float64, FT}, dim::Int, fv_info::FVInfo, indices::Vector{Int}) where FT<:AbstractFloat
     #form a dict for the arguments. x,y,z,t are always included
     arg_list = [];
     append!(arg_list, [("x", facex[1]),
@@ -386,7 +386,7 @@ end
 
 # Apply boundary conditions to one element
 function apply_boundary_conditions_elemental(var::Vector{Variable{FT}}, eid::Int, grid::Grid, refel::Refel,
-                                            geo_facs::GeometricFactors, prob::FinchProblem, t::Float64,
+                                            geo_facs::GeometricFactors, prob::FinchProblem, t::Union{Float64,FT},
                                             elmat::Matrix, elvec::Vector, bdry_done::Vector,
                                             component::Int = 0, indices::Vector{Int}=zeros(Int,0)) where FT<:AbstractFloat
     # Check each node to see if the bid is > 0 (on boundary)
@@ -463,7 +463,7 @@ end
 
 # Apply boundary conditions to one element
 function apply_boundary_conditions_elemental_rhs(var::Vector{Variable{FT}}, eid::Int, grid::Grid, refel::Refel,
-                                            geo_facs::GeometricFactors, prob::FinchProblem, t::Float64,
+                                            geo_facs::GeometricFactors, prob::FinchProblem, ::Union{Float64,FT},
                                             elvec::Vector, bdry_done::Vector, 
                                             component::Int = 0, indices::Vector{Int}=zeros(Int,0)) where FT<:AbstractFloat
     # Check each node to see if the bid is > 0 (on boundary)
@@ -519,8 +519,8 @@ end
 # Apply boundary condition for FV
 # Modify flux_mat and flux_vec
 function apply_boundary_conditions_face(var::Vector{Variable{FT}}, eid::Int, fid::Int, fbid::Int, mesh::Grid, refel::Refel, 
-                                        geometric_factors::GeometricFactors, fv_info::FVInfo, prob::FinchProblem, t::Float64, 
-                                        dt::Float64, flux_mat::Matrix, flux_vec::Vector, bdry_done::Vector, 
+                                        geometric_factors::GeometricFactors, fv_info::FVInfo, prob::FinchProblem, t::Union{Float64,FT}, 
+                                        dt::Union{Float64,FT}, flux_mat::Matrix, flux_vec::Vector, bdry_done::Vector, 
                                         component::Int = 0, indices::Vector{Int}=zeros(Int,0)) where FT<:AbstractFloat
     dofind = 0;
     ndofs = size(flux_mat,2);
@@ -561,8 +561,8 @@ end
 # A RHS only version of above
 # Modify the flux vector
 function apply_boundary_conditions_face_rhs(var::Vector{Variable{FT}}, eid::Int, fid::Int, fbid::Int, mesh::Grid, refel::Refel, 
-                                            geometric_factors::GeometricFactors, fv_info::FVInfo, prob::FinchProblem, t::Float64, 
-                                            dt::Float64, flux::Vector, bdry_done::Vector, 
+                                            geometric_factors::GeometricFactors, fv_info::FVInfo, prob::FinchProblem, t::Union{Float64,FT}, 
+                                            dt::Union{Float64,FT}, flux::Vector, bdry_done::Vector, 
                                             component::Int = 0, indices::Vector{Int}=zeros(Int,0)) where FT<:AbstractFloat
     dofind = 0;
     facex = fv_info.faceCenters[:,fid];

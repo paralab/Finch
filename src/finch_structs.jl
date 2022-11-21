@@ -338,7 +338,7 @@ struct FVInfo{T<:AbstractFloat}
     faceCenters::Matrix{T}             # Coordinates of face centers
     
     cell2node::Vector{Vector{Int}}       # Neighboring cell indices for each node
-    cell2nodeWeight::Vector{Vector{Float64}} # Cell to node interpolation weights
+    cell2nodeWeight::Vector{Vector{T}} # Cell to node interpolation weights
     
     parentMaps::ParentMaps # For when there is a parent-child mesh
 end

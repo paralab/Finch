@@ -489,7 +489,7 @@ function variable(name; type=SCALAR, location=NODAL, method=CG, index=nothing)
     end
     # Just make an empty variable with the info known so far.
     ftype = finch_state.config.float_type;
-    var = Variable(varsym, Vector{Basic}(undef,0), varind, type, location, method, zeros(0,0), index, 
+    var = Variable(varsym, Vector{Basic}(undef,0), varind, type, location, method, zeros(ftype, 0,0), index, 
                     0, Vector{Variable{ftype}}(undef,0), false);
     add_variable(finch_state, var);
     return var;

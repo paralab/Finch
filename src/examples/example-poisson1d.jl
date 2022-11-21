@@ -16,8 +16,6 @@ using Finch # Note: to add the package, first do: ]add "https://github.com/paral
 
 initFinch("poisson1d");
 
-# floatDataType(Float32);
-
 useLog("poisson1dlog", level=3)
 
 # Set up the configuration

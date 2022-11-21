@@ -11,6 +11,10 @@ function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x
         return b;
     end
     
+    ft = config.float_type;
+    rel_tol = ft(config.linalg_iterative_reltol);
+    abs_tol = ft(config.linalg_iterative_abstol);
+    
     if config.linalg_usePetsc == false
         if config.linalg_matrixfree
             # How should we handle preconditioners for matrix-free?
@@ -25,7 +29,7 @@ function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x
                 if config.linalg_iterative_gmresRestart == 0
                     config.linalg_iterative_gmresRestart = 20;
                 end
-                IterativeSolvers.gmres!(x, A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                IterativeSolvers.gmres!(x, A, b, abstol=abs_tol, reltol=rel_tol,
                             maxiter=config.linalg_iterative_maxiter, restart=config.linalg_iterative_gmresRestart, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
                             
@@ -33,7 +37,7 @@ function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x
                 if config.linalg_iterative_maxiter == 0
                     config.linalg_iterative_maxiter = 500;
                 end
-                IterativeSolvers.cg!(x, A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                IterativeSolvers.cg!(x, A, b, abstol=abs_tol, reltol=rel_tol,
                             maxiter=config.linalg_iterative_maxiter, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
             end
@@ -56,7 +60,7 @@ function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x
                 if config.linalg_iterative_gmresRestart == 0
                     config.linalg_iterative_gmresRestart = min(20,size(A,2));
                 end
-                IterativeSolvers.gmres!(x, A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                IterativeSolvers.gmres!(x, A, b, abstol=abs_tol, reltol=rel_tol,
                             maxiter=config.linalg_iterative_maxiter, restart=config.linalg_iterative_gmresRestart, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
                             
@@ -64,7 +68,7 @@ function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x
                 if config.linalg_iterative_maxiter == 0
                     config.linalg_iterative_maxiter = size(A,2);
                 end
-                IterativeSolvers.cg!(x, A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                IterativeSolvers.cg!(x, A, b, abstol=abs_tol, reltol=rel_tol,
                             maxiter=config.linalg_iterative_maxiter, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
             end
@@ -131,7 +135,7 @@ function linear_system_solve(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, co
                 if config.linalg_iterative_gmresRestart == 0
                     config.linalg_iterative_gmresRestart = 20;
                 end
-                return IterativeSolvers.gmres(A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                return IterativeSolvers.gmres(A, b, abstol=abs_tol, reltol=rel_tol,
                             maxiter=config.linalg_iterative_maxiter, restart=config.linalg_iterative_gmresRestart, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
                             
@@ -139,7 +143,7 @@ function linear_system_solve(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, co
                 if config.linalg_iterative_maxiter == 0
                     config.linalg_iterative_maxiter = 500;
                 end
-                return IterativeSolvers.cg(A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                return IterativeSolvers.cg(A, b, abstol=abs_tol, reltol=rel_tol,
                             maxiter=config.linalg_iterative_maxiter, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
             end
@@ -160,7 +164,7 @@ function linear_system_solve(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, co
                 if config.linalg_iterative_gmresRestart == 0
                     config.linalg_iterative_gmresRestart = min(20,size(A,2));
                 end
-                return IterativeSolvers.gmres(A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                return IterativeSolvers.gmres(A, b, abstol=abs_tol, reltol=rel_tol,
                             maxiter=config.linalg_iterative_maxiter, restart=config.linalg_iterative_gmresRestart, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
                             
@@ -168,7 +172,7 @@ function linear_system_solve(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, co
                 if config.linalg_iterative_maxiter == 0
                     config.linalg_iterative_maxiter = size(A,2);
                 end
-                return IterativeSolvers.cg(A, b, abstol=config.linalg_iterative_abstol, reltol=config.linalg_iterative_reltol,
+                return IterativeSolvers.cg(A, b, abstol=abs_tol, reltol=rel_tol,
                             maxiter=config.linalg_iterative_maxiter, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
             end
