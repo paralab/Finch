@@ -3,18 +3,20 @@
 =#
 
 ### If the Finch package has already been added, use this line #########
-using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+# using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
 
 ### If not, use these four lines (working from the examples directory) ###
-# if !@isdefined(Finch)
-#     include("../Finch.jl");
-#     using .Finch
-# end
+if !@isdefined(Finch)
+    include("../Finch.jl");
+    using .Finch
+end
 ##########################################################################
 
 initFinch("advection1d");
 
 useLog("advection1dlog", level=3)
+
+# floatDataType(Float32)
 
 # Configuration setup
 domain(1)
@@ -65,9 +67,9 @@ finalizeFinch()
 
 # # The exact solution for u with constant velocity a=1
 # a = 1;
-# n = size(Finch.fv_info.cellCenters,2);
+# n = size(Finch.finch_state.fv_info.cellCenters,2);
 # exact = zeros(n);
-# x = Finch.fv_info.cellCenters[:]
+# x = Finch.finch_state.fv_info.cellCenters[:]
 # for i=1:n
 #     xt = x[i] - a*T;
 #     if xt < 0

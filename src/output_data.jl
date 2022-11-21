@@ -19,16 +19,16 @@ function output_values_raw(vars, file)
 end
 
 function output_values_csv(vars, file)
-    if config.solver_type == FV
-        grid = fv_grid;
+    if finch_state.config.solver_type == FV
+        grid = finch_state.fv_grid;
     else
-        grid = grid_data;
+        grid = finch_state.grid_data;
     end
     # columns will be like x, y, z, u1,...
     if typeof(vars) <: Array
         N = size(vars[1].values, 2); # number of points (must be same for all vars)
         if vars[1].location == CELL
-            x = fv_info.cellCenters;
+            x = finch_state.fv_info.cellCenters;
         else
             x = grid.allnodes;
         end
@@ -75,7 +75,7 @@ function output_values_csv(vars, file)
     else
         N = size(vars.values, 2); # number of points
         if vars.location == CELL
-            x = fv_info.cellCenters;
+            x = finch_state.fv_info.cellCenters;
         else
             x = grid.allnodes;
         end
@@ -119,11 +119,12 @@ function output_values_csv(vars, file)
 end
 
 function output_values_vtk(vars, file, ascii)
+    config = finch_state.config;
     if config.solver_type == FV
-        grid = fv_grid;
+        grid = finch_state.fv_grid;
         nel = grid.nel_owned; # Only write owned elements
     else
-        grid = grid_data;
+        grid = finch_state.grid_data;
         nel = size(grid.loc2glb,2); # all elements
     end
     # Use the WriteVTK package.
@@ -235,10 +236,11 @@ end
 ########################################################################################################
 # My attempt at writing a vtu file.
 function output_values_myvtu(var, file, ascii)
+    config = finch_state.config;
     if config.solver_type == FV
-        grid = fv_grid;
+        grid = finch_state.fv_grid;
     else
-        grid = grid_data;
+        grid = finch_state.grid_data;
     end
     
     if !(typeof(var) <: Array)

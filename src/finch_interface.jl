@@ -1,14 +1,13 @@
 #=
 This file contains all of the common interface functions.
-Many of them simply call corresponding functions in jl.
 =#
 export initFinch, generateFor, useLog, indexDataType, floatDataType,
-        domain, solverType, functionSpace, trialSpace, testSpace, finiteVolumeOrder,
+        domain, solverType, functionSpace, finiteVolumeOrder,
         nodeType, timeStepper, setSteps, linAlgOptions, usePetsc, customOperator, customOperatorFile,
         mesh, exportMesh, variable, coefficient, parameter, testSymbol, index, boundary, addBoundaryID,
         referencePoint, timeInterval, initial, preStepFunction, postStepFunction, callbackFunction,
         variableTransform, transformVariable,
-        weakForm, conservationForm, flux, source, assemblyLoops,
+        weakForm, conservationForm, assemblyLoops,
         exportCode, importCode, printLatex,
         evalInitialConditions, nonlinear, 
         solve, cachesimSolve, 
@@ -19,14 +18,18 @@ export initFinch, generateFor, useLog, indexDataType, floatDataType,
 # Begin configuration setting functions
 
 """
-initFinch(name = "unnamedProject")
+initFinch(name = "unnamedProject", floatType::DataType=Float64)
 
-This initializes the Finch state.
-If Finch had been previously initialized, this will reset everything.
+This initializes and returns the Finch state.
 The name of the project can be set here.
+T is the data type to be used for floating point data.
+T must be a subtype of AbstractFloat.
+Note that while this generally applies to data arrays relevant to
+the computation, some places may still use Float64, so the 
+corresponding conversions should be defined.
 """
-function initFinch(name="unnamedProject")
-    init_finch(name);
+function initFinch(name="unnamedProject", floatType::DataType=Float64)
+    return init_finch(floatType, name);
 end
 
 """
@@ -39,38 +42,41 @@ will be placed at the top of each generated code file. If the target requires
 some extra parameters, those are included in params.
 """
 function generateFor(lang; filename=project_name, header="", params=nothing)
+    global finch_state;
     outputDirPath = pwd()*"/"*filename;
-    if config.proc_rank == 0 && !isdir(outputDirPath)
+    if finch_state.config.proc_rank == 0 && !isdir(outputDirPath)
         mkdir(outputDirPath);
     end
     framew = 0;
-    if !in(lang, [CPP,MATLAB,DENDRO,HOMG])
+    if !in(lang, [CPP,MATLAB,DENDRO])
         # lang should be a filename for a custom target
         # This file must include these three functions:
         # 1. get_external_language_elements() - file extensions, comment chars etc.
         # 3. generate_external_files(var, IR) - Writes all files based on generated code
         include(lang);
-        set_custom_gen_target(get_external_language_elements, generate_external_files, outputDirPath, filename, head=header);
-    else
-        # Use an included target
+        set_custom_gen_target(finch_state, get_external_language_elements, generate_external_files, outputDirPath, filename, head=header);
+        
+    else # Use an included target
         target_dir = @__DIR__
         if lang == DENDRO
             framew = DENDRO;
             lang = CPP;
-            target_file = "/targets/target_dendro_cg.jl";
+            target_file = "/targets/target_dendro.jl";
         elseif lang == MATLAB
             framew = MATLAB;
             lang = MATLAB;
-            target_file = "/targets/target_matlab_cg.jl";
-        else
-            framew = 0;
-            target_file = "/targets/target_matlab_cg.jl";
+            target_file = "/targets/target_matlab.jl";
+        else #CPP
+            framew = "";
+            lang = CPP;
+            target_file = "/targets/target_cpp.jl";
         end
         include(target_dir * target_file);
-        set_custom_gen_target(get_external_language_elements, generate_external_files, outputDirPath, filename, head=header);
+        set_custom_gen_target(finch_state, get_external_language_elements, generate_external_files, outputDirPath, filename, head=header);
     end
+    
     if !(params === nothing)
-        set_codegen_parameters(params);
+        set_codegen_parameters(finch_state, params);
     end
 end
 
@@ -81,8 +87,8 @@ Turn on logging with the given file name and optional directory.
 The verbosity level can be 1(basic progress info), 2(More details about
 each step), or 3(everything).
 """
-function useLog(name=project_name; dir=output_dir, level=2)
-    init_log(name, dir, level);
+function useLog(name=finch_state.project_name; dir=finch_state.output_dir, level=2)
+    init_log(finch_state, name, dir, level);
 end
 
 """
@@ -92,29 +98,17 @@ Set the data type to be used for indices.
 The default is Int64.
 """
 function indexDataType(type)
-    if type <: Integer
-        config.index_type = type;
-    else
-        printerr("Only subtypes of Integer can be used for indexDataType. Got "*string(type))
-    end
+    printerr("indexDataType() is no longer available. Sorry")
 end
 
 """
     floatDataType(type<:AbstractFloat)
 
-Set the data type to be used for floating point data.
-The default is Float64.
-Note that while this generally applies to data arrays relevant to
-the computation, some places may still use Float64, so the 
-corresponding conversions should be defined.
+This function has been removed. To set the float type, see 
+initFinch(name, type)
 """
 function floatDataType(type)
-    config.float_type = type;
-    if type <: AbstractFloat
-        config.float_type = type;
-    else
-        printerr("Only subtypes of AbstractFloat can be used for floatDataType. Got "*string(type))
-    end
+    printerr("floatDataType() is no longer available. To set float type, use initFinch(name, type).")
 end
 
 """
@@ -125,9 +119,9 @@ grid type(UNIFORM_GRID, UNSTRUCTURED, TREE) can be set, but may be changed
 when building or importing the mesh.
 """
 function domain(dims; shape=SQUARE, grid=UNIFORM_GRID)
-    config.dimension = dims;
-    config.geometry = shape;
-    config.mesh_type = grid;
+    finch_state.config.dimension = dims;
+    finch_state.config.geometry = shape;
+    finch_state.config.mesh_type = grid;
 end
 
 """
@@ -136,7 +130,7 @@ end
 Select between CG, DG, or FV methods.
 """
 function solverType(method)
-    set_solver(method);
+    set_solver(finch_state, method);
 end
 
 """
@@ -146,26 +140,16 @@ Set the polynomial order and type of polynomials for FEM.
 Some of these are placeholders, so only use order at this point.
 """
 function functionSpace(;space=LEGENDRE, order=0, orderMin=0, orderMax=0)
-    config.trial_function = space;
-    config.test_function = space;
+    finch_state.config.trial_function = space;
+    finch_state.config.test_function = space;
     if orderMax > orderMin && orderMin >= 0
-        config.p_adaptive = true;
-        config.basis_order_min = orderMin;
-        config.basis_order_max = orderMax;
+        finch_state.config.p_adaptive = true;
+        finch_state.config.basis_order_min = orderMin;
+        finch_state.config.basis_order_max = orderMax;
     else
-        config.basis_order_min = max(order, orderMin);
-        config.basis_order_max = max(order, orderMin);
+        finch_state.config.basis_order_min = max(order, orderMin);
+        finch_state.config.basis_order_max = max(order, orderMin);
     end
-end
-
-function trialSpace(;space=LEGENDRE, order=0, orderMin=0, orderMax=0)
-    #TODO
-    functionSpace(space=space, order=order, orderMin=orderMin, orderMax=orderMax);
-end
-
-function testSpace(;space=LEGENDRE, order=0, orderMin=0, orderMax=0)
-    #TODO
-    functionSpace(space=space, order=order, orderMin=orderMin, orderMax=orderMax);
 end
 
 """
@@ -175,7 +159,7 @@ For FEM, set the nodal configuration within elements.
 The default is LOBATTO. GAUSS and UNIFORM are available, but should be used with care.
 """
 function nodeType(type)
-    config.elemental_nodes = type;
+    finch_state.config.elemental_nodes = type;
 end
 
 """
@@ -186,7 +170,7 @@ Options include `EULER_EXPLICIT`, `EULER_IMPLICIT`, `CRANK_NICHOLSON`, `RK4`, `L
 If no CFL number is provided, one will be chosen based on the mesh and stepper type.
 """
 function timeStepper(type; cfl=0)
-    set_stepper(type, cfl);
+    set_stepper(finch_state, type, cfl);
 end
 
 """
@@ -196,11 +180,11 @@ Set the ending time for time stepping. This is overridden if time steps
 are manually specified.
 """
 function timeInterval(T)
-    prob.time_dependent = true;
-    if time_stepper === nothing
+    finch_state.prob.time_dependent = true;
+    if finch_state.time_stepper === nothing
         timeStepper(EULER_IMPLICIT);
     end
-    prob.end_time = T;
+    finch_state.prob.end_time = T;
 end
 
 """
@@ -209,11 +193,11 @@ end
 Manually set the time steps if desired.
 """
 function setSteps(dt, steps)
-    prob.time_dependent = true;
-    if time_stepper === nothing
+    finch_state.prob.time_dependent = true;
+    if finch_state.time_stepper === nothing
         timeStepper(EULER_IMPLICIT);
     end
-    set_specified_steps(dt, steps);
+    set_specified_steps(finch_state, dt, steps);
 end
 
 """
@@ -231,7 +215,7 @@ corresponding defaults from IterativeSolvers.jl
 * `matrixFree=false`
 * `iterative=false`
 * `method="GMRES"` or `"CG"`
-* `pc="ILU"` or `"AMG"`
+* `pc="ILU"` or `"AMG"` or `"NONE"`
 * `maxiter::Int=0` 0 will result in `size(A, 2)`
 * `abstol=0`
 * `reltol=1e-8`
@@ -242,15 +226,15 @@ corresponding defaults from IterativeSolvers.jl
 function linAlgOptions(;matrixFree::Bool=false, iterative::Bool=false, method::String="GMRES", 
                     pc::String="ILU", maxiter::Int=0, abstol=0, reltol=1e-8, 
                     gmresRestart::Int=0, verbose::Bool=false)
-    config.linalg_matrixfree = matrixFree;
-    config.linalg_iterative = iterative;
-    config.linalg_iterative_method = method;
-    config.linalg_iterative_pc = pc;
-    config.linalg_iterative_maxiter = maxiter;
-    config.linalg_iterative_abstol = abstol;
-    config.linalg_iterative_reltol = reltol;
-    config.linalg_iterative_gmresRestart = gmresRestart;
-    config.linalg_iterative_verbose = verbose;
+    finch_state.config.linalg_matrixfree = matrixFree;
+    finch_state.config.linalg_iterative = iterative;
+    finch_state.config.linalg_iterative_method = method;
+    finch_state.config.linalg_iterative_pc = pc;
+    finch_state.config.linalg_iterative_maxiter = maxiter;
+    finch_state.config.linalg_iterative_abstol = abstol;
+    finch_state.config.linalg_iterative_reltol = reltol;
+    finch_state.config.linalg_iterative_gmresRestart = gmresRestart;
+    finch_state.config.linalg_iterative_verbose = verbose;
     
     if matrixFree
         log_entry("Using matrix-free with: "*method*"(pc="*pc*")", 2);
@@ -282,7 +266,7 @@ julia> ]build PETSc", fatal=true);
         petsclib = PETSc.petsclibs[1];
         PETSc.initialize(petsclib)
         
-        config.linalg.usePetsc = useit;
+        finch_state.config.linalg.usePetsc = useit;
     else
         printerr("Cannot use PETSc. Set up PETSc.jl manually first. Proceeding with default.")
     end
@@ -323,108 +307,110 @@ are supported.
 """
 function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
     
-    @timeit timer_output "Mesh" begin
+    @timeit finch_state.timer_output "Mesh" begin
     
+    @timeit finch_state.timer_output "gen/read" begin
     if msh == LINEMESH
         log_entry("Building simple line mesh with nx elements, nx="*string(elsperdim));
-        meshtime = @elapsed(mshdat = simple_line_mesh(elsperdim.+1, bids, interval));
-        log_entry("Mesh building took "*string(meshtime)*" seconds");
+        mshdat = simple_line_mesh(elsperdim.+1, bids, interval);
         
     elseif msh == QUADMESH
         if length(interval) == 2
             interval = [interval[1], interval[2], interval[1], interval[2]];
         end
         log_entry("Building simple quad mesh with nx*nx elements, nx="*string(elsperdim));
-        meshtime = @elapsed(mshdat = simple_quad_mesh(elsperdim.+1, bids, interval));
-        log_entry("Mesh building took "*string(meshtime)*" seconds");
+        mshdat = simple_quad_mesh(elsperdim.+1, bids, interval);
         
     elseif msh == TRIMESH
         if length(interval) == 2
             interval = [interval[1], interval[2], interval[1], interval[2]];
         end
         log_entry("Building simple triangle mesh with nx*nx*2 elements, nx="*string(elsperdim));
-        meshtime = @elapsed(mshdat = simple_tri_mesh(elsperdim.+1, bids, interval));
-        log_entry("Mesh building took "*string(meshtime)*" seconds");
-        config.mesh_type = UNSTRUCTURED;
+        mshdat = simple_tri_mesh(elsperdim.+1, bids, interval);
+        finch_state.config.mesh_type = UNSTRUCTURED;
         
     elseif msh == HEXMESH
         if length(interval) == 2
             interval = [interval[1], interval[2], interval[1], interval[2], interval[1], interval[2]];
         end
         log_entry("Building simple hex mesh with nx*nx*nx elements, nx="*string(elsperdim));
-        meshtime = @elapsed(mshdat = simple_hex_mesh(elsperdim.+1, bids, interval));
-        log_entry("Mesh building took "*string(meshtime)*" seconds");
+        mshdat = simple_hex_mesh(elsperdim.+1, bids, interval);
         
     else # msh should be a mesh file name
         # open the file and read the mesh data
         mfile = open(msh, "r");
         log_entry("Reading mesh file: "*msh);
-        meshtime = @elapsed(mshdat=read_mesh(mfile));
-        log_entry("Mesh reading took "*string(meshtime)*" seconds");
+        mshdat=read_mesh(mfile);
         close(mfile);
         # Assume an irregular mesh
-        config.geometry = IRREGULAR;
-        config.mesh_type = UNSTRUCTURED;
+        finch_state.config.geometry = IRREGULAR;
+        finch_state.config.mesh_type = UNSTRUCTURED;
     end
     
+    end # gen/read timer
+    
     # Set this in Finch and build the corresponding Grid
-    add_mesh(mshdat, partitions=partitions);
+    add_mesh(finch_state, mshdat, partitions=partitions);
     
     # If bids>1 were specified for built meshes, add them here
     if bids > 1
+        @timeit finch_state.timer_output "bids" begin
         if msh == LINEMESH
             # already done in mesh_data
             # if bn == 2
-            #     add_boundary_ID_to_grid(2, x -> (x >= interval[2]), grid_data);
+            #     add_boundary_ID_to_grid(2, x -> (x >= interval[2]), finch_state.grid_data);
             # end
             
         elseif msh == QUADMESH
             if bids == 2
-                add_boundary_ID_to_grid(2, (x,y) -> (y <= interval[3]) || (y >= interval[4]), grid_data);
+                add_boundary_ID_to_grid(2, (x,y) -> (y <= interval[3]) || (y >= interval[4]), finch_state.grid_data);
             elseif bids == 3
-                add_boundary_ID_to_grid(2, (x,y) -> (x >= interval[2]), grid_data);
-                add_boundary_ID_to_grid(3, (x,y) -> ((y <= interval[3]) || (y >= interval[4])) && (x > interval[1] && x < interval[2]), grid_data);
+                add_boundary_ID_to_grid(2, (x,y) -> (x >= interval[2]), finch_state.grid_data);
+                add_boundary_ID_to_grid(3, (x,y) -> ((y <= interval[3]) || (y >= interval[4])) && (x > interval[1] && x < interval[2]), finch_state.grid_data);
             elseif bids == 4
-                add_boundary_ID_to_grid(2, (x,y) -> (x >= interval[2]), grid_data);
-                add_boundary_ID_to_grid(3, (x,y) -> (y <= interval[3] && (x > interval[1] && x < interval[2])), grid_data);
-                add_boundary_ID_to_grid(4, (x,y) -> (y >= interval[4] && (x > interval[1] && x < interval[2])), grid_data);
+                add_boundary_ID_to_grid(2, (x,y) -> (x >= interval[2]), finch_state.grid_data);
+                add_boundary_ID_to_grid(3, (x,y) -> (y <= interval[3] && (x > interval[1] && x < interval[2])), finch_state.grid_data);
+                add_boundary_ID_to_grid(4, (x,y) -> (y >= interval[4] && (x > interval[1] && x < interval[2])), finch_state.grid_data);
             end
             
         elseif msh == HEXMESH
             tiny = 1e-13;
             if bids == 6
                 # bids = [1,2,3,4,5,6]; # all separate
-                add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny), grid_data);
-                add_boundary_ID_to_grid(3, (x,y,z) -> (y <= interval[3]+tiny), grid_data);
-                add_boundary_ID_to_grid(4, (x,y,z) -> (y >= interval[4]-tiny), grid_data);
-                add_boundary_ID_to_grid(5, (x,y,z) -> (z <= interval[5]+tiny), grid_data);
-                add_boundary_ID_to_grid(6, (x,y,z) -> (z >= interval[6]-tiny), grid_data);
+                add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny), finch_state.grid_data);
+                add_boundary_ID_to_grid(3, (x,y,z) -> (y <= interval[3]+tiny), finch_state.grid_data);
+                add_boundary_ID_to_grid(4, (x,y,z) -> (y >= interval[4]-tiny), finch_state.grid_data);
+                add_boundary_ID_to_grid(5, (x,y,z) -> (z <= interval[5]+tiny), finch_state.grid_data);
+                add_boundary_ID_to_grid(6, (x,y,z) -> (z >= interval[6]-tiny), finch_state.grid_data);
             elseif bids == 5
                 # bids = [1,2,3,4,5]; # combine z
-                add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny), grid_data);
-                add_boundary_ID_to_grid(3, (x,y,z) -> (y <= interval[3]+tiny), grid_data);
-                add_boundary_ID_to_grid(4, (x,y,z) -> (y >= interval[4]-tiny), grid_data);
-                add_boundary_ID_to_grid(5, (x,y,z) -> (z <= interval[5]+tiny) || (z >= interval[6]-tiny), grid_data);
+                add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny), finch_state.grid_data);
+                add_boundary_ID_to_grid(3, (x,y,z) -> (y <= interval[3]+tiny), finch_state.grid_data);
+                add_boundary_ID_to_grid(4, (x,y,z) -> (y >= interval[4]-tiny), finch_state.grid_data);
+                add_boundary_ID_to_grid(5, (x,y,z) -> (z <= interval[5]+tiny) || (z >= interval[6]-tiny), finch_state.grid_data);
             elseif bids == 4
                 # bids = [1,2,3,4]; # combine y and z
-                add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]), grid_data);
-                add_boundary_ID_to_grid(3, (x,y,z) -> ((y <= interval[3]+tiny) || (y >= interval[4]-tiny)), grid_data);
-                add_boundary_ID_to_grid(4, (x,y,z) -> ((z <= interval[5]+tiny) || (z >= interval[6]-tiny)), grid_data);
+                add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]), finch_state.grid_data);
+                add_boundary_ID_to_grid(3, (x,y,z) -> ((y <= interval[3]+tiny) || (y >= interval[4]-tiny)), finch_state.grid_data);
+                add_boundary_ID_to_grid(4, (x,y,z) -> ((z <= interval[5]+tiny) || (z >= interval[6]-tiny)), finch_state.grid_data);
             elseif bids == 3
                 # bids = [1,2,3]; # combine x,y,z
-                add_boundary_ID_to_grid(2, (x,y,z) -> (y <= interval[3]+tiny) || (y >= interval[4]-tiny), grid_data);
-                add_boundary_ID_to_grid(3, (x,y,z) -> (z <= interval[5]+tiny) || (z >= interval[6]-tiny), grid_data);
+                add_boundary_ID_to_grid(2, (x,y,z) -> (y <= interval[3]+tiny) || (y >= interval[4]-tiny), finch_state.grid_data);
+                add_boundary_ID_to_grid(3, (x,y,z) -> (z <= interval[5]+tiny) || (z >= interval[6]-tiny), finch_state.grid_data);
             elseif bids == 2
                 # bids = [1,2]; # x=0, other
-                add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny) || (y <= interval[3]+tiny) || (y >= interval[4]-tiny) || (z <= interval[5]+tiny) || (z >= interval[6]-tiny), grid_data);
+                add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny) || (y <= interval[3]+tiny) || (y >= interval[4]-tiny) || (z <= interval[5]+tiny) || (z >= interval[6]-tiny), finch_state.grid_data);
             end
             
         end
+        end # bids timer
     end
     
     # If FV order was already set to > 1, set it here
-    if fv_order > 1
-        finiteVolumeOrder(fv_order);
+    if finch_state.config.fv_order > 1
+        @timeit finch_state.timer_output "parent-child maps" begin
+        finiteVolumeOrder(finch_state.config.fv_order);
+        end
     end
     
     end # timer block
@@ -440,7 +426,7 @@ function exportMesh(filename, format=MSH_V2)
     # open the file to write to
     mfile = open(filename, "w");
     log_entry("Writing mesh file: "*filename);
-    output_mesh(mfile, format);
+    output_mesh(finch_state, mfile, format);
     close(mfile);
 end
 
@@ -452,20 +438,22 @@ For order > 1 this will cause the mesh to be subdivided into a parent/child mesh
 Take this into account when designing the mesh.
 """
 function finiteVolumeOrder(order)
-    if config.dimension > 2 && order > 1
+    if finch_state.config.dimension > 2 && order > 1
         printerr("Sorry, higher order FV is not ready for 3D (TODO: build parent/child mesh)\n Continuing with first order.");
         return;
     end
+    
+    finch_state.config.fv_order = order;
     if order > 1
-        if grid_data === nothing
+        if length(finch_state.grid_data.allnodes) == 0
             # mesh hasn't been set yet
-            set_parent_and_child(nothing, nothing, order);
+            set_parent_and_child(finch_state, nothing, nothing, order);
         else
-            (parent, child) = divide_parent_grid(grid_data, order);
-            set_parent_and_child(parent, child, order);
+            (parent, child) = divide_parent_grid(finch_state.grid_data, order);
+            set_parent_and_child(finch_state, parent, child, order);
         end
     else # order == 1
-        set_parent_and_child(nothing, fv_grid, order);
+        set_parent_and_child(finch_state, nothing, finch_state.fv_grid, order);
     end
 end
 
@@ -485,19 +473,25 @@ to store any value, and can be used in expressions, but does not need to be
 solved for explicitly.
 """
 function variable(name; type=SCALAR, location=NODAL, method=CG, index=nothing)
-    varind = var_count + 1;
+    varind = length(finch_state.variables) + 1;
     varsym = Symbol(name);
     # Not the default method?
-    if !(config.solver_type == MIXED) && !(config.solver_type == method)
-        method = config.solver_type;
+    if !(finch_state.config.solver_type == MIXED) && !(finch_state.config.solver_type == method)
+        method = finch_state.config.solver_type;
     end
     
-    if !(index===nothing) && !(typeof(index) <: Vector)
+    if index===nothing
+        index = Vector{Indexer}(undef,0);
+    elseif typeof(index) == Indexer
         index = [index];
+    elseif !(typeof(index) <:Vector{Indexer})
+        printerr("variable index must be an Indexer or vector of Indexers.", fatal=true);
     end
     # Just make an empty variable with the info known so far.
-    var = Variable(varsym, [], varind, type, location, method, [], index, 0, [], false);
-    add_variable(var);
+    ftype = finch_state.config.float_type;
+    var = Variable(varsym, Vector{Basic}(undef,0), varind, type, location, method, zeros(0,0), index, 
+                    0, Vector{Variable{ftype}}(undef,0), false);
+    add_variable(finch_state, var);
     return var;
 end
 
@@ -515,7 +509,7 @@ function coefficient(name, val; type=SCALAR, location=NODAL, element_array=false
     csym = Symbol(name);
     nfuns = makeFunctions(val); # if val is constant, nfuns will be 0
     time_dependent = time_dependent || check_time_dependence(val);
-    return add_coefficient(csym, type, location, val, nfuns, element_array, time_dependent);
+    return add_coefficient(finch_state, csym, type, location, val, nfuns, element_array, time_dependent);
 end
 
 """
@@ -529,7 +523,7 @@ The type is not important as it will be determined by the symbolic expression it
 represents.
 """
 function parameter(name, val; type=SCALAR)
-    if length(parameters) == 0
+    if length(finch_state.parameters) == 0
         coefficient("parameterCoefficientForx", "x")
         coefficient("parameterCoefficientFory", "y")
         coefficient("parameterCoefficientForz", "z")
@@ -542,18 +536,18 @@ function parameter(name, val; type=SCALAR)
         # search for x,y,z,t symbols and replace with special coefficients like parameterCoefficientForx
         newval = [swap_parameter_xyzt(Meta.parse(val))];
         
-    elseif typeof(val) <: Array
+    elseif typeof(val) <: Array{String}
         newval = Array{Expr,1}(undef,length(val));
         for i=1:length(val)
             newval[i] = swap_parameter_xyzt(Meta.parse(val[i]));
         end
         newval = reshape(newval,size(val));
     else
-        println("Error: use strings to define parameters");
+        printerr("Error: use strings to define parameters", fatal=true);
         newval = 0;
     end
     
-    return add_parameter(Symbol(name), type, newval);
+    return add_parameter(finch_state, Symbol(name), type, newval);
 end
 
 """
@@ -563,7 +557,7 @@ Define a symbol for a test function when using FEM.
 Type can be SCALAR, VECTOR, TENSOR, or SYM_TENSOR.
 """
 function testSymbol(symbol; type=SCALAR)
-    add_test_function(Symbol(symbol), type);
+    add_test_function(finch_state, Symbol(symbol), type);
 end
 
 """
@@ -579,10 +573,10 @@ range=[1,2,3,4,5] is the same as range=[1,5]
 """
 function index(name; range=[1])
     if length(range) == 2
-        range = Array(range[1]:range[2]);
+        range = Vector(Int(range[1]):Int(range[2]));
     end
-    idx = Indexer(Symbol(name), range, range[1], length(indexers)+1)
-    add_indexer(idx);
+    idx = Indexer(Symbol(name), range, range[1], length(finch_state.indexers)+1)
+    add_indexer(finch_state, idx);
     return idx;
 end
 
@@ -597,15 +591,15 @@ function variableTransform(var1, var2, func)
     # Make sure things are valid
     if typeof(var1) <: Array
         if !(typeof(var2) <: Array)
-            return add_variable_transform(var1, [var2], func);
+            return add_variable_transform(finch_state, var1, [var2], func);
         else
-            return add_variable_transform(var1, var2, func);
+            return add_variable_transform(finch_state, var1, var2, func);
         end
     else
         if typeof(var2) <: Array
-            return add_variable_transform([var1], var2, func);
+            return add_variable_transform(finch_state, [var1], var2, func);
         else
-            return add_variable_transform(var1, var2, func);
+            return add_variable_transform(finch_state, var1, var2, func);
         end
     end
 end
@@ -623,11 +617,12 @@ end
 function transformVariable(var1, var2)
     # Look for a matching xform
     found = false;
-    for i=1:length(variable_transforms)
-        if var1 == variable_transforms[i].from || [var1] == variable_transforms[i].from
-            if var2 == variable_transforms[i].to || [var2] == variable_transforms[i].to
+    for i=1:length(finch_state.variable_transforms)
+        if var1 == finch_state.variable_transforms[i].from || [var1] == finch_state.variable_transforms[i].from
+            if var2 == finch_state.variable_transforms[i].to || [var2] == finch_state.variable_transforms[i].to
                 found = true;
                 transform_variable_values(variable_transforms[i]);
+                break;
             end
         end
     end
@@ -660,7 +655,7 @@ function boundary(var, bid, bc_type, bc_exp=0)
                 newbc_exp[i] = string(ex);
                 nfuns += makeFunctions(newbc_exp[i]);
             elseif typeof(bc_exp[i]) <: Number
-                # do nothing
+                newbc_exp[i] = Float64(bc_exp[i]);
             else
                 # What else could it be?
             end
@@ -671,16 +666,17 @@ function boundary(var, bid, bc_type, bc_exp=0)
         newbc_exp = string(ex);
         nfuns = makeFunctions(newbc_exp);
     elseif typeof(bc_exp) <: Number
+        newbc_exp = Float64(bc_exp);
         nfuns = 0;
     else
         # ??
     end
     
-    add_boundary_condition(var, bid, bc_type, newbc_exp, nfuns);
+    add_boundary_condition(finch_state, var, bid, bc_type, newbc_exp, nfuns);
 end
 
 """
-    addBoundaryID(bid, trueOnBdry)
+    addBoundaryID(bid::Int, trueOnBdry)
 
 Create a new boundary region with the given ID number bid. It will be
 assigned to all boundary faces where the center of the face satisfies
@@ -690,12 +686,12 @@ trueOnBdry can be a function or a string expression of (x,y,z).
 Note that it only applies to faces that are known boundary faces, not
 interior faces.
 """
-function addBoundaryID(bid, trueOnBdry)
+function addBoundaryID(bid::Int, trueOnBdry)
     # trueOnBdry(x, y, z) = something # points with x,y,z on this bdry segment evaluate true here
     if typeof(trueOnBdry) == String
         trueOnBdry = stringToFunction("trueOnBdry", "x,y=0,z=0", trueOnBdry);
     end
-    add_boundary_ID_to_grid(bid, trueOnBdry, grid_data);
+    add_boundary_ID_to_grid(bid, trueOnBdry, finch_state.grid_data);
 end
 
 """
@@ -707,7 +703,7 @@ uniquely constrain a variable. The node closest to the position in pos
 will be used and it can be a boundary or interior node. 
 """
 function referencePoint(var, pos, val)
-    add_reference_point(var, pos, val);
+    add_reference_point(finch_state, var, pos, val);
 end
 
 """
@@ -720,7 +716,7 @@ evalInitialConditions(), or it will be done automatically before solving.
 """
 function initial(var, value)
     nfuns = makeFunctions(value);
-    add_initial_condition(var.index, value, nfuns);
+    add_initial_condition(finch_state, var.index, value, nfuns);
 end
 
 """
@@ -730,7 +726,7 @@ Set a function to be called before each time step, or stage for multi-stage
 steppers.
 """
 function preStepFunction(fun)
-    prob.pre_step_function = fun;
+    finch_state.prob.pre_step_function = fun;
 end
 
 """
@@ -740,7 +736,7 @@ Set a function to be called after each time step, or stage for multi-stage
 steppers.
 """
 function postStepFunction(fun)
-    prob.post_step_function = fun;
+    finch_state.prob.post_step_function = fun;
 end
 
 """
@@ -759,7 +755,7 @@ function callbackFunction(fun; name="", args=[], body="")
     # If args and body are not provided, this may still work internally
     # but it can't be generated for external targets.
     
-    add_callback_function(CallbackFunction(name, args, body, fun));
+    add_callback_function(finch_state, CallbackFunction(name, args, body, fun));
     
     log_entry("Added callback function: "*name, 2);
 end
@@ -776,7 +772,7 @@ variables, parameters, indexers, and symbolic operators.
 """
 function weakForm(var, wf)
     
-    @timeit timer_output "CodeGen-weakform" begin
+    @timeit finch_state.timer_output "CodeGen" begin
     
     if !(typeof(var) <: Array)
         var = [var];
@@ -809,7 +805,7 @@ function weakForm(var, wf)
     # else
     #     deltavar = var;
     # end
-    if prob.nonlinear
+    if finch_state.prob.nonlinear
         for i=1:length(var)
             oldname = "OLD"*string(var[i].symbol);
             variable(oldname, type=var[i].type, location=var[i].location, method=var[i].discretization, index=var[i].indexer);
@@ -832,10 +828,10 @@ function weakForm(var, wf)
     # Here we set a SymExpression for each of the pieces. 
     # This is an Expr tree that is passed to the code generator.
     if length(result_exprs) == 4 # has surface terms
-        set_symexpressions(var, lhs_symexpr, LHS, "volume");
-        set_symexpressions(var, lhs_surf_symexpr, LHS, "surface");
-        set_symexpressions(var, rhs_symexpr, RHS, "volume");
-        set_symexpressions(var, rhs_surf_symexpr, RHS, "surface");
+        set_symexpressions(finch_state, var, lhs_symexpr, LHS, "volume");
+        set_symexpressions(finch_state, var, lhs_surf_symexpr, LHS, "surface");
+        set_symexpressions(finch_state, var, rhs_symexpr, RHS, "volume");
+        set_symexpressions(finch_state, var, rhs_surf_symexpr, RHS, "surface");
         
         log_entry("lhs volume symexpression:\n\t"*string(lhs_symexpr));
         log_entry("lhs surface symexpression:\n\t"*string(lhs_surf_symexpr));
@@ -847,8 +843,8 @@ function weakForm(var, wf)
                     " ds = \\int_{K}"*symexpression_to_latex(rhs_symexpr)*
                     " dx + \\int_{\\partial K}"*symexpression_to_latex(rhs_surf_symexpr)*" ds", 3);
     else
-        set_symexpressions(var, lhs_symexpr, LHS, "volume");
-        set_symexpressions(var, rhs_symexpr, RHS, "volume");
+        set_symexpressions(finch_state, var, lhs_symexpr, LHS, "volume");
+        set_symexpressions(finch_state, var, rhs_symexpr, RHS, "volume");
         
         log_entry("lhs symexpression:\n\t"*string(lhs_symexpr));
         log_entry("rhs symexpression:\n\t"*string(rhs_symexpr));
@@ -858,24 +854,28 @@ function weakForm(var, wf)
     end
     
     # Init stepper here so it can be used in generation
-    if prob.time_dependent
-        init_stepper(grid_data.allnodes, time_stepper);
-        if use_specified_steps
-            time_stepper.dt = specified_dt;
-            time_stepper.Nsteps = specified_Nsteps;
+    if finch_state.prob.time_dependent
+        # some measure of element size
+        dim = finch_state.config.dimension;
+        min_detj = minimum(finch_state.geo_factors.detJ);
+        el_size = (2^dim * min_detj)^(1/dim);
+        init_stepper(el_size, finch_state.time_stepper);
+        if finch_state.use_specified_steps
+            finch_state.time_stepper.dt = specified_dt;
+            finch_state.time_stepper.Nsteps = specified_Nsteps;
         end
-        share_time_step_info(time_stepper, config);
+        share_time_step_info(finch_state.time_stepper, finch_state.config);
     end
     
     # change symbolic layer into IR
     full_IR = build_IR_fem(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, 
-                            var, ordered_indexers, config, prob, time_stepper);
+                            var, finch_state.ordered_indexers, finch_state.config, finch_state.prob, finch_state.time_stepper);
     log_entry("Weak form IR: \n"*repr_IR(full_IR),3);
     
     # Generate code from IR
-    code = generate_code_layer(var, full_IR, solver_type, language, gen_framework);
+    code = generate_code_layer(var, full_IR, solver_type, finch_state.target_language, finch_state.target_framework);
     log_entry("Code layer: \n" * code, 3);
-    set_code(var, code, full_IR);
+    set_code(finch_state, var, code, full_IR);
     
     end # timer block
 end
@@ -895,7 +895,7 @@ variables, parameters, indexers, and symbolic operators.
 """
 function conservationForm(var, cf)
     
-    @timeit timer_output "CodeGen-conservationform" begin
+    @timeit finch_state.timer_output "CodeGen" begin
     
     if !(typeof(var) <: Array)
         var = [var];
@@ -926,10 +926,10 @@ function conservationForm(var, cf)
     # Here we set a SymExpression for each of the pieces. 
     # This is an Expr tree that is passed to the code generator.
     if length(result_exprs) == 4 # has surface terms
-        set_symexpressions(var, lhs_symexpr, LHS, "volume");
-        set_symexpressions(var, lhs_surf_symexpr, LHS, "surface");
-        set_symexpressions(var, rhs_symexpr, RHS, "volume");
-        set_symexpressions(var, rhs_surf_symexpr, RHS, "surface");
+        set_symexpressions(finch_state, var, lhs_symexpr, LHS, "volume");
+        set_symexpressions(finch_state, var, lhs_surf_symexpr, LHS, "surface");
+        set_symexpressions(finch_state, var, rhs_symexpr, RHS, "volume");
+        set_symexpressions(finch_state, var, rhs_surf_symexpr, RHS, "surface");
         
         log_entry("lhs volume symexpression:\n\t"*string(lhs_symexpr));
         log_entry("lhs surface symexpression:\n\t"*string(lhs_surf_symexpr));
@@ -941,8 +941,8 @@ function conservationForm(var, cf)
                     "\\int_{\\partial K}"*symexpression_to_latex(lhs_surf_symexpr)*
                     " ds - \\int_{\\partial K}"*symexpression_to_latex(rhs_surf_symexpr)*" ds", 3);
     else
-        set_symexpressions(var, lhs_symexpr, LHS, "volume");
-        set_symexpressions(var, rhs_symexpr, RHS, "volume");
+        set_symexpressions(finch_state, var, lhs_symexpr, LHS, "volume");
+        set_symexpressions(finch_state, var, rhs_symexpr, RHS, "volume");
         
         log_entry("lhs symexpression:\n\t"*string(lhs_symexpr));
         log_entry("rhs symexpression:\n\t"*string(rhs_symexpr));
@@ -952,178 +952,56 @@ function conservationForm(var, cf)
     end
     
     # Init stepper here so it can be used in generation
-    if prob.time_dependent
-        init_stepper(grid_data.allnodes, time_stepper);
-        if use_specified_steps
-            time_stepper.dt = specified_dt;
-            time_stepper.Nsteps = specified_Nsteps;
+    if finch_state.prob.time_dependent
+        # some measure of element size
+        dim = finch_state.config.dimension;
+        min_detj = minimum(finch_state.geo_factors.detJ);
+        el_size = (2^dim * min_detj)^(1/dim);
+        init_stepper(el_size, finch_state.time_stepper);
+        if finch_state.use_specified_steps
+            finch_state.time_stepper.dt = finch_state.specified_dt;
+            finch_state.time_stepper.Nsteps = finch_state.specified_Nsteps;
         end
-        share_time_step_info(time_stepper, config);
+        share_time_step_info(finch_state.time_stepper, finch_state.config);
     end
     
     # change symbolic layer into IR
     if length(result_exprs) == 4
-        full_IR = build_IR_fvm(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, var, ordered_indexers, config, prob, time_stepper, fv_info);
+        full_IR = build_IR_fvm(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, var, finch_state.ordered_indexers, finch_state.config, finch_state.prob, finch_state.time_stepper, finch_state.fv_info);
     else
-        full_IR = build_IR_fvm(lhs_symexpr, nothing, rhs_symexpr, nothing, var, ordered_indexers, config, prob, time_stepper, fv_info);
+        full_IR = build_IR_fvm(lhs_symexpr, nothing, rhs_symexpr, nothing, var, finch_state.ordered_indexers, finch_state.config, finch_state.prob, finch_state.time_stepper, finch_state.fv_info);
     end
     log_entry("Conservation form IR: "*repr_IR(full_IR),3);
     
     # Generate code from IR
-    code = generate_code_layer(var, full_IR, solver_type, language, gen_framework);
+    code = generate_code_layer(var, full_IR, solver_type, finch_state.target_language, finch_state.target_framework);
     log_entry("Code layer: \n" * code, 3);
-    set_code(var, code, full_IR);
+    set_code(finch_state, var, code, full_IR);
     
     end # timer block
 end
 
 """
-    flux(var, fex)
-
-Write the surface integral term of the PDE. This is the flux after transforming 
-using the divergence theorem into a surface integral.
-var can be a variable or an array of variables. When using arrays, fex must
-also be an array of matching size.
-fex is a string expression or array of them. It can include numbers, coefficients,
-variables, parameters, indexers, and symbolic operators.
-"""
-function flux(var, fex)
-    if typeof(var) <: Array
-        # multiple simultaneous variables
-        symvars = [];
-        symfex = [];
-        if !(length(var) == length(fex))
-            printerr("Error in flux function: # of unknowns must equal # of equations. (example: flux([a,b,c], [f1,f2,f3]))");
-        end
-        for vi=1:length(var)
-            push!(symvars, var[vi].symbol);
-            push!(symfex, Meta.parse((fex)[vi]));
-        end
-    else
-        symfex = Meta.parse(fex);
-        symvars = var.symbol;
-    end
-    
-    log_entry("Making flux for variable(s): "*string(symvars));
-    log_entry("flux, input: "*string(fex));
-    
-    # The parsing step
-    (lhs_symexpr, rhs_symexpr) = sp_parse(symfex, symvars, is_FV=true, is_flux=true);
-    
-    set_symexpressions(var, lhs_symexpr, LHS, "surface");
-    set_symexpressions(var, rhs_symexpr, RHS, "surface");
-    
-    log_entry("flux lhs symexpression:\n\t"*string(lhs_symexpr));
-    log_entry("flux rhs symexpression:\n\t"*string(rhs_symexpr));
-    log_entry("Latex flux equation:\n\t\t \\int_{\\partial K}"*symexpression_to_latex(lhs_symexpr)*
-                    " ds - \\int_{\\partial K}"*symexpression_to_latex(rhs_symexpr)*" ds");
-    
-    # change symbolic layer into code layer
-    (lhs_string, lhs_code) = generate_code_layer(lhs_symexpr, var, LHS, "surface", FV, language, gen_framework);
-    (rhs_string, rhs_code) = generate_code_layer(rhs_symexpr, var, RHS, "surface", FV, language, gen_framework);
-    log_entry("flux, code layer: \n  LHS = "*string(lhs_string)*" \n  RHS = "*string(rhs_string));
-    
-    if language == JULIA || language == 0
-        args = "args; kwargs...";
-        makeFunction(args, string(lhs_code));
-        set_lhs_surface(var, lhs_string);
-        
-        makeFunction(args, string(rhs_code));
-        set_rhs_surface(var, rhs_string);
-        
-    else
-        set_lhs_surface(var, lhs_code);
-        set_rhs_surface(var, rhs_code);
-    end
-end
-
-"""
-    source(var, sex)
-
-Write the volume integral term of the PDE.
-var can be a variable or an array of variables. When using arrays, fex must
-also be an array of matching size.
-sex is a string expression or array of them. It can include numbers, coefficients,
-variables, parameters, indexers, and symbolic operators.
-"""
-function source(var, sex)
-    if typeof(var) <: Array
-        # multiple simultaneous variables
-        symvars = [];
-        symsex = [];
-        if !(length(var) == length(sex))
-            printerr("Error in source function: # of unknowns must equal # of equations. (example: source([a,b,c], [s1,s2,s3]))");
-        end
-        for vi=1:length(var)
-            push!(symvars, var[vi].symbol);
-            push!(symsex, Meta.parse((sex)[vi]));
-        end
-    else
-        symsex = Meta.parse(sex);
-        symvars = var.symbol;
-    end
-    
-    log_entry("Making source for variable(s): "*string(symvars));
-    log_entry("source, input: "*string(sex));
-    
-    # The parsing step
-    (lhs_symexpr, rhs_symexpr) = sp_parse(symsex, symvars, is_FV=true);
-    
-    set_symexpressions(var, lhs_symexpr, LHS, "volume");
-    set_symexpressions(var, rhs_symexpr, RHS, "volume");
-    
-    log_entry("source lhs symexpression:\n\t"*string(lhs_symexpr));
-    log_entry("source rhs symexpression:\n\t"*string(rhs_symexpr));
-    log_entry("Latex source equation:\n\t\t \\int_{K} -"*symexpression_to_latex(lhs_symexpr)*
-                    " dx + \\int_{K}"*symexpression_to_latex(rhs_symexpr)*" dx");
-    
-    # change symbolic layer into code code_layer
-    (lhs_string, lhs_code) = generate_code_layer(lhs_symexpr, var, LHS, "volume", FV, language, gen_framework);
-    (rhs_string, rhs_code) = generate_code_layer(rhs_symexpr, var, RHS, "volume", FV, language, gen_framework);
-    log_entry("source, code layer: \n  LHS = "*string(lhs_string)*" \n  RHS = "*string(rhs_string));
-    
-    if language == JULIA || language == 0
-        args = "args; kwargs...";
-        makeFunction(args, string(lhs_code));
-        set_lhs(var, lhs_string);
-        
-        makeFunction(args, string(rhs_code));
-        set_rhs(var, rhs_string);
-        
-    else
-        set_lhs(var, lhs_code);
-        set_rhs(var, rhs_code);
-    end
-end
-
-"""
-    assemblyLoops(indices, parallel_type=[])
+    assemblyLoops(indices)
 
 Specify the nesting order of loops for assembling the system.
 This makes sense for problems with indexed variables.
 Var is a variable of array of variables.
 Indices is an array of indexer objects and a string "elements".
 Loops will be nested in that order with outermost first.
-If parallel_type is specified for the loops, they will be generated with 
-that type of parallel strategy. Possibilities are "none", "mpi", "threads".
-NOTE: parallel_type use is still under development and may not work for
-all problems.
 """
-function assemblyLoops(indices, parallel_type=[])
-    if length(parallel_type) < length(indices)
-        parallel_type = fill("none", length(indices));
-    end
+function assemblyLoops(indices)
     # find the associated indexer objects
     # and reorder ordered_indexers
-    indexer_list = [];
+    indexer_list = Vector{Indexer}(undef,0);
     for i=1:length(indices)
         if typeof(indices[i]) == String
             if indices[i] == "elements" || indices[i] == "cells"
-                push!(indexer_list, "elements");
+                push!(indexer_list, Indexer(:FINCHELEMENTS, [0,0], 0, 0));
             else
-                for j=1:length(indexers)
-                    if indices[i] == string(indexers[j].symbol)
-                        push!(indexer_list, indexers[j]);
+                for j=1:length(finch_state.indexers)
+                    if indices[i] == string(finch_state.indexers[j].symbol)
+                        push!(indexer_list, finch_state.indexers[j]);
                         break;
                     end
                 end
@@ -1133,7 +1011,7 @@ function assemblyLoops(indices, parallel_type=[])
             push!(indexer_list, indices[i]);
         end
     end
-    set_ordered_indexers(indexer_list);
+    set_ordered_indexers(finch_state, indexer_list);
     return nothing;
 end
 
@@ -1146,13 +1024,13 @@ code for all variables if available.
 """
 function exportCode(filename)
     # For now, only do this for Julia code because others are already output in code files.
-    if language == JULIA || language == 0
+    if finch_state.target_language == JULIA
         file = open(filename*".jl", "w");
-        println(file, "#=\nGenerated functions for "*project_name*"\n=#\n");
+        println(file, "#=\nGenerated functions for "*finch_state.project_name*"\n=#\n");
         
-        for i=1:length(variables)
-            code = code_strings[1][i];
-            var = string(variables[i].symbol);
+        for i=1:length(finch_state.variables)
+            code = finch_state.code_strings[i];
+            var = string(finch_state.variables[i].symbol);
             if length(code) > 1
                 println(file, "# begin solve function for "*var*"\n");
                 println(file, code);
@@ -1179,19 +1057,19 @@ exported code.
 """
 function importCode(filename)
     # For now, only do this for Julia code because others are already output in code files.
-    if language == JULIA || language == 0
+    if finch_state.target_language == JULIA
         file = open(filename*".jl", "r");
         lines = readlines(file, keep=true);
         
         # Loop over variables and check to see if a matching function is present.
-        for i=1:length(variables)
+        for i=1:length(finch_state.variables)
             # Scan the file for a pattern like
             #   # begin solve function for u
             #       ...
             #   # end solve function for u
             # OR
             #   # No code set for u
-            var = string(variables[i].symbol);
+            var = string(finch_state.variables[i].symbol);
             func_begin_flag = "# begin solve function for "*var;
             func_end_flag = "# end solve function for "*var;
             func_none_flag = "# No code set for "*var;
@@ -1218,7 +1096,7 @@ function importCode(filename)
             if func_string == ""
                 log_entry("While importing, nothing was found for "*var);
             else
-                set_code(variables[i], func_string, IR_comment_node("Code imported from file, no IR available"));
+                set_code(finch_state, finch_state.variables[i], func_string, IR_comment_node("Code imported from file, no IR available"));
             end
             
         end # vars loop
@@ -1227,7 +1105,7 @@ function importCode(filename)
         log_entry("Imported code from "*filename*".jl");
         
     else
-        # TODO non-julia
+        # external code doesn't need to be imported
     end
 end
 
@@ -1250,7 +1128,9 @@ function printLatex(var)
     end
     println("Latex equation for "*varname*":");
     
-    if config.solver_type == FV
+    symexpressions = finch_state.symexpressions;
+    
+    if finch_state.config.solver_type == FV
         result = raw"$" * " \\frac{d}{dt}\\bar{"*string(var.symbol)*"}";
         if !(symexpressions[1][var.index] === nothing)
             result *= " + \\int_{K}"*symexpression_to_latex(symexpressions[1][var.index])*" dx";
@@ -1272,8 +1152,9 @@ function printLatex(var)
             result *= "0";
         end
         result *= raw"$";
-    else
-        if prob.time_dependent
+        
+    else # FEM
+        if finch_state.prob.time_dependent
             result = raw"$ \left[";
             if !(symexpressions[1][var.index] === nothing)
                 result *= "\\int_{K}"*symexpression_to_latex(symexpressions[1][var.index])*" dx";
@@ -1302,7 +1183,7 @@ function printLatex(var)
             end
             result *= raw"\right]_{t} $";
             
-        else
+        else # not time dependent
             result = raw"$";
             if !(symexpressions[1][var.index] === nothing)
                 result *= "\\int_{K}"*symexpression_to_latex(symexpressions[1][var.index])*" dx";
@@ -1346,7 +1227,7 @@ This puts the initial values into each variable's values array.
 This is called automatically by the solve step, but can be done manually here.
 """
 function evalInitialConditions() 
-    eval_initial_conditions(); 
+    eval_initial_conditions(finch_state); 
 end # Just for consistent style because this is also an internal function
 
 """
@@ -1358,12 +1239,12 @@ The tolerances are for the infinity norm of the change between
 iterations (u(i) - u(i-1)).
 """
 function nonlinear(;maxIters=100, relativeTol=1e-5, absoluteTol=1e-5, relaxation=1, derivative="AD")
-    prob.nonlinear = true;
-    prob.derivative_type = derivative;
-    prob.max_iters = maxIters;
-    prob.relative_tol = relativeTol;
-    prob.absolute_tol = absoluteTol;
-    prob.relaxation = relaxation;
+    finch_state.prob.nonlinear = true;
+    finch_state.prob.derivative_type = derivative;
+    finch_state.prob.max_iters = maxIters;
+    finch_state.prob.relative_tol = relativeTol;
+    finch_state.prob.absolute_tol = absoluteTol;
+    finch_state.prob.relaxation = relaxation;
 end
 
 """
@@ -1376,14 +1257,21 @@ The keyword arguments are for nonlinear equations which have very limited
 support, so generally they won't be used.
 """
 function solve(var)
-    if use_cachesim
-        return cachesimSolve(var);
-    end
+    # if finch_state.use_cachesim
+    #     return cachesimSolve(var);
+    # end
     
-    # For consistency put single variables in an array
-    if typeof(var) == Variable
+    # Ensure an array of variables from finch_state
+    
+    if typeof(var) <: Variable
         var = [var];
     end
+    nvars = length(var);
+    vars = Vector{Variable{finch_state.config.float_type}}(undef,nvars);
+    for i=1:nvars
+        vars[i] = finch_state.variables[var[i].index];
+    end
+    
     dofs_per_node = 0;
     dofs_per_loop = 0;
     for vi=1:length(var)
@@ -1391,15 +1279,13 @@ function solve(var)
         dofs_per_node += var[vi].total_components;
     end
     
-    global time_stepper; # This should not be necessary. It will go away eventually
-    
     # Wrap this all in a timer
-    @timeit timer_output "Solve" begin
+    @timeit finch_state.timer_output "Solve" begin
     
     # Generate files or solve directly
-    if !(!generate_external && (language == JULIA || language == 0)) # if an external code gen target is ready
+    if !(!finch_state.external_target && finch_state.target_language == JULIA) # if an external code gen target is ready
         varind = var[1].index;
-        generate_all_files(var, solve_function[varind]);
+        generate_all_files(var, finch_state.solve_functions[varind]);
         
     else
         varnames = "["*string(var[1].symbol);
@@ -1410,7 +1296,7 @@ function solve(var)
         varind = var[1].index;
         
         # Evaluate initial conditions if not already done
-        eval_initial_conditions();
+        eval_initial_conditions(finch_state);
         
         # If any of the variables are indexed types, make sure ordered indexers has "elements"
         need_indexers = false;
@@ -1419,9 +1305,9 @@ function solve(var)
                 need_indexers = true;
             end
         end
-        if need_indexers && length(ordered_indexers) == length(indexers)
+        if need_indexers && length(finch_state.ordered_indexers) == length(finch_state.indexers)
             log_entry("Indexed variables detected, but no assembly loops specified. Using default.")
-            assemblyLoops(["elements"; ordered_indexers]);
+            assemblyLoops(["elements"; finch_state.ordered_indexers]);
         end
         
         # # If nonlinear, a matching set of variables should have been created. find them
@@ -1438,11 +1324,11 @@ function solve(var)
         #         end
         #     end
         # end
-        if prob.nonlinear
-            nl_var = Vector{Variable}(undef, 0);
+        if finch_state.prob.nonlinear
+            nl_var = Vector{Variable{finch_state.config.float_type}}(undef, 0);
             for i=1:length(var)
                 oldname = Symbol("OLD"*string(var[i].symbol));
-                for v in variables
+                for v in finch_state.variables
                     if oldname === v.symbol
                         push!(nl_var, v);
                         v.values .= var[i].values; # copy initial conditions
@@ -1453,60 +1339,72 @@ function solve(var)
         end
         
         # Use the appropriate solver
-        if config.solver_type == CG || config.solver_type == DG
-            func = solve_function[varind];
+        if finch_state.config.solver_type == CG || finch_state.config.solver_type == DG
+            func = finch_state.solve_functions[varind];
             
-            if prob.nonlinear
-                TimerOutputs.@timeit timer_output "FE_solve" func.func(var, grid_data, refel, geo_factors, config, 
-                                            coefficients, variables, test_functions, ordered_indexers, prob, time_stepper, nl_var);
+            if finch_state.prob.nonlinear
+                @timeit finch_state.timer_output "FE_solve" func.func(vars, finch_state.grid_data, finch_state.refel, 
+                                            finch_state.geo_factors, finch_state.config, finch_state.coefficients, 
+                                            finch_state.variables, finch_state.test_functions, finch_state.ordered_indexers, 
+                                            finch_state.prob, finch_state.time_stepper, finch_state.parallel_buffers,
+                                            finch_state.timer_output, nl_var);
                 
             else
-                TimerOutputs.@timeit timer_output "FE_solve" func.func(var, grid_data, refel, geo_factors, config, 
-                                            coefficients, variables, test_functions, ordered_indexers, prob, time_stepper);
+                @timeit finch_state.timer_output "FE_solve" func.func(vars, finch_state.grid_data, finch_state.refel, 
+                                            finch_state.geo_factors, finch_state.config, finch_state.coefficients, 
+                                            finch_state.variables, finch_state.test_functions, finch_state.ordered_indexers, 
+                                            finch_state.prob, finch_state.time_stepper, finch_state.parallel_buffers,
+                                            finch_state.timer_output);
             end
             
             log_entry("Solved for "*varnames, 1);
             
-        elseif config.solver_type == FV
-            func = solve_function[varind];
+        elseif finch_state.config.solver_type == FV
+            func = finch_state.solve_functions[varind];
             
-            if prob.nonlinear
-                TimerOutputs.@timeit timer_output "FV_solve" func.func(var, fv_grid, fv_refel, fv_geo_factors, fv_info, config, 
-                                            coefficients, variables, test_functions, ordered_indexers, prob, time_stepper, nl_var);
+            if finch_state.prob.nonlinear
+                @timeit finch_state.timer_output "FV_solve" func.func(vars, finch_state.fv_grid, finch_state.fv_refel, 
+                                            finch_state.fv_geo_factors, finch_state.fv_info, finch_state.config, 
+                                            finch_state.coefficients, finch_state.variables, finch_state.test_functions, 
+                                            finch_state.ordered_indexers, finch_state.prob, finch_state.time_stepper, 
+                                            finch_state.parallel_buffers, finch_state.timer_output, nl_var);
             else
-                TimerOutputs.@timeit timer_output "FV_solve" func.func(var, fv_grid, fv_refel, fv_geo_factors, fv_info, config, 
-                                            coefficients, variables, test_functions, ordered_indexers, prob, time_stepper);
+                @timeit finch_state.timer_output "FV_solve" func.func(vars, finch_state.fv_grid, finch_state.fv_refel, 
+                                            finch_state.fv_geo_factors, finch_state.fv_info, finch_state.config, 
+                                            finch_state.coefficients, finch_state.variables, finch_state.test_functions, 
+                                            finch_state.ordered_indexers, finch_state.prob, finch_state.time_stepper, 
+                                            finch_state.parallel_buffers, finch_state.timer_output);
             end
             
             log_entry("Solved for "*varnames, 1);
             
-        elseif config.solver_type == MIXED
+        elseif finch_state.config.solver_type == MIXED
             println("Mixed solver is not ready. Please wait.");
             return nothing
             
-            # Need to determine the variable index for fe and fv
-            fe_var_index = 0;
-            fv_var_index = 0;
-            if typeof(var) <: Array
-                for vi=1:length(var)
-                    if var[vi].discretization == FV && fv_var_index == 0
-                        fv_var_index += var[vi].index;
-                    elseif fe_var_index == 0;
-                        fe_var_index += var[vi].index;
-                    end
-                end
-                loop_func = [assembly_loops[fe_var_index], assembly_loops[fv_var_index]];
-            else
-                # This shouldn't happen?
-                printerr("mixed solver types specified, but only one variable being solved for?")
-                if var.discretization == FV
-                    fv_var_index = var.index;
-                    loop_func = assembly_loops[fv_var_index];
-                else
-                    fe_var_index = var.index;
-                    loop_func = assembly_loops[fe_var_index];
-                end
-            end
+            # # Need to determine the variable index for fe and fv
+            # fe_var_index = 0;
+            # fv_var_index = 0;
+            # if typeof(var) <: Array
+            #     for vi=1:length(var)
+            #         if var[vi].discretization == FV && fv_var_index == 0
+            #             fv_var_index += var[vi].index;
+            #         elseif fe_var_index == 0;
+            #             fe_var_index += var[vi].index;
+            #         end
+            #     end
+            #     loop_func = [assembly_loops[fe_var_index], assembly_loops[fv_var_index]];
+            # else
+            #     # This shouldn't happen?
+            #     printerr("mixed solver types specified, but only one variable being solved for?")
+            #     if var.discretization == FV
+            #         fv_var_index = var.index;
+            #         loop_func = assembly_loops[fv_var_index];
+            #     else
+            #         fe_var_index = var.index;
+            #         loop_func = assembly_loops[fe_var_index];
+            #     end
+            # end
             
         end
     end
@@ -1522,8 +1420,9 @@ end
 When using the cache simulator target, this is used instead of solve().
 """
 function cachesimSolve(var)
-    if !(!generate_external && (language == JULIA || language == 0))
-        printerr("Cachesim solve is only ready for Julia direct solve");
+    if !(!finch_state.external_target && finch_state.target_language == JULIA)
+        printerr("Cachesim solve is only ready for Julia target");
+        
     else
         if typeof(var) <: Array
             varnames = "["*string(var[1].symbol);
@@ -1537,7 +1436,8 @@ function cachesimSolve(var)
             varind = var.index;
         end
         
-        # t = @elapsed(result = linear_solve_cachesim(var, lhs, rhs));
+        #TODO
+        
         log_entry("Generated cachesim ouput for "*varnames*".(took "*string(t)*" seconds)", 1);
     end
 end
@@ -1550,8 +1450,7 @@ vars can be a variable or array of variables.
 Possible formats are "vtk", "csv", or "raw"
 Set ascii to true to make ascii type vtk files instead of binary.
 """
-function outputValues(vars, filename; format="vtk", ascii=false) output_values(vars, filename, format=format, ascii=ascii); end
-function output_values(vars, filename; format="vtk", ascii=false)
+function outputValues(vars, filename; format="vtk", ascii=false)
     available_formats = ["raw", "csv", "vtk", "try"];
     if format == "vtk"
         log_entry("Writing values to file: "*filename*".vtu");
@@ -1595,20 +1494,26 @@ files have been closed.
 function finalizeFinch()
     # Finalize generation
     finalize_code_generator();
-    if use_cachesim
+    if finch_state.use_cachesim
         CachesimOut.finalize();
     end
     
     # mpi
-    if config.use_mpi
+    if finch_state.config.use_mpi
         MPI.Finalize(); # If MPI is finalized, it cannot be reinitialized without restarting Julia
     end
     
-    if config.proc_rank == 0
-        # timeroutput
-        show(timer_output)
-        # log
-        close_log();
+    if finch_state.config.proc_rank == 0
+        # Print timer results to log and output
+        buf = IOBuffer();
+        print_timer(buf, finch_state.timer_output);
+        log_entry(String(take!(buf)), 1);
+        
+        println("");
+        show(finch_state.timer_output);
+        println("");
+        
+        close_log(finch_state);
         println("Finch has completed.");
     end
 end
@@ -1623,7 +1528,7 @@ If not using cachesim, don't use this function.
 """
 function cachesim(use)
     log_entry("Using cachesim - Only cachesim output will be generated.", 1);
-    global use_cachesim = use;
+    finch_state.use_cachesim = use;
 end
 
 """
@@ -1636,7 +1541,7 @@ griddim is an array representing the nodal grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 """
 function mortonNodes(griddim)
-    t = @elapsed(global grid_data = reorder_grid_recursive!(grid_data, griddim, MORTON_ORDERING));
+    t = @elapsed(finch_state.grid_data = reorder_grid_recursive!(finch_state.grid_data, griddim, "morton"));
     log_entry("Reordered nodes to Morton. Took "*string(t)*" sec.", 2);
 end
 
@@ -1650,7 +1555,7 @@ griddim is an array representing the elemental grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 """
 function mortonElements(griddim)
-    grid_data.elemental_order = get_recursive_order(MORTON_ORDERING, config.dimension, griddim);
+    finch_state.grid_data.elemental_order = get_recursive_order("morton", finch_state.config.dimension, griddim);
     log_entry("Reordered elements to Morton.", 2);
     ef_nodes();
 end
@@ -1665,7 +1570,7 @@ griddim is an array representing the nodal grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 """
 function hilbertNodes(griddim)
-    t = @elapsed(global grid_data = reorder_grid_recursive!(grid_data, griddim, HILBERT_ORDERING));
+    t = @elapsed(finch_state.grid_data = reorder_grid_recursive!(finch_state.grid_data, griddim, "hilbert"));
     log_entry("Reordered nodes to Hilbert. Took "*string(t)*" sec.", 2);
 end
 
@@ -1679,7 +1584,7 @@ griddim is an array representing the elemental grid size: like [n,n] for 2D or
 [n,n,n] for 3D.
 """
 function hilbertElements(griddim)
-    grid_data.elemental_order = get_recursive_order(HILBERT_ORDERING, config.dimension, griddim);
+    finch_state.grid_data.elemental_order = get_recursive_order("hilbert", finch_state.config.dimension, griddim);
     log_entry("Reordered elements to Hilbert.", 2);
     ef_nodes();
 end
@@ -1695,7 +1600,7 @@ griddim is an array representing the nodal grid size: like [n,n] for 2D or
 tiledim is the desired tile dimensions such as [4,4] for a 4x4 tile in 2D.
 """
 function tiledNodes(griddim, tiledim)
-    t = @elapsed(global grid_data = reorder_grid_tiled(grid_data, griddim, tiledim));
+    t = @elapsed(finch_state.grid_data = reorder_grid_tiled(finch_state.grid_data, griddim, tiledim));
     log_entry("Reordered nodes to tiled. Took "*string(t)*" sec.", 2);
 end
 
@@ -1710,7 +1615,7 @@ griddim is an array representing the elemental grid size: like [n,n] for 2D or
 tiledim is the desired tile dimensions such as [4,4] for a 4x4 tile in 2D.
 """
 function tiledElements(griddim, tiledim)
-    grid_data.elemental_order = get_tiled_order(config.dimension, griddim, tiledim, true);
+    finch_state.grid_data.elemental_order = get_tiled_order(finch_state.config.dimension, griddim, tiledim, true);
     log_entry("Reordered elements to tiled("*string(tiledim)*").", 2);
     ef_nodes();
 end
@@ -1723,7 +1628,7 @@ some order and the nodes are added elementwise according to that. An element's
 nodes are ordered according to the reference element.
 """
 function elementFirstNodes()
-    t = @elapsed(global grid_data = reorder_grid_element_first!(grid_data, config.basis_order_min));
+    t = @elapsed(finch_state.grid_data = reorder_grid_element_first!(finch_state.grid_data, finch_state.config.basis_order_min));
     log_entry("Reordered nodes to EF. Took "*string(t)*" sec.", 2);
 end
 
@@ -1734,7 +1639,7 @@ Randomize nodes in memory for testing a worst-case arrangement.
 The seed is for making results reproducible.
 """
 function randomNodes(seed = 17)
-    t = @elapsed(global grid_data = reorder_grid_random!(grid_data, seed));
+    t = @elapsed(finch_state.grid_data = reorder_grid_random!(finch_state.grid_data, seed));
     log_entry("Reordered nodes to random. Took "*string(t)*" sec.", 2);
 end
 
@@ -1745,7 +1650,7 @@ Randomize the order of the elemental loop for testing a worst-case arrangement.
 The seed is for making results reproducible.
 """
 function randomElements(seed = 17)
-    grid_data.elemental_order = random_order(size(grid_data.loc2glb,2), seed);
+    finch_state.grid_data.elemental_order = random_order(size(finch_state.grid_data.loc2glb,2), seed);
     log_entry("Reordered elements to random.", 2);
     random_nodes(seed);
 end

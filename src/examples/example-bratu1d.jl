@@ -3,13 +3,13 @@
 =#
 
 ### If the Finch package has already been added, use this line #########
-using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+# using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
 
 ### If not, use these four lines (working from the examples directory) ###
-# if !@isdefined(Finch)
-#     include("../Finch.jl");
-#     using .Finch
-# end
+if !@isdefined(Finch)
+    include("../Finch.jl");
+    using .Finch
+end
 ##########################################################################
 
 initFinch("bratu1d");
@@ -69,12 +69,12 @@ finalizeFinch()
 
 # using Plots
 # pyplot();
-# x = Finch.grid_data.allnodes[1,:];
+# x = Finch.finch_state.grid_data.allnodes[1,:];
 # # display(plot([x x x x x x], [u.values[1,:] u.values[2,:] u.values[3,:] l.values[1,:] l.values[2,:] l.values[3,:]], markershape=:circle))#, label=["upper branch" "lower branch"]))
 # display(plot([x], [u.values' l.values'], markershape=:circle, legend=false))
 
 # outfile = "bratudat.csv";
-# x = Finch.grid_data.allnodes[1,:];
+# x = Finch.finch_state.grid_data.allnodes[1,:];
 # t = 0;
 # open(outfile, "w") do f
 #     println(f, "x, u, c")

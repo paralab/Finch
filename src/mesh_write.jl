@@ -16,9 +16,9 @@ function write_mesh_MSHv2(file, mesh::MeshData)
     println(file, string(mesh.nx));
     tmp = [0.0,0.0,0.0];
     for i=1:mesh.nx
-        if config.dimension == 1
+        if finch_state.config.dimension == 1
             tmp[1] = mesh.nodes[1,i];
-        elseif config.dimension == 2
+        elseif finch_state.config.dimension == 2
             tmp[1:2] = mesh.nodes[:,i];
         else
             tmp = mesh.nodes[:,i];

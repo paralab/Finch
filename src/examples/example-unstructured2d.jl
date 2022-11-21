@@ -4,13 +4,13 @@
 =#
 
 ### If the Finch package has already been added, use this line #########
-using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+# using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
 
 ### If not, use these four lines (working from the examples directory) ###
-# if !@isdefined(Finch)
-#     include("../Finch.jl");
-#     using .Finch
-# end
+if !@isdefined(Finch)
+    include("../Finch.jl");
+    using .Finch
+end
 ##########################################################################
 
 initFinch("unstruct2dtest");
@@ -42,9 +42,9 @@ finalizeFinch();
 # exact solution is sin(10*pi*x)*sin(10*pi*y)
 # check error
 maxerr = 0;
-for i=1:size(Finch.grid_data.allnodes,2)
-    x = Finch.grid_data.allnodes[1,i];
-    y = Finch.grid_data.allnodes[2,i];
+for i=1:size(Finch.finch_state.grid_data.allnodes,2)
+    x = Finch.finch_state.grid_data.allnodes[1,i];
+    y = Finch.finch_state.grid_data.allnodes[2,i];
     err = abs(u.values[i] - sin(10*pi*x)*sin(10*pi*y));
     global maxerr;
     maxerr = max(err,maxerr);

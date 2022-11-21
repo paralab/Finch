@@ -1,7 +1,16 @@
 #=
 Utilities for distributed parallel.
-
 =#
+
+# # Buffers for the global system
+# mutable struct ParallelBuffers
+#     full_AI::Vector
+#     full_AJ::Vector
+#     full_AV::Vector
+#     full_b::Vector
+    
+#     vec_b::Vector
+# end
 
 # FE tools
 ######################################################################################
@@ -9,7 +18,7 @@ Utilities for distributed parallel.
 # Returns (b_order, b_sizes) only for proc 0
 # b_order is the global indices of each proc's vector
 # b_sizes is the size of each proc's vector
-function get_partitioned_ordering(dofs_per_node::Int, grid_data::Grid, config::Finch_config)
+function get_partitioned_ordering(dofs_per_node::Int, grid_data::Grid, config::FinchConfig)
     if config.num_procs > 1
         nnodes = size(grid_data.allnodes,2);
         # The global ordering of this partition's b vector entries
@@ -55,7 +64,7 @@ function get_partitioned_ordering(dofs_per_node::Int, grid_data::Grid, config::F
 end
 
 # Share time stepper step size and number so that all procs are the same.
-function share_time_step_info(stepper::Stepper, config::Finch_config)
+function share_time_step_info(stepper::Stepper, config::FinchConfig)
     if config.num_procs > 1
         # gather a list of Nsteps for each proc
         send_buf = [stepper.Nsteps];
@@ -72,9 +81,14 @@ end
 
 # For multiple processes, gather the system, distribute the solution
 # Note: rescatter_b only applies when rhs_only
-function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes, config; rescatter_b=false)
+function gather_system(A::Union{Nothing, SparseMatrixCSC}, b::Vector, nnodes::Int, dofs_per_node::Int, 
+                        b_order::Vector, b_sizes::Vector, config::FinchConfig, buffers::ParallelBuffers; rescatter_b::Bool=false)
     rhs_only = (A===nothing);
     if config.num_procs > 1
+        if !isbitstype(config.float_type) || !isbitstype(config.index_type)
+            printerr("MPI can only work with types for which isbitstype == true.\nCurrent types are: int="*
+                        string(config.index_type)*", float="*string(config.float_type), fatal=true);
+        end
         if !rhs_only
             # For now just gather all of A in proc 0 to assemble.
             # The row and column indices have to be changed according to partition2global.
@@ -104,12 +118,16 @@ function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes, config; re
                     displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
                     total_length += chunk_sizes[proc_i];
                 end
-                full_AI = zeros(Int, total_length);
-                full_AJ = zeros(Int, total_length);
-                full_AV = zeros(Float64, total_length);
-                AI_buf = MPI.VBuffer(full_AI, chunk_sizes, displacements, MPI.Datatype(Int));
-                AJ_buf = MPI.VBuffer(full_AJ, chunk_sizes, displacements, MPI.Datatype(Int));
-                AV_buf = MPI.VBuffer(full_AV, chunk_sizes, displacements, MPI.Datatype(Float64));
+                # If buffers aren't allocated yet, do so
+                if length(buffers.full_AI) == 0
+                    buffers.full_AI = zeros(config.index_type, total_length);
+                    buffers.full_AJ = zeros(config.index_type, total_length);
+                    buffers.full_AV = zeros(config.float_type, total_length);
+                end
+                
+                AI_buf = MPI.VBuffer(buffers.full_AI, chunk_sizes, displacements, MPI.Datatype(config.index_type));
+                AJ_buf = MPI.VBuffer(buffers.full_AJ, chunk_sizes, displacements, MPI.Datatype(config.index_type));
+                AV_buf = MPI.VBuffer(buffers.full_AV, chunk_sizes, displacements, MPI.Datatype(config.float_type));
                 
                 MPI.Gatherv!(AI, AI_buf, 0, MPI.COMM_WORLD);
                 MPI.Gatherv!(AJ, AJ_buf, 0, MPI.COMM_WORLD);
@@ -126,7 +144,7 @@ function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes, config; re
                 # end
                 
                 # Assemble A
-                full_A = sparse(full_AI, full_AJ, full_AV);
+                full_A = sparse(buffers.full_AI, buffers.full_AJ, buffers.full_AV);
                 
                 # Next gather b
                 chunk_sizes = b_sizes;
@@ -136,17 +154,19 @@ function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes, config; re
                     displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
                     total_length += chunk_sizes[proc_i];
                 end
-                full_b = zeros(total_length);
-                b_buf = MPI.VBuffer(full_b, chunk_sizes, displacements, MPI.Datatype(Float64));
+                if length(buffers.full_b) == 0
+                    buffers.full_b = zeros(config.float_type, total_length);
+                    buffers.vec_b = zeros(config.float_type, grid_data.nnodes_global * dofs_per_node);
+                end
+                b_buf = MPI.VBuffer(buffers.full_b, chunk_sizes, displacements, MPI.Datatype(config.float_type));
                 MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
                 
                 # Overlapping values will be added.
-                new_b = zeros(grid_data.nnodes_global * dofs_per_node);
                 for i=1:total_length
-                    new_b[b_order[i]] += full_b[i];
+                    buffers.vec_b[b_order[i]] += buffers.full_b[i];
                 end
                 
-                return (full_A, new_b);
+                return (full_A, buffers.vec_b);
                 
             else # other procs just send their data
                 send_buf = [length(AI)];
@@ -169,30 +189,31 @@ function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes, config; re
                     displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
                     total_length += chunk_sizes[proc_i];
                 end
-                full_b = zeros(total_length);
-                b_buf = MPI.VBuffer(full_b, chunk_sizes, displacements, MPI.Datatype(Float64));
+                if length(buffers.full_b) == 0
+                    buffers.full_b = zeros(config.float_type, total_length);
+                    buffers.vec_b = zeros(config.float_type, grid_data.nnodes_global * dofs_per_node);
+                end
+                
+                b_buf = MPI.VBuffer(buffers.full_b, chunk_sizes, displacements, MPI.Datatype(config.float_type));
                 MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
                 
                 # Overlapping values will be added.
-                new_b = zeros(grid_data.nnodes_global * dofs_per_node);
                 for i=1:total_length
-                    new_b[b_order[i]] += full_b[i];
+                    buffers.vec_b[b_order[i]] += buffers.full_b[i];
                 end
                 
                 if rescatter_b
-                    return distribute_solution(new_b, nnodes, dofs_per_node, b_order, b_sizes, config)
-                else
-                    return new_b;
+                    distribute_solution!(buffers.vec_b, b, nnodes, dofs_per_node, b_order, b_sizes, config, buffers);
                 end
+                return buffers.vec_b;
                 
             else # other procs just send their data
                 MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
                 
                 if rescatter_b
-                    return distribute_solution(nothing, nnodes, dofs_per_node, b_order, b_sizes, config)
-                else
-                    return [1];
+                    distribute_solution!([], b, nnodes, dofs_per_node, b_order, b_sizes, config, buffers);
                 end
+                return [1];
             end
         end
         
@@ -205,15 +226,19 @@ function gather_system(A, b, nnodes, dofs_per_node, b_order, b_sizes, config; re
     end
 end
 
-function distribute_solution(sol::Vector, nnodes::Int, dofs_per_node::Int, b_order::Vector, b_sizes::Vector, config::Finch_config)
+function distribute_solution!(sol::Vector, local_sol::Vector, nnodes::Int, dofs_per_node::Int, 
+                            b_order::Vector, b_sizes::Vector, config::FinchConfig, buffers::ParallelBuffers)
     if config.num_procs > 1
-        my_sol = zeros(nnodes*dofs_per_node);
+        if !isbitstype(config.float_type) || !isbitstype(config.index_type)
+            printerr("MPI can only work with types for which isbitstype == true.\nCurrent types are: int="*
+                        string(config.index_type)*", float="*string(config.float_type), fatal=true);
+        end
+        
         if config.proc_rank == 0 # 0 has the full sol
             # Need to reorder b and put in a larger array according to b_order
             total_length = sum(b_sizes);
-            full_sol = zeros(total_length);
             for i=1:total_length
-                full_sol[i] = sol[b_order[i]];
+                buffers.full_b[i] = sol[b_order[i]];
             end
             
             # scatter b
@@ -222,18 +247,14 @@ function distribute_solution(sol::Vector, nnodes::Int, dofs_per_node::Int, b_ord
             for proc_i=2:config.num_procs
                 displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
             end
-            sol_buf = MPI.VBuffer(full_sol, chunk_sizes, displacements, MPI.Datatype(Float64));
+            sol_buf = MPI.VBuffer(buffers.full_b, chunk_sizes, displacements, MPI.Datatype(config.float_type));
             
             # Scatter it amongst the little ones
-            MPI.Scatterv!(sol_buf, my_sol, 0, MPI.COMM_WORLD);
+            MPI.Scatterv!(sol_buf, local_sol, 0, MPI.COMM_WORLD);
             
         else # Others don't have sol
-            MPI.Scatterv!(nothing, my_sol, 0, MPI.COMM_WORLD);
+            MPI.Scatterv!(nothing, local_sol, 0, MPI.COMM_WORLD);
         end
-        return my_sol;
-        
-    else
-        return sol;
     end
 end
 
@@ -264,7 +285,11 @@ function reduce_vector(vec::Array)
 end
 
 # Exchange variable values so that each partition has values for neighboring cells.
-function exchange_ghosts_fv(var::Vector, grid::Grid, dofs_per_node::Int, tag::Int)
+function exchange_ghosts_fv(var::Vector, grid::Grid, dofs_per_node::Int, tag::Int, config::FinchConfig)
+    if !isbitstype(config.float_type) || !isbitstype(config.index_type)
+        printerr("MPI can only work with types for which isbitstype == true.\nCurrent types are: int="*
+                    string(config.index_type)*", float="*string(config.float_type), fatal=true);
+    end
     n_neighbors = grid.num_neighbor_partitions;
     if n_neighbors < 1 # do nothing if no neighbors
         return;

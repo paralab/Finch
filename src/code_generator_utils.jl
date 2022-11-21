@@ -6,6 +6,7 @@
 # If so, also returns the value.
 function is_constant_coef(c)
     isit = false;
+    coefficients = finch_state.coefficients;
     val = 0;
     for i=1:length(coefficients)
         if c === coefficients[i].symbol
@@ -38,6 +39,9 @@ function get_coef_val(c)
         return(0, c.name);
     end
     
+    coefficients = finch_state.coefficients;
+    genfunctions = finch_state.genfunctions;
+    variables = finch_state.variables;
     type = 0;
     val = 0;
     for i=1:length(coefficients)
@@ -82,9 +86,9 @@ end
 # or -1 if it is not there.
 function get_coef_index(c)
     ind = -1;
-    for i=1:length(coefficients)
-        if c.name == string(coefficients[i].symbol)
-            ind = coefficients[i].index;
+    for i=1:length(finch_state.coefficients)
+        if c.name == string(finch_state.coefficients[i].symbol)
+            ind = finch_state.coefficients[i].index;
         end
     end
     
@@ -125,7 +129,7 @@ function make_entity_name(c)
 end
 
 function is_test_function(ent)
-    for t in test_functions
+    for t in finch_state.test_functions
         if string(t.symbol) == ent.name
             return true;
         end
@@ -134,7 +138,7 @@ function is_test_function(ent)
 end
 
 function is_unknown_var(ent, vars)
-    if typeof(vars) == Variable
+    if typeof(vars) <: Variable
         return ent.name == string(vars.symbol);
     elseif typeof(vars) <:Array
         for v in vars

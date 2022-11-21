@@ -4,11 +4,6 @@
 =#
 export read_mesh
 
-# numbers of CORNER nodes for first and second order elements as defined by GMSH
-# TODO add higher order types
-etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices for each type
-etypetodim= [1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3]; # dimension of each type
-
 # Reads from the file stream
 # Returns a MeshData struct
 function read_mesh(file)
@@ -44,6 +39,10 @@ function read_mesh(file)
 end
 
 function read_msh_v2(file)
+    # numbers of CORNER nodes for first and second order elements as defined by GMSH
+    etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices for each type
+    etypetodim= [1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3]; # dimension of each type
+    
     # Find the beginning of the Nodes and Elements sections.
     # Then read in the numbers.
     nodes_done = false;
@@ -94,7 +93,7 @@ function read_msh_v2(file)
                     vals = split(line, " ", keepempty=false);
                     # Skip lower dimensional elements
                     tmptype = parse(Int, vals[2]);
-                    if etypetodim[tmptype] == config.dimension
+                    if etypetodim[tmptype] == finch_state.config.dimension
                         etypes[i] = tmptype;
                         nv[i] = etypetonv[tmptype];
                         offset = parse(Int, vals[3]) + 3;
@@ -116,12 +115,16 @@ function read_msh_v2(file)
             end
         end
     end
-    nodes = nodes[1:config.dimension, :];
+    nodes = nodes[1:finch_state.config.dimension, :];
     
     return MeshData(nx, nodes, indices, nel, elements, etypes, nv);
 end
 
 function read_msh_v4(file)
+    # numbers of CORNER nodes for first and second order elements as defined by GMSH
+    etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices for each type
+    etypetodim= [1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3]; # dimension of each type
+    
     # Find the beginning of the Nodes and Elements sections.
     # Then read in the numbers.
     nodes_done = false;
@@ -221,7 +224,7 @@ function read_msh_v4(file)
                     entnel = parse(Int, vals[4]);
                     
                     # Ignore elements with lower dimension (faces, points etc.)
-                    if entdim == config.dimension
+                    if entdim == finch_state.config.dimension
                         # read element info
                         for ei=1:entnel
                             line = readline(file);
@@ -255,7 +258,7 @@ function read_msh_v4(file)
             end
         end
     end
-    nodes = nodes[1:config.dimension, :];
+    nodes = nodes[1:finch_state.config.dimension, :];
     
     return MeshData(nx, nodes, indices, nel, elements, etypes, nv);
 end
@@ -293,10 +296,10 @@ function read_medit(file)
                 line = readline(file);
                 dim = parse(Int, line);
             end
-            if config.dimension != dim
+            if finch_state.config.dimension != dim
                 # Maybe someone forgot to set dimension?
                 printerr("Dimension in mesh file doesn't match config. Updating config.")
-                config.dimension = dim;
+                finch_state.config.dimension = dim;
             end
         elseif occursin("Vertices", line)
             println(line)
@@ -322,9 +325,9 @@ function read_medit(file)
             
             nodes_done = true;
             
-        elseif config.dimension == 1 && (occursin("Lines", line))
+        elseif finch_state.config.dimension == 1 && (occursin("Lines", line))
             # Is this even an option for medit?
-        elseif config.dimension == 2 && (occursin("Triangles", line) || occursin("Quadrilaterals", line))
+        elseif finch_state.config.dimension == 2 && (occursin("Triangles", line) || occursin("Quadrilaterals", line))
             tokens = split(line, " ", keepempty=false);
             if length(tokens) > 1
                 nel = parse(Int, tokens[2]);
@@ -363,7 +366,7 @@ function read_medit(file)
             end
             elements_done = true;
             
-        elseif config.dimension == 3 && (occursin("Tetrahedra", line) || occursin("Hexahedra", line))
+        elseif finch_state.config.dimension == 3 && (occursin("Tetrahedra", line) || occursin("Hexahedra", line))
             println(line)
             tokens = split(line, " ", keepempty=false);
             if length(tokens) > 1
@@ -414,7 +417,7 @@ function read_medit(file)
         printerr("Did not successfully read the mesh file.")
         return nothing;
     end
-    nodes = nodes[1:config.dimension, :];
+    nodes = nodes[1:finch_state.config.dimension, :];
     indices = 1:nx;
     
     return MeshData(nx, nodes, indices, nel, elements, etypes, nv);

@@ -12,7 +12,7 @@ with specific names that are used in the IR, such as mesh, refel, num_elements, 
 # This creates the full code string including support code.
 # If desired this can make the code as a complete, stand-alone function
 # or as just the body of a function that will be generated(default).
-function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, wrap_in_function=true)
+function generate_code_layer_julia(var::Vector{Variable{FT}}, IR::IR_part, solver, wrap_in_function=true) where FT<:AbstractFloat
     # This will hold the code string to be returned
     code ="";
     
@@ -34,7 +34,10 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     
     # 
     if solver == CG || solver == DG
-        args = "(var, mesh, refel, geometric_factors, config, coefficients, variables, test_functions, ordered_indexers, prob, time_stepper, nl_var=nothing)";
+        args = "(var::Vector{Variable{FT}}, mesh::Grid, refel::Refel, geometric_factors::GeometricFactors, "*
+                "config::FinchConfig, coefficients::Vector{Coefficient{FT}}, variables::Vector{Variable{FT}}, "*
+                "test_functions::Vector{Coefficient{FT}}, ordered_indexers::Vector{Indexer}, prob::FinchProblem, "*
+                "time_stepper::Stepper, buffers::ParallelBuffers, timer_output::TimerOutput, nl_var=nothing) where FT<:AbstractFloat";
         disc_specific = "
     # FEM specific pieces
     Q = refel.Q;
@@ -46,14 +49,17 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
     "
         
     elseif solver == FV
-        args = "(var, mesh, refel, geometric_factors, fv_info, config, coefficients, variables, test_functions, ordered_indexers, prob, time_stepper, nl_var=nothing)";
+        args = "(var::Vector{Variable{FT}}, mesh::Grid, refel::Refel, geometric_factors::GeometricFactors, "*
+                "fv_info::FVInfo, config::FinchConfig, coefficients::Vector{Coefficient{FT}}, variables::Vector{Variable{FT}}, "*
+                "test_functions::Vector{Coefficient{FT}}, ordered_indexers::Vector{Indexer}, prob::FinchProblem, "*
+                "time_stepper::Stepper, buffers::ParallelBuffers, timer_output::TimerOutput, nl_var=nothing) where FT<:AbstractFloat";
         disc_specific = "
     # FVM specific pieces
     
     "
         
     else
-        printerr("This colver type is not ready: "*solver);
+        printerr("This solver type is not ready: "*solver);
         args = "()";
         disc_specific = "";
     end
@@ -62,14 +68,43 @@ function generate_code_layer_julia(var::Vector{Variable}, IR::IR_part, solver, w
         code = "function generated_solve_function_for_"*string(var[1].symbol) * args * "\n";
     end
     
+    # Directly place all generated functions within this function to avoid the 
+    # crazy allocation problem
+    genfunction_list = Vector{String}(undef,0);
+    genfunction_part = "";
+    for c in finch_state.coefficients
+        nc = size(c.value,1);
+        for i=1:nc
+            if typeof(c.value[i]) == GenFunction
+                already_included = false;
+                for j=1:length(genfunction_list)
+                    if c.value[i].name == genfunction_list[j]
+                        already_included = true;
+                        break;
+                    end
+                end
+                
+                if !already_included
+                    push!(genfunction_list, c.value[i].name);
+                    genfunction_part *= "    " * "function "*string(c.value[i].name)*"("*string(c.value[i].args)*") return ("*string(c.value[i].str)*"); end\n"
+                end
+            end
+        end
+    end
+    
+    itype = string(finch_state.config.index_type);
+    ftype = string(finch_state.config.float_type);
+    
     code *="
     # User specified data types for int and float
-    CustomInt = config.index_type;
-    CustomFloat = config.float_type;
+    # int type is $itype
+    # float type is $ftype
     
     # pre/post step functions if defined
     pre_step_function = prob.pre_step_function;
     post_step_function = prob.post_step_function;
+    
+$genfunction_part
     
     # Prepare some useful numbers
     dofs_per_node = "*string(dofs_per_node)*";
@@ -147,7 +182,13 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
         
     elseif node_type == IR_operation_node
         if IR.type == IRtypes.allocate_op # zeros(Float64, 2,5)
-            code = indent * "zeros("*IRtypes.name[IR.args[1]];
+            type_name = IRtypes.name[IR.args[1]];
+            if type_name == "CustomInt"
+                type_name = string(finch_state.config.index_type);
+            elseif type_name == "CustomFloat"
+                type_name = string(finch_state.config.float_type);
+            end
+            code = indent * "zeros("*type_name;
             for i=2:length(IR.args)
                 code *= ", ";
                 if typeof(IR.args[i]) <: IR_part
@@ -159,12 +200,33 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
             code *= ")";
             
         elseif IR.type == IRtypes.assign_op # x = ...
+            if ((typeof(IR.args[2]) == IR_operation_node) && (IR.args[2].type == IRtypes.allocate_op))
+                type_name = IRtypes.name[IR.args[2].args[1]];
+                if type_name == "CustomInt"
+                    type_name = string(finch_state.config.index_type);
+                elseif type_name == "CustomFloat"
+                    type_name = string(finch_state.config.float_type);
+                end
+                adims = length(IR.args[2].args) - 1;
+                if adims == 1
+                    type_name = "::Vector{"*type_name*"}";
+                elseif adims == 2
+                    type_name = "::Matrix{"*type_name*"}";
+                elseif adims > 2
+                    type_name = "::Array{"*type_name*", "*string(adims)*"}";
+                else
+                    type_name = "::"*type_name;
+                end
+                
+            else
+                type_name = "";
+            end
             if typeof(IR.args[1]) <: IR_part
                 code = indent * generate_from_IR_julia(IR.args[1], IRtypes);
             else
                 code = indent * string(IR.args[1]);
             end
-            code *= " = ";
+            code *= type_name * " = ";
             if typeof(IR.args[2]) <: IR_part
                 code *= generate_from_IR_julia(IR.args[2], IRtypes);
             else
@@ -328,10 +390,37 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
     code = "";
     
     op = IR.args[1];
-    if op === :COEF_EVAL
-        code = "evaluate_coefficient(coefficients[" * string(IR.args[2]) * "], " * string(IR.args[3]) * 
-            ", " * string(IR.args[4]) * ", " * string(IR.args[5]) * ", " * string(IR.args[6]) * 
-            ", " * string(IR.args[7]) * ", " * string(IR.args[8]) * ")";
+    if op === :PRINT_STRING
+        if typeof(IR.args[2]) == String
+            code = "print(\""*IR.args[2]*"\")"
+        else
+            code = "print(string("*generate_from_IR_julia(IR.args[2], IRtypes)*"))"
+        end
+        
+    elseif op === :COEF_EVAL
+        # Rather than use evaluate_coefficient, try calling one of the nested functions
+        use_eval = true;
+        if typeof(IR.args[2]) == Int
+            coef = finch_state.coefficients[IR.args[2]];
+            if typeof(IR.args[3]) == Int
+                val = coef.value[IR.args[3]];
+                if typeof(val) <:Number
+                    code = "Float64("*string(val)*")";
+                    use_eval = false;
+                elseif typeof(val) == GenFunction
+                    code = val.name * "(x,y,z,t,"*string(IR.args[8])*", "*string(IR.args[9])*", index_values)";
+                    use_eval = false;
+                end
+            else
+                # component is unknown.
+            end
+        end
+        
+        if use_eval
+            code = "evaluate_coefficient(coefficients[" * string(IR.args[2]) * "], " * string(IR.args[3]) * 
+                ", " * string(IR.args[4]) * ", " * string(IR.args[5]) * ", " * string(IR.args[6]) * 
+                ", " * string(IR.args[7]) * ", " * string(IR.args[8]) * ", "*string(IR.args[9])*", index_values)";
+        end
         
     elseif op === :KNOWN_VAR
         if length(IR.args) > 3
@@ -364,10 +453,10 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         code = indent * "global_matrix = sparse(@view(global_matrix_I[1:(next_nonzero_index-1)]), @view(global_matrix_J[1:(next_nonzero_index-1)]), @view(global_matrix_V[1:(next_nonzero_index-1)]));\n"
         
     elseif op === :GLOBAL_GATHER_VECTOR
-        code = indent * "global_vector = gather_system(nothing, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config);"
+        code = indent * "global_vector = gather_system(nothing, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config, buffers);"
         
     elseif op === :GLOBAL_GATHER_SYSTEM
-        code *= indent * "(global_matrix, global_vector) = gather_system(global_matrix, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config);"
+        code *= indent * "(global_matrix, global_vector) = gather_system(global_matrix, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config, buffers);"
         
     elseif op === :GHOST_EXCHANGE_FV
         if length(IR.args) < 2
@@ -383,7 +472,7 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         code = indent * "linear_system_solve!("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* generate_from_IR_julia(IR.args[4], IRtypes) *", "* generate_from_IR_julia(IR.args[2], IRtypes) * ", config);"
         
     elseif op === :GLOBAL_DISTRIBUTE_VECTOR
-        code = indent * generate_from_IR_julia(IR.args[2], IRtypes) * " = distribute_solution("*generate_from_IR_julia(IR.args[2], IRtypes) * ", nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config);"
+        code = indent * "distribute_solution!("*generate_from_IR_julia(IR.args[2], IRtypes) * ", "* generate_from_IR_julia(IR.args[3], IRtypes) * ", nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config, buffers);"
         
     elseif op === :GATHER_VARS
         # place variable arrays in global vector
@@ -395,23 +484,23 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         end
         
     elseif op === :BDRY_TO_VECTOR
-        # FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node);
+        # FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node, prob);
         if length(IR.args) < 3
-            code = indent * "copy_bdry_vals_to_vector(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *", mesh, dofs_per_node);";
+            code = indent * "copy_bdry_vals_to_vector(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *", mesh, dofs_per_node, prob);";
         else
             code = indent * "copy_bdry_vals_to_vector("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* 
-                            generate_from_IR_julia(IR.args[2], IRtypes) *", mesh, dofs_per_node);";
+                            generate_from_IR_julia(IR.args[2], IRtypes) *", mesh, dofs_per_node, prob);";
         end
         
     elseif op === :BDRY_TO_VAR
-        # copy_bdry_vals_to_variables(var, solution, mesh, dofs_per_node, true)
+        # copy_bdry_vals_to_variables(var, solution, mesh, dofs_per_node, prob, true)
         if length(IR.args) < 4
             code = indent * "copy_bdry_vals_to_variables(var, "* generate_from_IR_julia(IR.args[2], IRtypes) *
-                            ", mesh, dofs_per_node, "* generate_from_IR_julia(IR.args[3], IRtypes) *");";
+                            ", mesh, dofs_per_node, prob, "* generate_from_IR_julia(IR.args[3], IRtypes) *");";
         else
             code = indent * "copy_bdry_vals_to_variables("* generate_from_IR_julia(IR.args[4], IRtypes) *", "* 
                             generate_from_IR_julia(IR.args[2], IRtypes) *
-                            ", mesh, dofs_per_node, "* generate_from_IR_julia(IR.args[3], IRtypes) *");";
+                            ", mesh, dofs_per_node, prob, "* generate_from_IR_julia(IR.args[3], IRtypes) *");";
         end
         
     elseif op === :SCATTER_VARS
@@ -425,24 +514,24 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         
     elseif op === :LOCAL2GLOBAL
         # put elemental matrix and vector in global system
-        code = generate_from_IR_julia(IntermediateRepresentation.generate_local_to_global_fem(IR.args[2]), IRtypes, indent);
+        code = generate_from_IR_julia(generate_local_to_global_fem(IR.args[2]), IRtypes, indent);
         
     elseif op === :LOCAL2GLOBAL_VEC
         # put elemental vector in global system
-        code = generate_from_IR_julia(IntermediateRepresentation.generate_local_to_global_fem(IR.args[2], vec_only=true), IRtypes, indent);
+        code = generate_from_IR_julia(generate_local_to_global_fem(IR.args[2], vec_only=true), IRtypes, indent);
         
     elseif op === :ADD_GLOBAL_VECTOR_AND_NORM
         # u = u + du 
         # and find absolute and relative norms of du
         # args are: u, du, abs_residual, rel_residual
-        code = generate_from_IR_julia(IntermediateRepresentation.generate_residual_norms_and_update(
+        code = generate_from_IR_julia(generate_residual_norms_and_update(
             IR.args[2], IR.args[3], IR.args[4], IR.args[5]), IRtypes, indent);
         
     elseif op === :UPDATE_GLOBAL_VECTOR_AND_NORM
         # b = a
         # and find absolute and relative norms of (a-b)
         # args are: a, b, abs_residual, rel_residual
-        code = generate_from_IR_julia(IntermediateRepresentation.generate_difference_norms_and_update(
+        code = generate_from_IR_julia(generate_difference_norms_and_update(
             IR.args[2], IR.args[3], IR.args[4], IR.args[5]), IRtypes, indent);
         
     elseif op === :LINALG_VEC_BLOCKS
@@ -585,24 +674,24 @@ $compute_lines
     elseif op === :LINALG_TDM
         # Tcode = generate_from_IR_julia(IR.args[2], IRtypes) * "[i + (row-1)*qnodes_per_element]";
         # Mcode = generate_from_IR_julia(IR.args[4], IRtypes) * "[i + (col-1)*qnodes_per_element]";
-        # Dcode = generate_from_IR_julia(IntermediateRepresentation.apply_indexed_access(IR.args[3], [:i], IRtypes), IRtypes);
+        # Dcode = generate_from_IR_julia(apply_indexed_access(IR.args[3], [:i], IRtypes), IRtypes);
         # code = "*(" * Tcode *", "* Dcode *", "* Mcode * ")";
         
         i_index = :row;
         j_index = :col;
         k_index = :i;
         
-        code = generate_from_IR_julia(IntermediateRepresentation.generate_linalg_TDM_product(IR.args[2], IR.args[3], IR.args[4], i_index, j_index, k_index), IRtypes);
+        code = generate_from_IR_julia(generate_linalg_TDM_product(IR.args[2], IR.args[3], IR.args[4], i_index, j_index, k_index), IRtypes);
             
     elseif op === :LINALG_Tv
         # Tcode = generate_from_IR_julia(IR.args[2], IRtypes) * "[col + (row-1)*qnodes_per_element]";
-        # vcode = generate_from_IR_julia(IntermediateRepresentation.apply_indexed_access(IR.args[3], [:col], IRtypes), IRtypes);
+        # vcode = generate_from_IR_julia(apply_indexed_access(IR.args[3], [:col], IRtypes), IRtypes);
         # code = "*(" * Tcode *", "* vcode * ")";
         
         i_index = :row;
         j_index = :col;
         
-        code = generate_from_IR_julia(IntermediateRepresentation.generate_linalg_Tv_product(IR.args[2], IR.args[3], i_index, j_index), IRtypes);
+        code = generate_from_IR_julia(generate_linalg_Tv_product(IR.args[2], IR.args[3], i_index, j_index), IRtypes);
     end
     
     return code;

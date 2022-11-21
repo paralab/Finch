@@ -22,16 +22,16 @@ function build_triangle_refel(refel)
     
     ## Surfaces
     nfaces = 3;
-    refel.surf_V = fill!(Array{Array{Float64}}(undef, nfaces), []);
+    refel.surf_V = fill!(Vector{Matrix{Float64}}(undef, nfaces), zeros(0,0));
     #refel.surf_gradV = fill!(Array{Array{Float64}}(undef, nfaces), []);
-    refel.surf_Vg = fill!(Array{Array{Float64}}(undef, nfaces), []);
+    refel.surf_Vg = fill!(Vector{Matrix{Float64}}(undef, nfaces), zeros(0,0));
     #refel.surf_gradVg = fill!(Array{Array{Float64}}(undef, nfaces), []);
     
-    refel.surf_Q = fill!(Array{Array{Float64}}(undef, nfaces), []);
-    refel.surf_Qr = fill!(Array{Array{Float64}}(undef, nfaces), []);
-    refel.surf_Qs = fill!(Array{Array{Float64}}(undef, nfaces), []);
-    refel.surf_Ddr = fill!(Array{Array{Float64}}(undef, nfaces), []);
-    refel.surf_Dds = fill!(Array{Array{Float64}}(undef, nfaces), []);
+    refel.surf_Q = fill!(Vector{Matrix{Float64}}(undef, nfaces), zeros(0,0));
+    refel.surf_Qr = fill!(Vector{Matrix{Float64}}(undef, nfaces), zeros(0,0));
+    refel.surf_Qs = fill!(Vector{Matrix{Float64}}(undef, nfaces), zeros(0,0));
+    refel.surf_Ddr = fill!(Vector{Matrix{Float64}}(undef, nfaces), zeros(0,0));
+    refel.surf_Dds = fill!(Vector{Matrix{Float64}}(undef, nfaces), zeros(0,0));
     
     for fi=1:nfaces
         (refel.surf_V[fi], surf_gradVr, surf_gradVs) = triangle_vandermonds(refel, refel.surf_r[fi]);

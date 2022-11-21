@@ -12,9 +12,9 @@ function refel_nodes!(refel, nodetype)
         refel.wr1d = [1];
         refel.g1d = [0];
         refel.wg1d = [1];
-        refel.r = [0];
+        refel.r = zeros(1,1);
         refel.wr = [1];
-        refel.g = [0];
+        refel.g = zeros(1,1);
         refel.wg = [1];
         
     elseif refel.dim == 1
@@ -50,17 +50,24 @@ function refel_nodes!(refel, nodetype)
         refel.wg1d = w;
         
         # 1D is easy
-        refel.g = refel.g1d;
+        refel.g = reshape(refel.g1d,:,1);
         refel.wg = refel.wg1d;
-        refel.r = refel.r1d;
+        refel.r = reshape(refel.r1d,:,1);
         refel.wr = refel.wr1d;
         
         # surface is just points
+        mone = ones(1,1);
+        mnone = -mone;
         refel.face2local = [[1], [refel.Np]];
-        refel.surf_r = [[-1], [1]];
-        refel.surf_wr = [[1], [1]];
-        refel.surf_g = [[-1], [1]];
-        refel.surf_wg = [[1], [1]];
+        refel.surf_r = Vector{Matrix{Float64}}(undef,2);
+        refel.surf_wr = Vector{Vector{Float64}}(undef,2);
+        refel.surf_g = Vector{Matrix{Float64}}(undef,2);
+        refel.surf_wg = Vector{Vector{Float64}}(undef,2);
+        
+        refel.surf_r[1] = mnone; refel.surf_r[2] = mone;
+        refel.surf_wr[1] = [1]; refel.surf_wr[2] = [1];
+        refel.surf_g[1] = mnone; refel.surf_g[2] = mone;
+        refel.surf_wg[1] = [1]; refel.surf_wg[2] = [1];
         
     elseif refel.dim == 2
         # 2D has triangles and quads
@@ -275,21 +282,4 @@ function get_node_coords(vx, elnodes)
     end
     
     return x;
-end
-
-# Returns the volume of an element
-function get_volume(refel, vx)
-    vol = 0;
-    if refel.dim == 1
-        vol = abs(vx[2]-vx[1]);
-    elseif refel.dim == 2
-        # for now assume rectangular quads
-        hx = max(vx[2,1]-vx[1,1], vx[3,1]-vx[1,1]);
-        hy = max(vx[2,2]-vx[1,2], vx[3,2]-vx[1,2]);
-        vol = abs(hx*hy);
-    elseif refel.dim == 3
-        
-    end
-    
-    return vol;
 end

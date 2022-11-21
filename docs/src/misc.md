@@ -7,7 +7,7 @@ Pages = ["misc.md"]
 ```
 
 ```@docs
-initFinch(name="unnamedProject")
+initFinch(name="unnamedProject", floatType::DataType=Float64)
 finalizeFinch()
 customOperator(name, handle)
 customOperatorFile(filename)

@@ -15,28 +15,38 @@ import ..Finch: @import_finch_symbols
 @import_finch_symbols()
 
 # IR symbols
-import ..Finch: IntermediateRepresentation, IR_entry_types, IR_string, print_IR, repr_IR,
+import ..Finch: IR_entry_types, IR_string, print_IR, repr_IR,
             IR_part, IR_data_node, IR_data_access, IR_operation_node, 
             IR_block_node, IR_loop_node, IR_conditional_node, IR_comment_node
-            
-
-genDir = "";
-genFileName = "";
-gen_file_extension = "";
-comment_char = "";
-block_comment_char = [""; ""];
-headerText = "";
-genfiles = [];
-external_get_language_elements_function = nothing;
-external_generate_code_files_function = nothing;
-
-# for custom targets
-using_custom_target = false;
+import ..Finch: generate_linalg_TDM_product, generate_the_one_pattern, generate_linalg_Tv_product,
+            apply_indexed_access, generate_difference_norms_and_update, generate_residual_norms_and_update, 
+            generate_local_to_global_fem
+#
 # Temporary placeholders for external code gen functions that must be provided.
 # These are reassigned in set_custom_target()
 function default_language_elements_function() return (".jl", "#", ["#=", "=#"]) end;
-function default_code_layer_function(var, entities, terms, lorr, vors) return ("","") end;
-function default_code_files_function(var, lhs_vol, lhs_surf, rhs_vol, rhs_surf) return 0 end;
+function default_code_files_function() end;
+                
+# Holds basic generator info
+mutable struct CodeGenContext
+    gen_dir::String
+    gen_file_name::String
+    file_extension::String
+    comment_char::String
+    block_comment_char::Vector{String}
+    header_text::String
+    
+    gen_files::Vector
+    external_get_language_elements_function::Function
+    external_generate_code_files_function::Function
+    
+    using_custom_target::Bool
+    
+    CodeGenContext() = new(
+        "", "", "", "", ["",""], "", [], 
+        default_language_elements_function, default_code_files_function, false
+    )
+end
 
 # general code generator functions
 include("code_generator_utils.jl");
@@ -49,10 +59,7 @@ include("generate_code_layer_julia.jl");
 # include("generate_code_layer_dendro.jl");
 # include("generate_code_layer_homg.jl");
 # include("generate_code_layer_matlab.jl");
-include("generate_code_layer_cachesim.jl");
-
-# Surface integrals should be handled in the same place TODO
-#include("generate_code_layer_surface.jl");
+# include("generate_code_layer_cachesim.jl");
 
 #Matlab
 # include("generate_matlab_utils.jl");
@@ -68,55 +75,53 @@ include("generate_code_layer_cachesim.jl");
 # parameters = (5, 1, 0.3, 0.000001, 100);#(maxdepth, wavelet_tol, partition_tol, solve_tol, solve_max_iters)
 ####
 
+# a global context
+code_gen_context = CodeGenContext();
+
 function init_code_generator(dir, name, header)
-    global gen_file_extension = ".jl";
-    global comment_char = "#";
-    global block_comment_char = ["#="; "=#"];
-    global genDir = dir;
-    global genFileName = name;
-    global headerText = header;
-    
-    global external_get_language_elements_function = default_language_elements_function;
-    global external_generate_code_files_function = default_code_files_function;
+    code_gen_context.gen_dir = dir;
+    code_gen_context.gen_file_name = name;
+    code_gen_context.header_text = header;
 end
 
 # Sets the functions to be used during external code generation
 function set_generation_target(lang_elements, file_maker)
-    global external_get_language_elements_function = lang_elements;
-    global external_generate_code_files_function = file_maker;
-    global using_custom_target = true;
-    global gen_file_extension;
-    global comment_char;
-    global block_comment_char;
-    (gen_file_extension, comment_char, block_comment_char) = Base.invokelatest(external_get_language_elements_function);
+    code_gen_context.external_get_language_elements_function = lang_elements;
+    code_gen_context.external_generate_code_files_function = file_maker;
+    code_gen_context.using_custom_target = true;
+    
+    (file_extension, comment_char, block_comment_char) = Base.invokelatest(external_get_language_elements_function);
+    code_gen_context.file_extension = file_extension;
+    code_gen_context.comment_char = comment_char;
+    code_gen_context.block_comment_char = block_comment_char;
 end
 
 function add_generated_file(filename; dir="", make_header_text=true)
     if length(dir) > 0
-        code_dir = genDir*"/"*dir;
+        code_dir = code_gen_context.gen_dir*"/"*dir;
         if !isdir(code_dir)
             mkdir(code_dir);
         end
     else
-        code_dir = genDir;
+        code_dir = code_gen_context.gen_dir;
     end
     newfile = open(code_dir*"/"*filename, "w");
-    push!(genfiles, newfile);
+    push!(code_gen_context.gen_files, newfile);
     if make_header_text
-        generate_head(newfile, headerText);
+        generate_head(newfile, code_gen_context.header_text);
     end
     
     return newfile;
 end
 
 function generate_all_files(var, IR; parameters=0)
-    if using_custom_target
+    if code_gen_context.using_custom_target
         external_generate_code_files_function(var, IR);
     end
 end
 
 function finalize_code_generator()
-    for f in genfiles
+    for f in code_gen_context.gen_files
         close(f);
     end
     log_entry("Closed generated code files.");
@@ -125,11 +130,11 @@ end
 #### Utilities ####
 
 function comment(file,line)
-    println(file, comment_char * line);
+    println(file, code_gen_context.comment_char * line);
 end
 
 function commentBlock(file,text)
-    print(file, "\n"*block_comment_char[1]*"\n"*text*"\n"*block_comment_char[2]*"\n");
+    print(file, "\n"*code_gen_context.block_comment_char[1]*"\n"*text*"\n"*code_gen_context.block_comment_char[2]*"\n");
 end
 
 function generate_head(file, text)

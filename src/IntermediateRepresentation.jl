@@ -16,26 +16,9 @@ There are different types of nodes:
 - comment - a string that is simply a comment
 =#
 
-module IntermediateRepresentation
-
-# Implement AbstractTrees for plotting/printing/using other tools if desired
-# using AbstractTrees
-try
-    using AbstractTrees
-catch e
-    println("AbstractTrees package is not yet installed. Installing now.");
-    using Pkg
-    Pkg.add("AbstractTrees")
-    using AbstractTrees
-end
-
 export IR_entry_types, IR_string, print_IR, repr_IR
-export IR_part, IR_data_node, IR_data_access, IR_operation_node, IR_block_node, IR_loop_node, IR_conditional_node, IR_comment_node
+export IR_data_node, IR_data_access, IR_operation_node, IR_block_node, IR_loop_node, IR_conditional_node, IR_comment_node
 export build_IR_fem, build_IR_fvm
-
-# See finch_import_symbols.jl for a list of all imported symbols.
-import ..Finch: @import_finch_symbols
-@import_finch_symbols()
 
 AbstractTrees.children(a::Nothing) = ();
 AbstractTrees.children(a::Symbol) = ();
@@ -43,9 +26,6 @@ AbstractTrees.children(a::Symbol) = ();
 AbstractTrees.printnode(io::IO, a::Nothing) = print(io,"nothing");
 AbstractTrees.printnode(io::IO, a::Symbol) = print(io,string(a));
 AbstractTrees.printnode(io::IO, a::Number) = print(io,string(a));
-
-# All of the node types are subtypes of this.
-abstract type IR_part end;
 
 # This acts as an enum for IR entry types. It is constructed or passed where needed
 # rather than using @enum, which creates a bunch of global names.
@@ -436,5 +416,3 @@ include("IR_build_FEM.jl");
 include("IR_build_FVM.jl");
 
 #############################################################################################################
-
-end # module

@@ -5,31 +5,31 @@ Important: Since this is for FV, only first order elements should be used. Only 
 considered and the resulting grid will only have vertex nodes.
 =#
 
-# Struct for keeping the parent info.
-struct ParentMaps
-    num_parents::Int                # Number of parents including ghosts
-    children_per_parent::Int        # Number of children per parent assuming similar element types
-    faces_per_parent::Int           # Number of child faces in a parent
-    patch_size::Int                 # Number of children in a patch (parent plus neighboring parents)
+# # Struct for keeping the parent info.
+# struct ParentMaps
+#     num_parents::Int                # Number of parents including ghosts
+#     children_per_parent::Int        # Number of children per parent assuming similar element types
+#     faces_per_parent::Int           # Number of child faces in a parent
+#     patch_size::Int                 # Number of children in a patch (parent plus neighboring parents)
     
-    child2parent::Array{Int,2}      # size = (2, allChildren) 1 = index of parent, 2 = location within parent
-    parent2child::Array{Int,2}      # size = (myChildren, allParents) global index of each child in each parent
-    parent2face::Array{Int,2}       # size = (myFaces, allParents) global index of each face in each parent
-    cface2pface::Array{Int,3}       # size = (elementFaces, myChildren, allParents) relative face index in parent
-    parent2neighbor::Array{Int,2}   # size = (outerFaces, allParents) index of neighboring parents
+#     child2parent::Array{Int,2}      # size = (2, allChildren) 1 = index of parent, 2 = location within parent
+#     parent2child::Array{Int,2}      # size = (myChildren, allParents) global index of each child in each parent
+#     parent2face::Array{Int,2}       # size = (myFaces, allParents) global index of each face in each parent
+#     cface2pface::Array{Int,3}       # size = (elementFaces, myChildren, allParents) relative face index in parent
+#     parent2neighbor::Array{Int,2}   # size = (outerFaces, allParents) index of neighboring parents
     
-    patches::Array{Int, 2}          # size = (outerfaces*neighborChildren) local patch around each parent
-    leftCells::Vector               # Patch indices for left and right cell groups for each face
-    rightCells::Vector              #
+#     patches::Array{Int, 2}          # size = (outerfaces*neighborChildren) local patch around each parent
+#     leftCells::Vector               # Patch indices for left and right cell groups for each face
+#     rightCells::Vector              #
     
-    face_neighborhoods::Matrix      # indices of a group of elements to the left and right of each face
-end
+#     face_neighborhoods::Matrix      # indices of a group of elements to the left and right of each face
+# end
 
 # Divides all elements in a grid
 function divide_parent_grid(grid, order)
     # Types used in grid
-    int_type = config.index_type;
-    float_type = config.float_type;
+    int_type = finch_state.config.index_type;
+    float_type = finch_state.config.float_type;
     
     # The convention for n numbers is: N->global, n->local
     dim = size(grid.allnodes,1);
@@ -726,7 +726,7 @@ function divide_parent_grid(grid, order)
             end
         end
         
-        child_grid = Grid(allnodes, bdry, bdryface, bdrynorm, bids, nodebid, loc2glb, loc2glb, face2glb, 
+        child_grid = Grid(finch_state.config.float_type, allnodes, bdry, bdryface, bdrynorm, bids, nodebid, loc2glb, loc2glb, face2glb, 
                         element2face, face2element, facenormals, faceRefelInd, facebid, 
                         true, Array(1:nel_owned), grid.nel_global*nchildren, nel_owned, nel_ghost, 
                         nface_owned, nface_ghost, 0, 0, element_owner, 
@@ -734,7 +734,7 @@ function divide_parent_grid(grid, order)
                         num_neighbor_partitions, neighboring_partitions, ghost_counts, ghost_index);
         
     else # not a subgrid
-        child_grid = Grid(allnodes, bdry, bdryface, bdrynorm, bids, nodebid, loc2glb, loc2glb, face2glb, element2face, 
+        child_grid = Grid(finch_state.config.float_type, allnodes, bdry, bdryface, bdrynorm, bids, nodebid, loc2glb, loc2glb, face2glb, element2face, 
                             face2element, facenormals, faceRefelInd, facebid);
     end
     

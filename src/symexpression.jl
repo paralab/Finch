@@ -10,19 +10,19 @@
 # - derivs
 # - flags
 =#
-export SymExpression, SymEntity, build_symexpressions
+export build_symexpressions
 
-struct SymExpression
-    tree                # The expression tree
-    entities::Array     # The SymEntitys corresponding to the leaf nodes of the tree
-end
+# struct SymExpression
+#     tree                # The expression tree
+#     entities::Array     # The SymEntitys corresponding to the leaf nodes of the tree
+# end
 
-struct SymEntity
-    name::Union{Float64, String}    # The string or number 
-    index::Union{Int64, Array}     # vector component, 1 for scalars, -1 for numbers, "INDEXEDBY..." for indexed vars
-    derivs::Array                   # any derivatives applied
-    flags::Array                    # any non-derivative modifiers or flags
-end
+# struct SymEntity
+#     name::Union{Float64, String}    # The string or number 
+#     index::Union{Int64, Array}     # vector component, 1 for scalars, -1 for numbers, "INDEXEDBY..." for indexed vars
+#     derivs::Array                   # any derivatives applied
+#     flags::Array                    # any non-derivative modifiers or flags
+# end
 
 Base.copy(x::SymEntity) = SymEntity(x.name, x.index, copy(x.derivs), copy(x.flags));
 
@@ -255,8 +255,8 @@ function build_symexpression(var, ex, lorr, vors; remove_zero_in_array=false)
         newex = replace_special_ops(newex);
         
         # If using FEM, reorder factors for easier generation
-        if config.solver_type == CG || config.solver_type == DG
-            newex = order_expression_for_fem(var, test_functions, newex);
+        if finch_state.config.solver_type == CG || finch_state.config.solver_type == DG
+            newex = order_expression_for_fem(var, finch_state.test_functions, newex);
         end
         
         symex = SymExpression(newex, sents);
@@ -271,8 +271,8 @@ function build_symexpression(var, ex, lorr, vors; remove_zero_in_array=false)
         newex = replace_special_ops(newex);
         
         # If using FEM, reorder factors for easier generation
-        if config.solver_type == CG || config.solver_type == DG
-            newex = order_expression_for_fem(var, test_functions, newex);
+        if finch_state.config.solver_type == CG || finch_state.config.solver_type == DG
+            newex = order_expression_for_fem(var, finch_state.test_functions, newex);
         end
         
         symex = SymExpression(newex, sents);
@@ -470,9 +470,9 @@ function replace_special_ops(ex)
         elseif occursin("CALLBACK_", string(ex))
             # It's a callback function. Figure out the index in callback_functions
             fun_name = string(ex)[10:end];
-            for i=1:length(callback_functions)
-                if callback_functions[i].name == fun_name
-                    newex = :(Finch.callback_functions[$i].func);
+            for i=1:length(finch_state.callback_functions)
+                if finch_state.callback_functions[i].name == fun_name
+                    newex = :(Finch.finch_state.callback_functions[$i].func);
                 end
             end
         else
@@ -559,7 +559,7 @@ function has_specific_part(a, parts)
                     return true;
                 end
             end
-        elseif typeof(parts) == Variable
+        elseif typeof(parts) <: Variable
             return a.name == string(parts.symbol);
         elseif typeof(parts) == Coefficient
             return a.name == string(parts.symbol);

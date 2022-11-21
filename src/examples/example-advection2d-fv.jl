@@ -3,13 +3,13 @@
 =#
 
 ### If the Finch package has already been added, use this line #########
-using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+# using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
 
 ### If not, use these four lines (working from the examples directory) ###
-# if !@isdefined(Finch)
-#     include("../Finch.jl");
-#     using .Finch
-# end
+if !@isdefined(Finch)
+    include("../Finch.jl");
+    using .Finch
+end
 ##########################################################################
 
 initFinch("FVadvection2d");
@@ -27,11 +27,11 @@ if use_unstructured
     # Using an unstructured mesh of triangles or irregular quads
     # This is a 0.1 x 0.3 rectangle domain
     mesh("src/examples/utriangle.msh")
-    mesh("src/examples/uquad.msh")
+    # mesh("src/examples/uquad.msh")
     
-    add_boundary_ID(2, (x,y) -> (x >= 0.1));
-    add_boundary_ID(3, (x,y) -> (y <= 0));
-    add_boundary_ID(4, (x,y) -> (y >= 0.3));
+    addBoundaryID(2, (x,y) -> (x >= 0.1));
+    addBoundaryID(3, (x,y) -> (y <= 0));
+    addBoundaryID(4, (x,y) -> (y >= 0.3));
     
 else
     # a uniform grid of quads on a 0.1 x 0.3 rectangle domain

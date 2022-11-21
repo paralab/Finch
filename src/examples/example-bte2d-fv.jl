@@ -24,7 +24,7 @@ include("bte-boundary.jl")
 # Configuration setup
 domain(2)
 solverType(FV)
-timeStepper(EULER_IMPLICIT)
+timeStepper(EULER_EXPLICIT)
 # Specify time steps if desired
 dt = 2.5e-11;
 nsteps = 100;

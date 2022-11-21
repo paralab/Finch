@@ -19,16 +19,16 @@ function replace_var_symbols_with_values(ex)
     elseif typeof(ex) == Symbol
         # Check if it is a variable and substitute if needed
         var_index = 0;
-        for v in variables
+        for v in finch_state.variables
             if ex === v.symbol
                 var_index = v.index;
             end
         end
         if var_index > 0
-            if variables[var_index].type == SCALAR
-                newex = :(Finch.variables[$var_index].values[node_index]);
+            if finch_state.variables[var_index].type == SCALAR
+                newex = :(Finch.finch_state.variables[$var_index].values[node_index]);
             else
-                newex = :(Finch.variables[$var_index].values[:,node_index]);
+                newex = :(Finch.finch_state.variables[$var_index].values[:,node_index]);
             end
             ex = newex;
         end

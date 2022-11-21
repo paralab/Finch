@@ -148,7 +148,7 @@ function sym_normal_op()
     _FACENORMAL_1 = symbols("_FACENORMAL1_1");
     _FACENORMAL_2 = symbols("_FACENORMAL1_2");
     _FACENORMAL_3 = symbols("_FACENORMAL1_3");
-    d = config.dimension;
+    d = finch_state.config.dimension;
     if d==1
         return [_FACENORMAL_1];
     elseif d==2
@@ -162,7 +162,7 @@ function sym_normal_op(side)
     _FACENORMAL_1 = symbols("_FACENORMAL"*string(side)*"_1");
     _FACENORMAL_2 = symbols("_FACENORMAL"*string(side)*"_2");
     _FACENORMAL_3 = symbols("_FACENORMAL"*string(side)*"_3");
-    d = config.dimension;
+    d = finch_state.config.dimension;
     if d==1
         return [_FACENORMAL_1];
     elseif d==2
@@ -260,7 +260,7 @@ end
 function sym_grad_op(u)
     result = Array{Basic,1}(undef,0);
     if typeof(u) <: Array
-        d = config.dimension;
+        d = finch_state.config.dimension;
         rank = 0;
         if ndims(u) == 1 && length(u) > 1
             rank = 1;
@@ -296,12 +296,12 @@ function sym_grad_op(u)
         end
     elseif typeof(u) == Basic
         # result is a vector
-        d = config.dimension;
+        d = finch_state.config.dimension;
         for i=1:d
             push!(result, sym_deriv_string(u, i));
         end
     elseif typeof(u) <: Number
-        return zeros(config.dimension);
+        return zeros(finch_state.config.dimension);
     end
     
     return result;
@@ -310,7 +310,7 @@ end
 function sym_div_op(u)
     result = Array{Basic,1}(undef,0);
     if typeof(u) <: Array
-        d = config.dimension;
+        d = finch_state.config.dimension;
         rank = 0;
         if ndims(u) == 1 && length(u) > 1
             rank = 1;
@@ -351,7 +351,7 @@ end
 function sym_curl_op(u)
     result = Array{Basic,1}(undef,0);
     if typeof(u) <: Array
-        d = config.dimension;
+        d = finch_state.config.dimension;
         rank = 0;
         if ndims(u) == 1 && sz[1] > 1
             rank = 1;
@@ -478,6 +478,8 @@ function sym_upwind_op(v, f)
         end
         
     elseif typeof(f) == Basic
+        @funs(conditional)
+        @funs(isgreaterthan)
         # Apply a CELLn tag to signal to the code generator which side of the face the value is from.
         side1 = apply_flag_to_all_symbols("CELL1", f);
         side2 = apply_flag_to_all_symbols("CELL2", f);
@@ -526,6 +528,10 @@ function sym_burgerGodunov_op(u, f)
             result[i] = sym_burgerGodunov_op(u[i], f[i]);
         end
     elseif typeof(f) == Basic
+        @funs(conditional)
+        @funs(isgreaterthan)
+        @funs(symbolmin)
+        @funs(symbolmax)
         uside1 = apply_flag_to_all_symbols("CELL1", u);
         uside2 = apply_flag_to_all_symbols("CELL2", u);
         fside1 = apply_flag_to_all_symbols("CELL1", f);
@@ -660,15 +666,20 @@ end
 
 
 # Load them into the global arrays
-op_names = [:dot, :inner, :cross, :transpose, :surface, :ave, :jump, :normal, 
-            :Dt, :deriv, :grad, :div, :curl, :laplacian,
-            :left, :right, :central, :neighborhood, :upwind, :upwindA, :burgerGodunov,
-            :exp, :sin, :cos, :tan, :abs, :sinh, :cosh, :tanh];
-_handles = [sym_dot_op, sym_inner_op, sym_cross_op, sym_transpose_op, sym_surface_op, sym_ave_op, sym_jump_op, 
-            sym_normal_op, sym_Dt_op, sym_deriv_op, sym_grad_op, 
-            sym_div_op, sym_curl_op, sym_laplacian_op,
-            sym_left_op, sym_right_op, sym_central_op, sym_neighborhood_op, sym_upwind_op, sym_upwindA_op, sym_burgerGodunov_op,
-            sym_exp_op, sym_sin_op, sym_cos_op, sym_tan_op, sym_abs_op, sym_sinh_op, sym_cosh_op, sym_tanh_op];
-for i=1:length(op_names)
-    push!(ops, SymOperator(op_names[i], _handles[i]));
+function load_basic_ops()
+    op_names = [:dot, :inner, :cross, :transpose, :surface, :ave, :jump, :normal, 
+                :Dt, :deriv, :grad, :div, :curl, :laplacian,
+                :left, :right, :central, :neighborhood, :upwind, :upwindA, :burgerGodunov,
+                :exp, :sin, :cos, :tan, :abs, :sinh, :cosh, :tanh];
+    _handles = [sym_dot_op, sym_inner_op, sym_cross_op, sym_transpose_op, sym_surface_op, sym_ave_op, sym_jump_op, 
+                sym_normal_op, sym_Dt_op, sym_deriv_op, sym_grad_op, 
+                sym_div_op, sym_curl_op, sym_laplacian_op,
+                sym_left_op, sym_right_op, sym_central_op, sym_neighborhood_op, sym_upwind_op, sym_upwindA_op, sym_burgerGodunov_op,
+                sym_exp_op, sym_sin_op, sym_cos_op, sym_tan_op, sym_abs_op, sym_sinh_op, sym_cosh_op, sym_tanh_op];
+    ops = Vector{SymOperator}(undef,0);
+    for i=1:length(op_names)
+        push!(ops, SymOperator(op_names[i], _handles[i]));
+    end
+    
+    return ops;
 end

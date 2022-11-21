@@ -3,57 +3,55 @@
 # This does not include any information about the nodal placement inside elements.
 # It is only the basic elemental mesh with vertices and faces.
 =#
-export MeshData, build_faces, find_boundaries, find_normals
+export build_faces, find_boundaries, find_normals
 
-struct MeshData
-    #### Minimal required information ####
-    # Nodes
-    nx::Int;                    # Number of vertices
-    nodes::Array{Float64,2};    # vertex locations (array has size (dim,nx))
-    indices::Array{Int,1};      # vertex indices may not be in order
-    # Elements
-    nel::Int;                   # Number of elements
-    elements::Array{Int,2};     # Element vertex mapping (array has size (Np, nel))*assumes only one element type
-    etypes::Array{Int,1};       # Element types as defined by GMSH
-    nv::Array{Int,1};           # Number of vertices for each element. Only different if they are different types,
+# struct MeshData
+#     #### Minimal required information ####
+#     # Nodes
+#     nx::Int;                    # Number of vertices
+#     nodes::Array{Float64,2};    # vertex locations (array has size (dim,nx))
+#     indices::Array{Int,1};      # vertex indices may not be in order
+#     # Elements
+#     nel::Int;                   # Number of elements
+#     elements::Array{Int,2};     # Element vertex mapping (array has size (Np, nel))*assumes only one element type
+#     etypes::Array{Int,1};       # Element types as defined by GMSH
+#     nv::Array{Int,1};           # Number of vertices for each element. Only different if they are different types,
     
-    #### Optional information that will be built if not provided ####
-    invind::Array{Int,1}        # Inverse of indices, maps vertex index to position in nodes array (invind[indices[i]] = i)
-    face2vertex::Array{Int,2}   # Vertices defining each face (array has size (Nfp, Nfaces))
-    face2element::Array{Int,2}  # Indices of elements on each side of the face. If 0, it is a boundary face. (size is (2,Nfaces))
-    element2face::Array{Int,2}  # Indices of faces on each side of the element. (size is (NfacesPerElement, nel))
-    normals::Array{Float64,2}   # Normal vectors for each face pointing from first to second in face2element order (size is (dim, Nfaces))
-    bdryID::Array{Int,1};       # Boundary ID for each face (0=interior face)
+#     #### Optional information that will be built if not provided ####
+#     invind::Array{Int,1}        # Inverse of indices, maps vertex index to position in nodes array (invind[indices[i]] = i)
+#     face2vertex::Array{Int,2}   # Vertices defining each face (array has size (Nfp, Nfaces))
+#     face2element::Array{Int,2}  # Indices of elements on each side of the face. If 0, it is a boundary face. (size is (2,Nfaces))
+#     element2face::Array{Int,2}  # Indices of faces on each side of the element. (size is (NfacesPerElement, nel))
+#     normals::Array{Float64,2}   # Normal vectors for each face pointing from first to second in face2element order (size is (dim, Nfaces))
+#     bdryID::Array{Int,1};       # Boundary ID for each face (0=interior face)
     
-    # The minimal constructor needs to build the optional information.
-    # Note: Must uncomment to build.
-    MeshData(n, x, ind, ne, el, et, v) = (
-        # inv = invert_index(ind);
-        # face2v = Array{Int,2}(undef,0,0);
-        # face2e = Array{Int,2}(undef,0,0);
-        # e2face = Array{Int,2}(undef,0,0);
-        # norms = Array{Float64,2}(undef,0,0);
-        # bdry = Array{Int,1}(undef,0);
+#     # The minimal constructor needs to build the optional information.
+#     # Note: Must uncomment to build.
+#     MeshData(n, x, ind, ne, el, et, v) = (
+#         # inv = invert_index(ind);
+#         # face2v = Array{Int,2}(undef,0,0);
+#         # face2e = Array{Int,2}(undef,0,0);
+#         # e2face = Array{Int,2}(undef,0,0);
+#         # norms = Array{Float64,2}(undef,0,0);
+#         # bdry = Array{Int,1}(undef,0);
         
-        # uncomment these to compute. WARNING: can be slow
-        inv = invert_index(ind);
-        (face2v, face2e, e2face) = build_faces(ne, el, et);
-        norms = find_normals(face2v, x);
-        bdry = find_boundaries(face2e);
-        new(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry);
-    )
-    # The complete constructor
-    MeshData(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry) = (
-        new(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry);
-    )
-end
-
-# numbers of nodes and faces for first and second order elements as defined by GMSH
-# line, triangle, quad, tet, hex, prism, 5-pyramid
-etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices
-etypetonf = [2, 3, 4, 4, 6, 5, 5, 2, 3, 4, 4, 6, 5, 5, 1, 4, 6, 5, 5]; # number of faces
-etypetonfn= [1, 2, 2, 3, 4, 4, 4, 1, 2, 2, 3, 4, 4, 4, 1, 2, 2, 4, 4]; # number of vertices for each face (except prism and 5-pyramids!)
-etypetodim= [1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3]; # dimension of each type
+#         # uncomment these to compute. WARNING: can be slow
+#         inv = invert_index(ind);
+#         (face2v, face2e, e2face) = build_faces(ne, el, et);
+#         norms = find_normals(face2v, x);
+#         bdry = find_boundaries(face2e);
+#         new(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry);
+#     )
+#     # The complete constructor
+#     MeshData(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry) = (
+#         new(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry);
+#     )
+#     # An empty mesh
+#     MeshData() = new(
+#         0, zeros(0,0), zeros(Int,0), 0, zeros(0,0), zeros(Int,0), zeros(Int,0), zeros(Int,0),
+#         zeros(Int,0,0), zeros(Int,0,0), zeros(Int,0,0), zeros(0,0), zeros(Int,0)
+#     )
+# end
 
 # Builds invind.
 function invert_index(ind)
@@ -67,6 +65,13 @@ end
 # Builds faces
 # For now assumes only one type of element.
 function build_faces(nel, elements, etypes)
+    # numbers of nodes and faces for first and second order elements as defined by GMSH
+    # line, triangle, quad, tet, hex, prism, 5-pyramid
+    etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices
+    etypetonf = [2, 3, 4, 4, 6, 5, 5, 2, 3, 4, 4, 6, 5, 5, 1, 4, 6, 5, 5]; # number of faces
+    etypetonfn= [1, 2, 2, 3, 4, 4, 4, 1, 2, 2, 3, 4, 4, 4, 1, 2, 2, 4, 4]; # number of vertices for each face (except prism and 5-pyramids!)
+    etypetodim= [1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3]; # dimension of each type
+    
     NfacesPerElement = etypetonf[etypes[1]]; # For now assumes only one type of element.
     Nfp = etypetonfn[etypes[1]]; # For now assumes only one type of element.
     

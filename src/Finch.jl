@@ -3,275 +3,163 @@ The main module for Finch.
 =#
 module Finch
 
-export init_finch, set_language, set_custom_gen_target, dendro, set_solver, set_stepper, set_specified_steps, set_matrix_free,
-        reformat_for_stepper, reformat_for_stepper_fv,
-        add_mesh, output_mesh, add_boundary_ID, add_test_function, 
-        add_initial_condition, add_boundary_condition, add_reference_point, set_rhs, set_lhs, set_lhs_surface, set_rhs_surface,
-        set_symexpressions, set_assembly_loops
-export build_cache_level, build_cache, build_cache_auto
-export sp_parse
-export generate_code_layer, generate_code_layer_surface, generate_code_layer_fv
-export Variable, add_variable, VariableTransform
-export Coefficient, add_coefficient
-export Parameter, add_parameter
-export Indexer
-export FVInfo
+include("finch_imports.jl");
 
-### Module's global variables ###
-# configuration, output files, etc.
-config = nothing;
-prob = nothing;
-project_name = "unnamedProject";
-output_dir = pwd();
-language = 0;
-gen_framework = 0;
-generate_external = false;
-codegen_params = nothing;
-#log
-use_log = false;
-log_file = "";
-log_line_index = 1;
-#mesh
-mesh_data = nothing;    # The basic element information as read from a MSH file or generated here.
-needed_grid_types = [false, false, false]; # [CG, DG, FV] true if that type is needed
-# FEM specific
-grid_data = nothing;    # The full collection of nodes(including internal nodes) and other mesh info in the actual DOF ordering.
-dg_grid_data = nothing; # This DG version is only made if using mixed CG/DG. Otherwise it is in grid_data.
-geo_factors = nothing;  # Geometric factors
-refel = nothing;        # Reference element(s?)
-# FVM specific
-fv_order = 1;           # Order of reconstruction for FV
-fv_info = nothing;      # Finite volume info
-fv_refel = nothing;     # Reference element for FV
-fv_grid = nothing;      # Similar to grid_data, but only first order CG elements, and includes ghost info when partitioned.
-fv_geo_factors = nothing;# Geometric factors for FV
+# Need to define constants and all other structs before FinchState
+include("finch_constants.jl");
+include("finch_structs.jl");
 
-#problem variables
-var_count = 0;
-variables = [];
-coefficients = [];
-parameters = [];
-test_functions = [];
-indexers = [];
-ordered_indexers = [];
-variable_transforms = [];
-#generated functions
-genfunc_count = 0;
-genfunctions = [];
-callback_functions = [];
-# solve functions for each variable
-solve_function = [];
-#assembly loop functions
-assembly_loops = [];
-#symbolic layer
-symexpressions = [[],[],[],[]];
-# string versions of generated code for printing
-code_strings = [[],[],[],[],[]];
-#time stepper
-time_stepper = nothing;
-specified_dt = 0;
-specified_Nsteps = 0;
-use_specified_steps = false;
-
-use_cachesim = false;
-
-#handles for custom code gen functions
-custom_gen_funcs = [];
-
-timer_output = nothing;
+# A global FinchState is maintained
+# finch_state = FinchState("");
+finch_state = FinchState(Float64, "");
 
 ###############################################################
 include("finch_includes.jl");
-include("macros.jl");
-include("finch_interface.jl"); # included here after globals are defined
 ###############################################################
 
-config = Finch_config(); # These need to be initialized here
-prob = Finch_prob();
-
-# This has already been initialized on loading, so this is more of a reset function
-function init_finch(name="unnamedProject")
-    global config = Finch_config();
-    global prob = Finch_prob();
-    global project_name = name;
-    global language = JULIA;
-    global framework = 0;
-    global generate_external = false;
-    global codegen_params = nothing;
-    global log_file = "";
-    global use_log = false;
-    global log_line_index = 1;
-    global mesh_data = nothing;
-    global needed_grid_types = [false, false, false];
-    global grid_data = nothing;
-    global dg_grid_data = nothing;
-    global geo_factors = nothing;
-    global fv_order = 1;
-    global fv_info = nothing;
-    global refel = nothing;
-    global fv_refel = nothing;
-    global fv_grid = nothing;
-    global fv_geo_factors = nothing;
-    global var_count = 0;
-    global variables = [];
-    global coefficients = [];
-    global parameters = [];
-    global test_functions = [];
-    global indexers = [];
-    global ordered_indexers = [];
-    global variable_transforms = [];
-    global genfunc_count = 0;
-    global genfunctions = [];
-    global callback_functions = [];
-    global symexpressions = [[],[],[],[]];
-    global code_strings = [[],[],[],[],[]];
-    global time_stepper = nothing;
-    global specified_dt = 0;
-    global specified_Nsteps = 0;
-    global use_specified_steps = false;
-    global use_cachesim = false;
+# Create a new FinchState and initialize MPI and threads
+function init_finch(T::DataType, name="unnamedProject")
+    state = FinchState(T, name);
+    state.config.float_type = T;
+    state.config.index_type = Int;
     
-    global timer_output = TimerOutput();
+    state.ops = load_basic_ops();
     
     # check for MPI and initialize
     if @isdefined(MPI)
         MPI.Init();
-        config.num_procs = MPI.Comm_size(MPI.COMM_WORLD);
-        if config.num_procs < 2
+        state.config.num_procs = MPI.Comm_size(MPI.COMM_WORLD);
+        if state.config.num_procs < 2
             # If only one process, ignore MPI.
             # MPI.Finalize();
         else
-            config.use_mpi = true;
-            config.proc_rank = MPI.Comm_rank(MPI.COMM_WORLD);
+            state.config.use_mpi = true;
+            state.config.proc_rank = MPI.Comm_rank(MPI.COMM_WORLD);
         end
     end
     
     # check for thread availability
-    config.num_threads = Threads.nthreads();
-    if (config.num_threads > 1 || config.num_procs > 1) && config.proc_rank == 0
-        println("Initialized with "*string(config.num_procs)*" processes and "*string(config.num_threads)*" threads per proc.");
+    state.config.num_threads = Threads.nthreads();
+    if (state.config.num_threads > 1 || state.config.num_procs > 1) && state.config.proc_rank == 0
+        println("Initialized with "*string(state.config.num_procs)*" processes and "*
+                    string(state.config.num_threads)*" threads per proc.");
     end
+    
+    global finch_state = state;
+    return state;
 end
 
 # Sets the code generation target
-function set_included_gen_target(lang, framework, dirpath, name; head="")
+function set_included_gen_target(state::FinchState, lang::String, framework::String, dirpath::String, name::String; head::String="")
     #TODO
     println("Premade generation targets currently under construction. Sorry. Reverting to Julia target.");
     return;
     
-    global language = lang;
-    global gen_framework = framework;
-    global output_dir = dirpath;
-    global project_name = name;
-    global generate_external = true;
-    init_codegenerator(dirpath, name, head);
+    # state.target_language = lang;
+    # state.gen_framework = framework;
+    # state.output_dir = dirpath;
+    # state.project_name = name;
+    # state.generate_external = true;
+    # init_codegenerator(dirpath, name, head);
     
-    # Need to set these three functions
+    # # Need to set these three functions
     
-    set_generation_target(get_external_language_elements, generate_external_files);
+    # set_generation_target(get_external_language_elements, generate_external_files);
 end
 
 # Setting a custom target requires three functions
 # 1. get_external_language_elements() - file extensions, comment chars etc.
 # 3. generate_external_files(var, IR) - Writes all files based on generated code
-function set_custom_gen_target(lang_elements, file_maker, dirpath, name; head="", params=nothing)
-    global language = CUSTOM_GEN_TARGET;
-    global gen_framework = CUSTOM_GEN_TARGET;
-    global output_dir = dirpath;
-    global project_name = name;
-    global generate_external = true;
+function set_custom_gen_target(state::FinchState, lang_elements, file_maker, dirpath::String, name::String; head::String="", params=nothing)
+    state.target_language = CUSTOM_GEN_TARGET;
+    state.target_framework = CUSTOM_GEN_TARGET;
+    state.output_dir = dirpath;
+    state.project_name = name;
+    state.external_target = true;
     init_code_generator(dirpath, name, head);
     set_generation_target(lang_elements, file_maker);
 end
 
 # Set parameters used by code generation. This is specific to the target.
-function set_codegen_parameters(params)
-    global codegen_params = params;
+function set_codegen_parameters(state::FinchState, params)
+    state.target_parameters = params;
 end
 
 # Set the needed discretizations and backend
-function set_solver(stype)
+function set_solver(state::FinchState, stype)
     if typeof(stype) <: Array
         printerr("Mixed discretizations are not ready in this version of Finch.", fatal=true);
-        config.solver_type = MIXED;
+        state.config.solver_type = MIXED;
         for s in stype
             if s == CG
-                global needed_grid_types[1] = true;
+                state.needed_grid_types[1] = true;
             elseif s == DG
-                global needed_grid_types[2] = true;
+                state.needed_grid_types[2] = true;
             elseif s == FV
-                global needed_grid_types[3] = true;
+                state.needed_grid_types[3] = true;
             end
         end
     elseif stype == DG
-        config.solver_type = stype;
-        global needed_grid_types[2] = true;
+        state.config.solver_type = stype;
+        state.needed_grid_types[2] = true;
     elseif stype == CG
-        config.solver_type = stype;
-        global needed_grid_types[1] = true;
+        state.config.solver_type = stype;
+        state.needed_grid_types[1] = true;
     elseif stype == FV
-        config.solver_type = stype;
-        global needed_grid_types[3] = true;
+        state.config.solver_type = stype;
+        state.needed_grid_types[3] = true;
     end
 end
 
 # Sets the time stepper
-function set_stepper(type, cfl)
+function set_stepper(state::FinchState, type, cfl)
     if typeof(type) <: Array
         first_stepper = Stepper(type[1], cfl);
         second_stepper = Stepper(type[2], cfl);
         
-        global time_stepper = [first_stepper, second_stepper];
-        global config.stepper = MIXED_STEPPER;
+        state.time_stepper = [first_stepper, second_stepper];
+        state.config.stepper = MIXED_STEPPER;
         log_entry("Set mixed time stepper to ["*type[1]*", "*type[2]*"]", 1);
     else
-        global time_stepper = Stepper(type, cfl);
-        global config.stepper = type;
+        state.time_stepper = Stepper(type, cfl);
+        state.config.stepper = type;
         log_entry("Set time stepper to "*type, 1);
     end
 end
 
 # Time steps can be chosen automatically or specified. This is for manual specifying.
-function set_specified_steps(dt, steps)
-    global specified_dt = dt;
-    global specified_Nsteps = steps;
-    global use_specified_steps = true;
-    prob.time_dependent = true;
-    prob.end_time = dt*steps;
+function set_specified_steps(state::FinchState, dt, steps)
+    state.specified_dt = dt;
+    state.specified_Nsteps = steps;
+    state.use_specified_steps = true;
+    state.prob.time_dependent = true;
+    state.prob.end_time = dt*steps;
     log_entry("Set time stepper values to dt="*string(dt)*", Nsteps="*string(steps), 1);
 end
 
 # Adds a mesh and builds the full grid and reference elements.
-function add_mesh(mesh; partitions=0)
-    global mesh_data = mesh;
-    global refel;
-    global fv_refel;
-    global grid_data;
-    global dg_grid_data;
-    global fv_grid;
-    global geo_factors;
-    global fv_geo_factors;
-    global fv_info;
+function add_mesh(state::FinchState, mesh; partitions=0)
+    state.mesh_data = mesh;
     
     # If no method has been specified, assume CG
-    if !(needed_grid_types[1] || needed_grid_types[2] || needed_grid_types[3])
-        set_solver(CG);
+    if !(state.needed_grid_types[1] || state.needed_grid_types[2] || state.needed_grid_types[3])
+        set_solver(state, CG);
     end
     
     if partitions==0
-        np = config.num_procs; # By default each process gets a partition
-        config.num_partitions = np;
-        config.partition_index = config.proc_rank;
+        np = state.config.num_procs; # By default each process gets a partition
+        state.config.num_partitions = np;
+        state.config.partition_index = state.config.proc_rank;
     else
         # If other partitioning strategies are desired.
         # More than one proc may be assigned to each mesh partition.
         # They are grouped by partition number: 0,0,0,1,1,1,...,p,p,p
         np = partitions;
-        config.num_partitions = np;
-        config.partition_index = Int(floor(((config.proc_rank+0.5) * np) / config.num_procs));
+        state.config.num_partitions = np;
+        state.config.partition_index = Int(floor(((state.config.proc_rank+0.5) * np) / state.config.num_procs));
     end
-    if config.use_mpi && np > 1
-        if config.proc_rank == 0
+    if state.config.use_mpi && np > 1
+        if state.config.proc_rank == 0
             # Partition the mesh and send the partition info to each proc to build their subgrids.
             # For now, partition into the number of procs. This will be modified in the future.
             epart = get_element_partitions(mesh, np);
@@ -285,152 +173,151 @@ function add_mesh(mesh; partitions=0)
         
         # Each proc will build a subgrid containing only their elements and ghost neighbors.
         # Make a Grid struct for each needed type
-        if needed_grid_types[1] # CG
-            (refel, grid_data) = partitioned_grid_from_mesh(mesh_data, epart, grid_type=CG, order=config.basis_order_min);
+        if state.needed_grid_types[1] # CG
+            (state.refel, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=CG, order=state.config.basis_order_min);
         end
-        if needed_grid_types[2] # DG
-            if needed_grid_types[1] # CG also needed
-                (refel, dg_grid_data) = partitioned_grid_from_mesh(mesh_data, epart, grid_type=DG, order=config.basis_order_min);
+        if state.needed_grid_types[2] # DG
+            if state.needed_grid_types[1] # CG also needed
+                (state.refel, state.dg_grid) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=state.config.basis_order_min);
             else
-                (refel, grid_data) = partitioned_grid_from_mesh(mesh_data, epart, grid_type=DG, order=config.basis_order_min);
+                (state.refel, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=state.config.basis_order_min);
             end
         end
-        if needed_grid_types[3] # FV
-            (fv_refel, fv_grid) = partitioned_grid_from_mesh(mesh_data, epart, grid_type=FV, order=1);
+        if state.needed_grid_types[3] # FV
+            (state.fv_refel, fv_grid) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=FV, order=1);
             # If only FV is used, also set grid_data and refel to this. Just in case.
-            if !(needed_grid_types[1] || needed_grid_types[2])
-                grid_data = fv_grid;
-                refel = fv_refel;
+            if !(state.needed_grid_types[1] || state.needed_grid_types[2])
+                state.grid_data = state.fv_grid;
+                state.refel = state.fv_refel;
             end
         end
         
     else
         # Make a Grid struct for each needed type
-        if needed_grid_types[1] # CG
-            (refel, grid_data) = grid_from_mesh(mesh_data, grid_type=CG, order=config.basis_order_min);
+        if state.needed_grid_types[1] # CG
+            (state.refel, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=CG, order=state.config.basis_order_min);
         end
-        if needed_grid_types[2] # DG
-            if needed_grid_types[1] # CG also needed
-                (refel, dg_grid_data) = grid_from_mesh(mesh_data, grid_type=DG, order=config.basis_order_min);
+        if state.needed_grid_types[2] # DG
+            if state.needed_grid_types[1] # CG also needed
+                (state.refel, state.dg_grid) = grid_from_mesh(state.mesh_data, grid_type=DG, order=state.config.basis_order_min);
             else
-                (refel, grid_data) = grid_from_mesh(mesh_data, grid_type=DG, order=config.basis_order_min);
+                (state.refel, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=DG, order=state.config.basis_order_min);
             end
         end
-        if needed_grid_types[3] # FV
-            (fv_refel, fv_grid) = grid_from_mesh(mesh_data, grid_type=FV, order=1);
+        if state.needed_grid_types[3] # FV
+            (state.fv_refel, state.fv_grid) = grid_from_mesh(state.mesh_data, grid_type=FV, order=1);
             # If only FV is used, also set grid_data and refel to this. Just in case.
-            if !(needed_grid_types[1] || needed_grid_types[2])
-                grid_data = fv_grid;
-                refel = fv_refel;
+            if !(state.needed_grid_types[1] || state.needed_grid_types[2])
+                state.grid_data = state.fv_grid;
+                state.refel = state.fv_refel;
             end
         end
     end
     
     # regular parallel sided elements or simplexes have constant Jacobians, so only store one value per element.
-    if ((config.geometry == SQUARE && config.mesh_type == UNIFORM_GRID) ||
-        config.dimension == 1 ||
-        (config.dimension == 2 && refel.Nfaces == 3) ||
-        (config.dimension == 3 && refel.Nfaces == 4) )
+    if ((state.config.geometry == SQUARE && state.config.mesh_type == UNIFORM_GRID) ||
+        state.config.dimension == 1 ||
+        (state.config.dimension == 2 && state.refel.Nfaces == 3) ||
+        (state.config.dimension == 3 && state.refel.Nfaces == 4) )
         constantJ = true;
     else
         constantJ = false;
     end
     do_faces = false;
     do_vol = false;
-    if config.solver_type == DG || config.solver_type == FV || config.solver_type == MIXED
+    if state.config.solver_type == DG || state.config.solver_type == FV || state.config.solver_type == MIXED
         do_faces = true;
     end
-    if config.solver_type == FV || config.solver_type == MIXED
+    if state.config.solver_type == FV || state.config.solver_type == MIXED
         do_vol = true;
     end
     
     # FE version is always made?
-    geo_factors = build_geometric_factors(refel, grid_data, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
-    if needed_grid_types[3] # FV
-        fv_geo_factors = build_geometric_factors(fv_refel, fv_grid, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
-        fv_info = build_FV_info(fv_grid);
+    state.geo_factors = build_geometric_factors(state.refel, state.grid_data, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
+    if state.needed_grid_types[3] # FV
+        state.fv_geo_factors = build_geometric_factors(state.fv_refel, state.fv_grid, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
+        state.fv_info = build_FV_info(state.fv_grid);
     end
     
-    log_entry("Added mesh with "*string(mesh_data.nx)*" vertices and "*string(mesh_data.nel)*" elements.", 1);
+    log_entry("Added mesh with "*string(state.mesh_data.nx)*" vertices and "*string(state.mesh_data.nel)*" elements.", 1);
     if np > 1
         e_count = zeros(Int, np);
         for ei=1:length(epart)
             e_count[epart[ei]+1] += 1;
         end
         log_entry("Number of elements in each partition: "*string(e_count), 2);
-        log_entry("Full grid has "*string(length(grid_data.global_bdry_index))*" nodes.", 2);
+        log_entry("Full grid has "*string(length(state.grid_data.global_bdry_index))*" nodes.", 2);
         
     else
-        log_entry("Full grid has "*string(size(grid_data.allnodes,2))*" nodes.", 2);
+        log_entry("Full grid has "*string(size(state.grid_data.allnodes,2))*" nodes.", 2);
     end
 end
 
 # Write the mesh to a MSH file
-function output_mesh(file, format)
-    if config.proc_rank == 0
-        write_mesh(file, format, mesh_data);
+function output_mesh(state::FinchState, file::String, format::String)
+    if state.config.proc_rank == 0
+        write_mesh(file, format, state.mesh_data);
         log_entry("Wrote mesh data to file.", 1);
     end
 end
 
 # For higher order FV, a finer child map is used for calculation, but the 
 # coarse parent map is partitioned.
-function set_parent_and_child(p_maps, c_grid, order)
-    global fv_order = order;
+function set_parent_and_child(state::FinchState, p_maps, c_grid, order)
     # If the mesh has not meen made yet, this will be done after that.
     if c_grid === nothing
         return;
     end
     
-    global fv_grid = c_grid;
-    dim = config.dimension;
-    nfaces = size(fv_grid.element2face,1);
-    global fv_refel = build_refel(dim, 1, nfaces, config.elemental_nodes);
-    global fv_geo_factors = build_geometric_factors(fv_refel, fv_grid, do_face_detj=true, do_vol_area=true, constant_jacobian=true);
-    global fv_info = build_FV_info(fv_grid, order, p_maps);
+    state.fv_grid = c_grid;
+    dim = state.config.dimension;
+    nfaces = size(state.fv_grid.element2face,1);
+    state.fv_refel = build_refel(dim, 1, nfaces, state.config.elemental_nodes);
+    state.fv_geo_factors = build_geometric_factors(state.fv_refel, state.fv_grid, do_face_detj=true, do_vol_area=true, constant_jacobian=true);
+    state.fv_info = build_FV_info(state.fv_grid, order, p_maps);
     log_entry("Set child grid with "*string(size(c_grid.allnodes,2))*" nodes and "*string(size(c_grid.loc2glb,2))*" elements.", 2);
     
     # If CELL variables exist, resize their values
-    N = size(fv_grid.loc2glb, 2);
-    for i=1:length(variables)
-        if variables[i].location == CELL
-            if variables[i].type == SCALAR
+    N = size(state.fv_grid.loc2glb, 2);
+    for i=1:length(state.variables)
+        if state.variables[i].location == CELL
+            if state.variables[i].type == SCALAR
                 val_size = (1, N);
-            elseif variables[i].type == VECTOR
-                val_size = (config.dimension, N);
-            elseif variables[i].type == TENSOR
-                val_size = (config.dimension*config.dimension, N);
-            elseif variables[i].type == SYM_TENSOR
-                val_size = (Int((config.dimension*(config.dimension+1))/2), N);
-            elseif variables[i].type == VAR_ARRAY
-                if typeof(variables[i].indexer) <: Array
+            elseif state.variables[i].type == VECTOR
+                val_size = (dim, N);
+            elseif state.variables[i].type == TENSOR
+                val_size = (dim * dim, N);
+            elseif state.variables[i].type == SYM_TENSOR
+                val_size = (Int((dim * (dim+1))/2), N);
+            elseif state.variables[i].type == VAR_ARRAY
+                if typeof(state.variables[i].indexer) <: Array
                     comps = 1;
-                    for j=1:length(variables[i].indexer)
-                        comps *= length(variables[i].indexer[j].range);
+                    for j=1:length(state.variables[i].indexer)
+                        comps *= length(state.variables[i].indexer[j].range);
                     end
-                elseif typeof(variables[i].indexer) == Indexer
-                    comps = length(variables[i].indexer.range);
+                elseif typeof(state.variables[i].indexer) == Indexer
+                    comps = length(state.variables[i].indexer.range);
                 else
                     comps = 1;
                 end
                 val_size = (comps, N);
             end
             
-            variables[i].values = zeros(config.float_type, val_size);
+            state.variables[i].values = zeros(state.config.float_type, val_size);
         end
     end
 end
 
 # Maybe remove. This is in grid.jl
-function add_boundary_ID(bid, on_bdry)
-    add_boundary_ID_to_grid(bid, on_bdry, grid_data);
+function add_boundary_ID(state::FinchState, bid::Int, on_bdry)
+    add_boundary_ID_to_grid(bid, on_bdry, state.grid_data);
 end
 
 # Defines a test function symbol by creating a special coefficient object.
-function add_test_function(v, type)
-    varind = length(test_functions) + 1;
+function add_test_function(state::FinchState, v, type::String)
+    varind = length(state.test_functions) + 1;
     # make SymType
-    dim = config.dimension;
+    dim = state.config.dimension;
     components = 1;
     if type == SCALAR
         components = 1;
@@ -453,40 +340,39 @@ function add_test_function(v, type)
     end
     symvar = sym_var(string(v), type, components);
 
-    push!(test_functions, Finch.Coefficient(v, symvar, varind, type, NODAL, [], false, false););
+    push!(state.test_functions, Coefficient(v, symvar, varind, type, NODAL, Vector{Union{GenFunction,finch_state.config.float_type}}(undef,0), false, false););
     log_entry("Set test function symbol: "*string(v)*" of type: "*type, 2);
 end
 
 # Adds a variable and allocates everything associated with it.
-function add_variable(var)
-    global var_count += 1;
-
+function add_variable(state::FinchState, var)
     # adjust values arrays
-    if grid_data === nothing
+    if length(state.grid_data.allnodes) == 0
         N = 1;
     else
         if var.location == CELL
-            if fv_grid === nothing
-                N = size(grid_data.loc2glb, 2);
+            if length(state.fv_grid.allnodes) == 0
+                N = size(state.grid_data.loc2glb, 2);
             else
-                N = size(fv_grid.loc2glb, 2);
+                N = size(state.fv_grid.loc2glb, 2);
             end
         else
-            N = size(grid_data.allnodes,2);
+            N = size(state.grid_data.allnodes,2);
         end
     end
     
+    dim = state.config.dimension;
     if var.type == SCALAR
         val_size = (1, N);
         comps = 1;
     elseif var.type == VECTOR
-        val_size = (config.dimension, N);
-        comps = config.dimension;
+        val_size = (dim, N);
+        comps = dim;
     elseif var.type == TENSOR
-        val_size = (config.dimension*config.dimension, N);
-        comps = config.dimension*config.dimension;
+        val_size = (dim * dim, N);
+        comps = dim * dim;
     elseif var.type == SYM_TENSOR
-        val_size = (Int((config.dimension*(config.dimension+1))/2), N);
+        val_size = (Int((dim * (dim+1))/2), N);
         comps = val_size[1];
     elseif var.type == VAR_ARRAY
         if typeof(var.indexer) <: Array
@@ -503,61 +389,47 @@ function add_variable(var)
     end
     var.total_components = comps;
     
-    if language == JULIA || language == 0
-        var.values = zeros(config.float_type, val_size);
+    if state.target_language == JULIA
+        var.values = zeros(state.config.float_type, val_size);
     else
-        var.values = zeros(config.float_type, 1,0);
+        var.values = zeros(state.config.float_type, 1,0);
     end
     
     # make symbolic layer variable symbols
     var.symvar = sym_var(string(var.symbol), var.type, var.total_components);
 
-    global variables = [variables; var];
+    push!(state.variables, var);
     
-    global solve_function = [solve_function; nothing];
-    global symexpressions[1] = [symexpressions[1]; nothing];
-    global symexpressions[2] = [symexpressions[2]; nothing];
-    global symexpressions[3] = [symexpressions[3]; nothing];
-    global symexpressions[4] = [symexpressions[4]; nothing];
-    global code_strings[1] = [code_strings[1]; ""];
-    global code_strings[2] = [code_strings[2]; ""];
-    global code_strings[3] = [code_strings[3]; ""];
-    global code_strings[4] = [code_strings[4]; ""];
-    global code_strings[5] = [code_strings[5]; ""];
+    push!(state.solve_functions, nothing);
+    push!(state.symexpressions[1], nothing);
+    push!(state.symexpressions[2], nothing);
+    push!(state.symexpressions[3], nothing);
+    push!(state.symexpressions[4], nothing);
+    push!(state.code_strings, "");
 
     log_entry("Added variable: "*string(var.symbol)*" of type: "*var.type*", location: "*var.location, 2);
 end
 
 # Adds a coefficient with either constant value or some generated function of (x,y,z,t)
-function add_coefficient(c, type, location, val, nfuns, element_array=false, time_dependent=false)
-    global coefficients;
+function add_coefficient(state::FinchState, c, type, location, val, nfuns, element_array=false, time_dependent=false)
     # The values of c will have the same array structure as val
     if typeof(val) <: Array
-        vals = Array{Any}(undef,size(val));
+        vals = Vector{Union{Float64,GenFunction}}(undef,length(val));
     else
-        vals = [];
+        vals = Vector{Union{Float64,GenFunction}}(undef,1);
+        val = [val];
     end
-    if nfuns == 0 # constant values
-        vals = val;
-        if length(vals) == 1 && !(typeof(vals) <: Array)
-            vals = [val];
-        end
-
-    else # genfunction values
-        if typeof(val) <: Array
-            ind = length(genfunctions) - nfuns + 1;
-            for i=1:length(val)
-                if typeof(val[i]) == String
-                    vals[i] = genfunctions[ind];
-                    ind += 1;
-                else
-                    vals[i] = val[i];
-                end
-            end
+    
+    ind = length(state.genfunctions) - nfuns + 1;
+    for i=1:length(val)
+        if typeof(val[i]) == String
+            vals[i] = state.genfunctions[ind];
+            ind += 1;
         else
-            push!(vals, genfunctions[end]);
+            vals[i] = Float64(val[i]);
         end
     end
+    
     # If element_array, the last index in size(vals) should be per element.
     # c[n1, nel] for n1 components by nel elements.
     if element_array
@@ -575,8 +447,8 @@ function add_coefficient(c, type, location, val, nfuns, element_array=false, tim
     
     symvar = sym_var(string(c), type, components);
 
-    index = length(coefficients) + 1;
-    push!(coefficients, Coefficient(c, symvar, index, type, location, vals, element_array, time_dependent));
+    index = length(state.coefficients) + 1;
+    push!(state.coefficients, Coefficient(c, symvar, index, type, location, vals, element_array, time_dependent));
     
     if element_array
         log_entry("Added coefficient "*string(c)*" : (array of elemental values)", 2);
@@ -584,23 +456,23 @@ function add_coefficient(c, type, location, val, nfuns, element_array=false, tim
         log_entry("Added coefficient "*string(c)*" : "*string(val), 2);
     end
     
-    return coefficients[end];
+    return state.coefficients[end];
 end
 
 # Adds a parameter entity.
-function add_parameter(p, type, val)
-    index = length(parameters);
-    push!(parameters, Parameter(p, index, type, val));
+function add_parameter(state::FinchState, p, type, val)
+    index = length(state.parameters);
+    push!(state.parameters, Parameter(p, index, type, val));
 
     log_entry("Added parameter "*string(p)*" : "*string(val), 2);
 
-    return parameters[end];
+    return state.parameters[end];
 end
 
 # Adds an Indexer entity
-function add_indexer(indexer)
-    push!(indexers, indexer);
-    push!(ordered_indexers, indexer);
+function add_indexer(state::FinchState, indexer)
+    push!(state.indexers, indexer);
+    push!(state.ordered_indexers, indexer);
     if length(indexer.range) < 3
         log_entry("Added indexer "*string(indexer.symbol)*" : "*string(indexer.range));
     else
@@ -609,15 +481,15 @@ function add_indexer(indexer)
 end
 
 # Sets the ordered indexers
-function set_ordered_indexers(ind)
-    global ordered_indexers = ind;
+function set_ordered_indexers(state::FinchState, ind::Vector{Indexer})
+    state.ordered_indexers = ind;
 end
 
 # Defines a variable transform
-function add_variable_transform(var1, var2, func)
-    push!(variable_transforms, VariableTransform(var1, var2, func));
+function add_variable_transform(state::FinchState, var1, var2, func)
+    push!(state.variable_transforms, VariableTransform(var1, var2, func));
     log_entry("Added transform "*string(func)*": "*string(var1)*" -> "*string(var2));
-    return variable_transforms[end];
+    return state.variable_transforms[end];
 end
 
 # Needed to insert parameter expressions into the weak form expressions.
@@ -641,77 +513,75 @@ function swap_parameter_xyzt(ex)
 end
 
 # Sets initial condition for the given variable, but does not initialize.
-function add_initial_condition(varindex, ex, nfuns)
-    global prob;
-    while length(prob.initial) < varindex
-        prob.initial = [prob.initial; nothing];
+function add_initial_condition(state::FinchState, varindex, ex, nfuns)
+    while length(state.prob.initial) < varindex
+        push!(state.prob.initial, [0.0]);
     end
     if typeof(ex) <: Array
         vals = [];
-        ind = length(genfunctions) - nfuns + 1;
+        ind = length(state.genfunctions) - nfuns + 1;
         for i=1:length(ex)
             if typeof(ex[i]) == String
-                push!(vals, genfunctions[ind]);
+                push!(vals, state.genfunctions[ind]);
                 ind += 1;
             else
-                push!(vals, ex[i]);
+                push!(vals, Float64(ex[i]));
             end
         end
-        prob.initial[varindex] = vals;
+        state.prob.initial[varindex] = vals;
     else
-        var_components = size(variables[varindex].values,1);
+        var_components = size(state.variables[varindex].values,1);
         if typeof(ex) == String
-            prob.initial[varindex] = fill(genfunctions[end], var_components);
+            state.prob.initial[varindex] = fill(state.genfunctions[end], var_components);
         else
-            prob.initial[varindex] = fill(ex, var_components);
+            state.prob.initial[varindex] = fill(Float64(ex), var_components);
         end
     end
     
-    if length(prob.initial[varindex]) < 10
-        log_entry("Initial condition for "*string(variables[varindex].symbol)*" : "*string(prob.initial[varindex]), 2);
+    if length(state.prob.initial[varindex]) < 10
+        log_entry("Initial condition for "*string(state.variables[varindex].symbol)*" : "*string(state.prob.initial[varindex]), 2);
     else
-        log_entry("Initial condition for "*string(variables[varindex].symbol)*" : "*string(prob.initial[varindex][1:6])*" (truncated for printing)", 2);
+        log_entry("Initial condition for "*string(state.variables[varindex].symbol)*" : "*string(state.prob.initial[varindex][1:6])*" (truncated for printing)", 2);
     end
     # hold off on initializing till solve or generate is determined.
 end
 
 # Evaluates all available intitial conditions setting the values for variables.
-function eval_initial_conditions()
-    dim = config.dimension;
-
+function eval_initial_conditions(state::FinchState)
+    dim = state.config.dimension;
     # build initial conditions
-    for vind=1:length(variables)
-        if !(variables[vind].ready) && vind <= length(prob.initial)
-            if !(prob.initial[vind] === nothing)
-                if variables[vind].location == CELL && !(fv_grid === nothing)
+    for vind=1:length(state.variables)
+        if !(state.variables[vind].ready) && vind <= length(state.prob.initial)
+            if length(state.prob.initial[vind]) == state.variables[vind].total_components
+                if state.variables[vind].location == CELL && !(length(state.fv_grid.allnodes) == 0)
                     # Need to use the fv_grid instead of grid_data
-                    this_grid_data = fv_grid;
-                    this_geo_factors = fv_geo_factors;
-                    this_refel = fv_refel;
+                    this_grid_data = state.fv_grid;
+                    this_geo_factors = state.fv_geo_factors;
+                    this_refel = state.fv_refel;
                 else
-                    this_grid_data = grid_data;
-                    this_geo_factors = geo_factors;
-                    this_refel = refel;
+                    this_grid_data = state.grid_data;
+                    this_geo_factors = state.geo_factors;
+                    this_refel = state.refel;
                 end
                 
                 # Evaluate at nodes
-                nodal_values = zeros(config.float_type, length(prob.initial[vind]), size(this_grid_data.allnodes,2));
-                for ci=1:length(prob.initial[vind])
+                nodal_values = zeros(state.config.float_type, length(state.prob.initial[vind]), size(this_grid_data.allnodes,2));
+                for ci=1:length(state.prob.initial[vind])
                     for ni=1:size(this_grid_data.allnodes,2)
-                        if typeof(prob.initial[vind][ci]) <: Number
-                            nodal_values[ci,ni] = prob.initial[vind][ci];
+                        if typeof(state.prob.initial[vind][ci]) <: Number
+                            nodal_values[ci,ni] = state.prob.initial[vind][ci];
                         elseif dim == 1
-                            nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[ni],0.0,0.0,0);
+                            nodal_values[ci,ni] = state.prob.initial[vind][ci].func(this_grid_data.allnodes[ni],0.0,0.0,0.0, 0,0,zeros(Int,0));
                         elseif dim == 2
-                            nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],0.0,0);
+                            nodal_values[ci,ni] = state.prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],0.0,0.0, 0,0,zeros(Int,0));
                         elseif dim == 3
-                            nodal_values[ci,ni] = prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],this_grid_data.allnodes[3,ni],0);
+                            nodal_values[ci,ni] = state.prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],this_grid_data.allnodes[3,ni],0.0, 0,0,zeros(Int,0));
                         end
                     end
                 end
                 
                 # compute cell averages using nodal values if needed
-                if variables[vind].location == CELL
+                if state.variables[vind].location == CELL
                     nel = size(this_grid_data.loc2glb, 2);
                     for ei=1:nel
                         e = ei;
@@ -719,48 +589,48 @@ function eval_initial_conditions()
                         vol = this_geo_factors.volume[e];
                         detj = this_geo_factors.detJ[e];
                         
-                        for ci=1:length(prob.initial[vind])
-                            variables[vind].values[ci,e] = detj / vol * (this_refel.wg' * this_refel.Q * (nodal_values[ci,glb][:]))[1];
+                        for ci=1:length(state.prob.initial[vind])
+                            state.variables[vind].values[ci,e] = detj / vol * (this_refel.wg' * this_refel.Q * (nodal_values[ci,glb][:]))[1];
                         end
                     end
                 else
-                    variables[vind].values = nodal_values;
+                    state.variables[vind].values = nodal_values;
                 end
                 
-                variables[vind].ready = true;
-                log_entry("Built initial conditions for: "*string(variables[vind].symbol));
+                state.variables[vind].ready = true;
+                log_entry("Built initial conditions for: "*string(state.variables[vind].symbol));
             end
         end
     end
 end
 
 # Sets boundary condition for a variable and BID.
-function add_boundary_condition(var, bid, type, ex, nfuns)
-    global prob;
+function add_boundary_condition(state::FinchState, var, bid, type, ex, nfuns)
+    var_count = length(state.variables);
     # make sure the arrays are big enough
-    if size(prob.bc_func, 1) < var_count || size(prob.bc_func, 2) < bid
-        if !(grid_data===nothing)
-            nbid = length(grid_data.bids);
+    if size(state.prob.bc_func, 1) < var_count || size(state.prob.bc_func, 2) < bid
+        if !(state.grid_data===nothing)
+            nbid = length(state.grid_data.bids);
         else
             # For some targets no grid is created
             nbid = 1;
         end
         
         tmp1 = fill(NO_BC, var_count, nbid);
-        tmp2 = Array{Any,2}(undef, (var_count, nbid)); # need to keep this array open to any type
-        fill!(tmp2, 0);
+        tmp2 = Matrix{Vector{Union{Float64,GenFunction}}}(undef, (var_count, nbid));
+        fill!(tmp2, [0.0]);
         tmp3 = zeros(Int, (var_count, nbid));
         
-        for i=1:size(prob.bc_func,1)
-            for j=1:size(prob.bc_func,2)
-                tmp1[i,j] = prob.bc_type[i,j];
-                tmp2[i,j] = prob.bc_func[i,j];
-                tmp3[i,j] = prob.bid[i,j];
+        for i=1:size(state.prob.bc_func,1)
+            for j=1:size(state.prob.bc_func,2)
+                tmp1[i,j] = state.prob.bc_type[i,j];
+                tmp2[i,j] = state.prob.bc_func[i,j];
+                tmp3[i,j] = state.prob.bid[i,j];
             end
         end
-        prob.bc_type = tmp1;
-        prob.bc_func = tmp2;
-        prob.bid = tmp3;
+        state.prob.bc_type = tmp1;
+        state.prob.bc_func = tmp2;
+        state.prob.bid = tmp3;
     end
     
     # Add this boundary condition to the struct
@@ -768,18 +638,18 @@ function add_boundary_condition(var, bid, type, ex, nfuns)
     if typeof(ex) <: Array
         vals = [];
         valstr = "[";
-        ind = length(genfunctions) - nfuns + 1;
+        ind = length(state.genfunctions) - nfuns + 1;
         for i=1:length(ex)
             if typeof(ex[i]) <: Number
-                push!(vals, ex[i]);
+                push!(vals, Float64(ex[i]));
                 valstr *= string(ex[i]);
             elseif typeof(ex[i]) == String
-                push!(vals, genfunctions[ind]);
-                valstr *= genfunctions[ind].name;
+                push!(vals, state.genfunctions[ind]);
+                valstr *= state.genfunctions[ind].name;
                 ind += 1;
-            else # callback
-                push!(vals, ex[i]);
-                valstr *= ex[i].name;
+            # else # callback
+            #     push!(vals, ex[i]);
+            #     valstr *= ex[i].name;
             end
             if i < length(ex)
                 valstr *= ", ";
@@ -795,46 +665,49 @@ function add_boundary_condition(var, bid, type, ex, nfuns)
         end
         
         valstr *= "]";
-        prob.bc_func[var.index, bid] = vals;
+        state.prob.bc_func[var.index, bid] = vals;
         
     else
         var_components = size(var.values,1);
         if typeof(ex) <: Number
-            prob.bc_func[var.index, bid] = fill(ex, var_components); 
+            state.prob.bc_func[var.index, bid] = fill(Float64(ex), var_components); 
             valstr = string(ex);
         elseif typeof(ex) == String
-            prob.bc_func[var.index, bid] = fill(genfunctions[end], var_components); 
-            valstr = genfunctions[end].name;
-        else # callback
-            prob.bc_func[var.index, bid] = fill(ex, var_components); 
-            valstr = ex.name;
+            state.prob.bc_func[var.index, bid] = fill(state.genfunctions[end], var_components); 
+            valstr = state.genfunctions[end].name;
+        # else # callback
+        #     state.prob.bc_func[var.index, bid] = fill(ex, var_components); 
+        #     valstr = ex.name;
         end
     end
-    prob.bc_type[var.index, bid] = type;
-    prob.bid[var.index, bid] = bid;
+    state.prob.bc_type[var.index, bid] = type;
+    state.prob.bid[var.index, bid] = bid;
 
     log_entry("Boundary condition: var="*string(var.symbol)*" bid="*string(bid)*" type="*type*" val="*valstr, 2);
 end
 
 # A reference point is a single point with a defined value.
 # It's treated like a Dirichlet boundary with one boundary node.
-function add_reference_point(var, pos, val)
-    global prob;
+function add_reference_point(state::FinchState, var, pos, val)
+    var_count = length(state.variables)
     # make sure the array is big enough
-    if size(prob.ref_point,1) < var_count
-        tmp = Array{Any,2}(undef, (var_count, 3));
-        for i=1:size(prob.ref_point,1)
-            tmp[i,:] = prob.ref_point[i,:];
+    if size(state.prob.ref_point,1) < var_count
+        tmp = Matrix{Vector{Union{Int,Float64,GenFunction}}}(undef, (var_count, 2));
+        tmp2 = Vector{Bool}(undef, var_count);
+        for i=1:size(state.prob.ref_point,1)
+            tmp[i,:] = state.prob.ref_point[i,:];
+            tmp2[i] = state.prob.has_ref_point[i];
         end
-        for i=(size(prob.ref_point,1)+1):var_count
-            tmp[i,1] = false;
-            tmp[i,2] = [0,0];
-            tmp[i,3] = [0];
+        for i=(size(state.prob.ref_point,1)+1):var_count
+            tmp2[i] = false;
+            tmp[i,1] = [0,0];
+            tmp[i,2] = [0.0];
         end
-        prob.ref_point = tmp;
+        state.prob.ref_point = tmp;
+        state.prob.has_ref_point = tmp2;
     end
     if typeof(pos) <: Number
-        pos = pos*ones(config.dimension);
+        pos = pos*ones(Int,state.config.dimension);
     end
     if typeof(val) <: Number
         val = val*ones(length(var.symvar));
@@ -844,12 +717,12 @@ function add_reference_point(var, pos, val)
     # The stored pos is actually the index into glbvertex pointing to the closest vertex
     ind = [1,1];
     mindist = 12345;
-    nel = size(grid_data.loc2glb,2);
+    nel = size(state.grid_data.loc2glb,2);
     for ei=1:nel
-        for i=1:size(grid_data.glbvertex,1)
+        for i=1:size(state.grid_data.glbvertex,1)
             d = 0;
             for comp=1:length(pos)
-                d = d + abs(grid_data.allnodes[comp, grid_data.glbvertex[i, ei]] - pos[comp]);
+                d = d + abs(state.grid_data.allnodes[comp, state.grid_data.glbvertex[i, ei]] - pos[comp]);
             end
             if d<mindist
                 ind = [i,ei];
@@ -858,48 +731,48 @@ function add_reference_point(var, pos, val)
         end
     end
     
-    prob.ref_point[var.index, 1] = true;
-    prob.ref_point[var.index, 2] = ind;
-    prob.ref_point[var.index, 3] = val;
+    state.prob.has_ref_point[var.index] = true;
+    state.prob.ref_point[var.index, 1] = ind;
+    state.prob.ref_point[var.index, 2] = val;
     
     log_entry("Reference point: var="*string(var.symbol)*" position="*string(pos)*" value="*string(val), 2);
 end
 
 # adds a callback function to the 
-function add_callback_function(f)
-    push!(callback_functions, f);
+function add_callback_function(state::FinchState, f)
+    push!(state.callback_functions, f);
 end
 
 # Generates a function from a code string and sets that as the code for the variable(s).
-function set_code(var, code, IR)
-    if language == JULIA || language == 0
+function set_code(state::FinchState, var, code, IR)
+    if state.target_language == JULIA
         code_expr = CodeGenerator.code_string_to_expr(code);
         # args = "args; kwargs...";
         # makeFunction(args, code_expr);
         makeCompleteFunction(code_expr);
         if typeof(var) <:Array
             for i=1:length(var)
-                solve_function[var[i].index] = genfunctions[end];
-                code_strings[1][var[i].index] = code;
+                state.solve_functions[var[i].index] = state.genfunctions[end];
+                state.code_strings[var[i].index] = code;
             end
         else
-            solve_function[var.index] = genfunctions[end];
-            code_strings[1][var.index] = code;
+            state.solve_functions[var.index] = state.genfunctions[end];
+            state.code_strings[var.index] = code;
         end
     else
         if typeof(var) <:Array
             for i=1:length(var)
-                solve_function[var[i].index] = IR;
-                code_strings[1][var[i].index] = code;
+                state.solve_functions[var[i].index] = IR;
+                state.code_strings[var[i].index] = code;
             end
         else
-            solve_function[var.index] = IR;
-            code_strings[1][var.index] = code;
+            state.solve_functions[var.index] = IR;
+            state.code_strings[var.index] = code;
         end
     end
 end
 
-function set_symexpressions(var, ex, lorr, vors)
+function set_symexpressions(state::FinchState, var, ex, lorr, vors)
     # If the ex is empty, don't set anything
     if ex == [] || ex == [[]]
         return;
@@ -907,11 +780,10 @@ function set_symexpressions(var, ex, lorr, vors)
     
     if typeof(var) <:Array
         for i=1:length(var)
-            set_symexpressions(var[i], ex, lorr, vors);
+            set_symexpressions(state, var[i], ex, lorr, vors);
         end
         
     else
-        global symexpressions;
         if lorr == LHS
             if vors == "volume"
                 ind = 1;
@@ -925,7 +797,7 @@ function set_symexpressions(var, ex, lorr, vors)
                 ind = 4;
             end
         end
-        symexpressions[ind][var.index] = ex;
+        state.symexpressions[ind][var.index] = ex;
     end
 end
 

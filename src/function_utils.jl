@@ -1,39 +1,39 @@
 #=
 # function utils
 =#
-export GenFunction, CallbackFunction, stringToFunction, add_genfunction, makeFunction, makeFunctions, makeCompleteFunction
+export stringToFunction, add_genfunction, makeFunction, makeFunctions, makeCompleteFunction
 # export @stringToFunction, @makeFunction, @makeFunctions
 
-# Stores everything we could need about a generated function.
-struct GenFunction      # example:
-    name::String        # "genfunction_7"
-    args::String        # "x"
-    str::String         # "sin(x)"
-    expr                # expression: sin(x) NOTE: could be an Expr, Symbol, Number,
-    func                # handle for: genfunction_7(x) = sin(x)
-end
+# # Stores everything we could need about a generated function.
+# struct GenFunction      # example:
+#     name::String        # "genfunction_7"
+#     args::String        # "x"
+#     str::String         # "sin(x)"
+#     expr                # expression: sin(x) NOTE: could be an Expr, Symbol, Number,
+#     func                # handle for: genfunction_7(x) = sin(x)
+# end
 
-struct CallbackFunction
-    name::String        # "myFunction"
-    args::Array{String} # ["x", "u", "c"] list of strings for args should match defined symbols
-    body::String        # String of the function body: "a=u+2; return a;" 
-    func                # The function
-end
+# struct CallbackFunction
+#     name::String        # "myFunction"
+#     args::Array{String} # ["x", "u", "c"] list of strings for args should match defined symbols
+#     body::String        # String of the function body: "a=u+2; return a;" 
+#     func                # The function
+# end
 
 # Generates a function from a string
 function stringToFunction(name, args, fun)
-    return eval(Meta.parse(name*"("*args*")="*fun));
+    # return eval(Meta.parse(name*"("*args*")="*fun));
+    return eval(Meta.parse("function "*name*"("*args*") return ("*fun*"); end"));
 end
 
 # Adds the GenFunction to a global array of generated functions
 function add_genfunction(genfun)
-    global genfunc_count += 1;
-    global genfunctions = [genfunctions ; genfun];
+    push!(finch_state.genfunctions, genfun);
     log_entry("Generated function: "*genfun.name);
 end
 
 # Makes either: a constant number, a genfunction, or an array of genfunctions
-function makeFunctions(ex; args="x=0,y=0,z=0,t=0,node_index=1,face_index=1;indices=nothing")
+function makeFunctions(ex; args="x::Float64,y::Float64,z::Float64,t::Float64,node_index::Int,face_index::Int,indices::Vector{Int}")
     nfuns = 0;
     if typeof(ex) <: Array
         for i=1:length(ex)
@@ -57,7 +57,8 @@ end
 # args is a string like "x,y,z"
 # fun is a string like "sin(x)*y + 3*z" OR an Expr
 function makeFunction(args, fun)
-    name = "genfunction_"*string(Finch.genfunc_count+1);
+    count = length(finch_state.genfunctions);
+    name = "genfunction_"*string(count+1);
     if typeof(fun) == Expr
         ex = fun;
         strfun = string(fun);
@@ -174,7 +175,7 @@ end
 # numbers/math ops -> no change
 # x,y,z,t -> no change (provided as input arguments)
 # variable -> Finch.variables[1].values[node_index]
-# coefficient -> evaluate_coefficient(Finch.coefficients[1], x,y,z,t)
+# coefficient -> evaluate_coefficient(Finch.coefficients[1], x,y,z,t,nid,fid,indices)
 # indexer -> Finch.indexers[1].value
 # parameter -> TODO replaced with its expression
 # normal -> Finch.grid_data.faceNormals[:,face_index]
@@ -197,27 +198,27 @@ function replace_symbols_in_conditions(ex)
             i_index = indexer_index_from_symbol(ex);
             cb_index = callback_index_from_symbol(ex);
             if v_index > 0
-                if variables[v_index].type == SCALAR
-                    newex = :(Finch.variables[$v_index].values[node_index]);
+                if finch_state.variables[v_index].type == SCALAR
+                    newex = :(Finch.finch_state.variables[$v_index].values[node_index]);
                 else
-                    newex = :(Finch.variables[$v_index].values[:,node_index]);
+                    newex = :(Finch.finch_state.variables[$v_index].values[:,node_index]);
                 end
                 ex = newex;
             elseif c_index > 0
-                if coefficients[c_index].type == SCALAR
-                    newex = :(evaluate_coefficient(Finch.coefficients[$c_index], 1, x, y, z, t, node_index, face_index));
+                if finch_state.coefficients[c_index].type == LinearAlgebra.ConvertibleSpecialMatrix
+                    newex = :(evaluate_coefficient(Finch.finch_state.coefficients[$c_index], 1, x, y, z, t, node_index, face_index, indices));
                 else
-                    num_comps = length(Finch.coefficients[c_index].value);
-                    newex = :([evaluate_coefficient(Finch.coefficients[$c_index], comp, x, y, z, t, node_index, face_index) for comp in 1:$num_comps]);
+                    num_comps = length(finch_state.coefficients[c_index].value);
+                    newex = :([evaluate_coefficient(Finch.finch_state.coefficients[$c_index], comp, x, y, z, t, node_index, face_index, indices) for comp in 1:$num_comps]);
                 end
                 ex = newex;
             elseif i_index > 0
-                index_tag = indexers[i_index].tag;
+                index_tag = finch_state.indexers[i_index].tag;
                 ex = :(indices[$index_tag]);
             elseif cb_index > 0
-                ex = :(Finch.callback_functions[$cb_index].func);
+                ex = :(Finch.finch_state.callback_functions[$cb_index].func);
             elseif ex === :normal
-                ex = :(Finch.grid_data.facenormals[:,face_index]);
+                ex = :(Finch.finch_state.grid_data.facenormals[:,face_index]);
             end
             
         end
@@ -228,7 +229,7 @@ function replace_symbols_in_conditions(ex)
 end
 
 function variable_index_from_symbol(s)
-    for v in variables
+    for v in finch_state.variables
         if s === v.symbol
             return v.index;
         end
@@ -237,7 +238,7 @@ function variable_index_from_symbol(s)
 end
 
 function coefficient_index_from_symbol(s)
-    for c in coefficients
+    for c in finch_state.coefficients
         if s === c.symbol
             return c.index;
         end
@@ -246,8 +247,8 @@ function coefficient_index_from_symbol(s)
 end
 
 function indexer_index_from_symbol(s)
-    for i=1:length(indexers)
-        if s === indexers[i].symbol
+    for i=1:length(finch_state.indexers)
+        if s === finch_state.indexers[i].symbol
             return i;
         end
     end
@@ -255,8 +256,8 @@ function indexer_index_from_symbol(s)
 end
 
 function callback_index_from_symbol(s)
-    for i=1:length(callback_functions)
-        if string(s) == callback_functions[i].name
+    for i=1:length(finch_state.callback_functions)
+        if string(s) == finch_state.callback_functions[i].name
             return i;
         end
     end

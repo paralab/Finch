@@ -5,23 +5,25 @@
 =#
 
 ### If the Finch package has already been added, use this line #########
-using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+# using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
 
 ### If not, use these four lines (working from the examples directory) ###
-# if !@isdefined(Finch)
-#     include("../Finch.jl");
-#     using .Finch
-# end
+if !@isdefined(Finch)
+    include("../Finch.jl");
+    using .Finch
+end
 ##########################################################################
 
 initFinch("poisson1d");
+
+# floatDataType(Float32);
 
 useLog("poisson1dlog", level=3)
 
 # Set up the configuration
 domain(1) # dimension
 
-mesh(LINEMESH, elsperdim=180)   # build uniform LINEMESH with 180 elements
+mesh(LINEMESH, elsperdim=200)   # build uniform LINEMESH with 180 elements
 
 u = variable("u")              # make a scalar variable with symbol u
 testSymbol("v")                # sets the symbol for a test function
@@ -41,19 +43,19 @@ finalizeFinch()
 
 # exact solution is sin(10*pi*x)*sin(pi*x)
 # check error
-allerr = zeros(size(Finch.grid_data.allnodes,2));
+allerr = zeros(size(Finch.finch_state.grid_data.allnodes,2));
 
-for i=1:size(Finch.grid_data.allnodes,2)
-    x = Finch.grid_data.allnodes[1,i];
+for i=1:size(Finch.finch_state.grid_data.allnodes,2)
+    x = Finch.finch_state.grid_data.allnodes[1,i];
     exact = sin(10*pi*x)*sin(pi*x);
     allerr[i] = abs(u.values[i] - exact);
 end
 maxerr = maximum(abs, allerr);
 println("max error = "*string(maxerr));
 
-### uncomment below to plot ###
+# ### uncomment below to plot ###
 
 # # solution is stored in the variable's "values"
 # using Plots
 # pyplot();
-# display(plot(Finch.grid_data.allnodes[:], u.values[:], markershape=:circle, legend=false))
+# display(plot(Finch.finch_state.grid_data.allnodes[:], u.values[:], markershape=:circle, legend=false))
