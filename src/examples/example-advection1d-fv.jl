@@ -16,6 +16,8 @@ initFinch("advection1d");
 
 useLog("advection1dlog", level=3)
 
+# floatDataType(Float32)
+
 # Configuration setup
 domain(1)
 solverType(FV)
@@ -65,9 +67,9 @@ finalizeFinch()
 
 # # The exact solution for u with constant velocity a=1
 # a = 1;
-# n = size(Finch.fv_info.cellCenters,2);
+# n = size(Finch.finch_state.fv_info.cellCenters,2);
 # exact = zeros(n);
-# x = Finch.fv_info.cellCenters[:]
+# x = Finch.finch_state.fv_info.cellCenters[:]
 # for i=1:n
 #     xt = x[i] - a*T;
 #     if xt < 0

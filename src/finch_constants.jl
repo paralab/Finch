@@ -2,7 +2,7 @@
 Define some constants
 Use string values to make printing/interpretation easier
 =#
-export JULIA, CPP, MATLAB, DENDRO, HOMG, CUSTOM_GEN_TARGET,
+export JULIA, CPP, MATLAB, FINCH, DENDRO, HOMG, CUSTOM_GEN_TARGET,
         SQUARE, IRREGULAR, UNIFORM_GRID, TREE, UNSTRUCTURED, 
         CG, DG, HDG, FV, MIXED,
         NODAL, MODAL, CELL, LEGENDRE, UNIFORM, GAUSS, LOBATTO, 
@@ -20,6 +20,7 @@ export JULIA, CPP, MATLAB, DENDRO, HOMG, CUSTOM_GEN_TARGET,
 const JULIA = "Julia";
 const CPP = "C++";
 const MATLAB = "Matlab";
+const FINCH = "Finch";
 const DENDRO = "Dendro";
 const HOMG = "HOMG";
 const CUSTOM_GEN_TARGET = "Custom gen target";

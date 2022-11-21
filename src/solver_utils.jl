@@ -5,7 +5,7 @@ so they should be made as efficient as possible.
 =#
 
 # Solves a sparse system IN PLACE
-function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x::Vector, config::Finch_config)
+function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x::Vector, config::FinchConfig, preconditioner=nothing)
     if config.num_procs > 1 && config.proc_rank > 0
         # Other procs don't have the full A, just return b
         return b;
@@ -14,7 +14,9 @@ function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x
     if config.linalg_usePetsc == false
         if config.linalg_matrixfree
             # How should we handle preconditioners for matrix-free?
-            preconditioner = IterativeSolvers.Identity();
+            if preconditioner === nothing
+                preconditioner = IterativeSolvers.Identity();
+            end
             
             if config.linalg_iterative_method == "GMRES"
                 if config.linalg_iterative_maxiter == 0
@@ -37,12 +39,14 @@ function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x
             end
             
         elseif config.linalg_iterative
-            if config.linalg_iterative_pc == "ILU"
-                preconditioner = IncompleteLU.ilu(A);
-            elseif config.linalg_iterative_pc == "AMG"
-                preconditioner = AlgebraicMultigrid.aspreconditioner(ruge_stuben(A));
-            else
-                preconditioner = IterativeSolvers.Identity();
+            if preconditioner === nothing
+                if config.linalg_iterative_pc == "ILU"
+                    preconditioner = IncompleteLU.ilu(A);
+                elseif config.linalg_iterative_pc == "AMG"
+                    preconditioner = AlgebraicMultigrid.aspreconditioner(ruge_stuben(A));
+                else
+                    preconditioner = IterativeSolvers.Identity();
+                end
             end
             
             if config.linalg_iterative_method == "GMRES"
@@ -109,7 +113,7 @@ function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x
 end
 
 # Solves a sparse system
-function linear_system_solve(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, config::Finch_config)
+function linear_system_solve(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, config::FinchConfig)
     if config.num_procs > 1 && config.proc_rank > 0
         # Other procs don't have the full A, just return b
         return b;
@@ -209,8 +213,25 @@ function linear_system_solve(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, co
     end
 end
 
+function make_preconditioner(A::Union{SparseMatrixCSC, LinearMap}, config::FinchConfig)
+    if config.linalg_matrixfree
+        preconditioner = IterativeSolvers.Identity();
+        
+    else
+        if config.linalg_iterative_pc == "ILU"
+            preconditioner = IncompleteLU.ilu(A);
+        elseif config.linalg_iterative_pc == "AMG"
+            preconditioner = AlgebraicMultigrid.aspreconditioner(ruge_stuben(A));
+        else
+            preconditioner = IterativeSolvers.Identity();
+        end
+    end
+    
+    return preconditioner;
+end
+
 # place the values from sol into the variable value arrays
-function place_vector_in_vars(var::Vector{Variable}, vect::Vector)
+function place_vector_in_vars(var::Vector{Variable{FT}}, vect::Vector) where FT<:AbstractFloat
     tmp = 0;
     totalcomponents = 0;
     for vi=1:length(var)
@@ -229,7 +250,7 @@ function place_vector_in_vars(var::Vector{Variable}, vect::Vector)
 end
 
 # Set the values from variable arrays in a global vector
-function get_var_vals(var::Vector{Variable}, vect::Union{Nothing, Vector}=nothing)
+function get_var_vals(var::Vector{Variable{FT}}, vect::Union{Nothing, Vector}=nothing) where FT<:AbstractFloat
     tmp = 0;
     totalcomponents = 0;
     for vi=1:length(var)
@@ -253,8 +274,8 @@ end
 # Only for Dirichlet Boundaries!
 # Copy the dirichlet values from vec into var.values
 # If zero_vals, the values in vec will be zero after copying
-function copy_bdry_vals_to_variables(var::Vector{Variable}, vec::Vector, grid::Grid, 
-                                    dofs_per_node::Int, zero_vals::Bool=true)
+function copy_bdry_vals_to_variables(var::Vector{Variable{FT}}, vec::Vector, grid::Grid, 
+                                    dofs_per_node::Int, prob::FinchProblem, zero_vals::Bool=true) where FT<:AbstractFloat
     dofind = 0;
     for vi=1:length(var)
         for compo=1:length(var[vi].symvar)
@@ -290,7 +311,7 @@ end
 
 # Only for Dirichlet Boundaries!
 # Copy the dirichlet values from var.values into vec_b
-function copy_bdry_vals_to_vector(var::Vector{Variable}, vec::Vector, grid::Grid, dofs_per_node::Int)
+function copy_bdry_vals_to_vector(var::Vector{Variable{FT}}, vec::Vector, grid::Grid, dofs_per_node::Int, prob::FinchProblem) where FT<:AbstractFloat
     dofind = 0;
     for vi=1:length(var)
         for compo=1:length(var[vi].symvar)

@@ -3,77 +3,84 @@
 # Unlike MeshData struct, this accounts for interior nodes and corresponds to nodal DOFs.
 =#
 
-struct Grid
-    # nodes
-    allnodes::Array                 # All node coordinates size = (dim, nnodes)
+# struct Grid
+#     # nodes
+#     allnodes::Array                 # All node coordinates size = (dim, nnodes)
     
-    # boundaries
-    bdry::Vector{Vector}        # Indices of boundary nodes for each BID (bdry[bid][nodes])*note:array of arrays
-    bdryface::Vector{Vector}    # Indices of faces touching each BID (bdryface[bid][faces])*note:array of arrays
-    bdrynorm::Vector{Matrix}    # Normal vector for boundary nodes for each BID (bdrynorm[bid][dim, nodes])*note:array of arrays
-    bids::Vector                # BID corresponding to rows of bdrynodes
-    nodebid::Vector             # BID for every node in allnodes order(interior=0)
+#     # boundaries
+#     bdry::Vector{Vector}        # Indices of boundary nodes for each BID (bdry[bid][nodes])*note:array of arrays
+#     bdryface::Vector{Vector}    # Indices of faces touching each BID (bdryface[bid][faces])*note:array of arrays
+#     bdrynorm::Vector{Matrix}    # Normal vector for boundary nodes for each BID (bdrynorm[bid][dim, nodes])*note:array of arrays
+#     bids::Vector                # BID corresponding to rows of bdrynodes
+#     nodebid::Vector             # BID for every node in allnodes order(interior=0)
     
-    # elements
-    loc2glb::Matrix             # local to global map for each element's nodes (size is (Np, nel))
-    glbvertex::Matrix           # global indices of each elements' vertices (size is (Nvertex, nel))
+#     # elements
+#     loc2glb::Matrix             # local to global map for each element's nodes (size is (Np, nel))
+#     glbvertex::Matrix           # global indices of each elements' vertices (size is (Nvertex, nel))
     
-    # faces (For CG, G=1. For DG, G=2)
-    face2glb::Array             # local to global map for faces (size is (Nfp, G, Nfaces))
-    element2face::Matrix        # face indices for each element (size is (Nfaces, nel))
-    face2element::Matrix        # elements on both sides of a face, 0=boundary (size is (2, Nfaces))
-    facenormals::Matrix         # normal vector for each face
-    faceRefelInd::Matrix        # Index for face within the refel for each side
-    facebid::Vector             # BID of each face (0=interior face)
+#     # faces (For CG, G=1. For DG, G=2)
+#     face2glb::Array             # local to global map for faces (size is (Nfp, G, Nfaces))
+#     element2face::Matrix        # face indices for each element (size is (Nfaces, nel))
+#     face2element::Matrix        # elements on both sides of a face, 0=boundary (size is (2, Nfaces))
+#     facenormals::Matrix         # normal vector for each face
+#     faceRefelInd::Matrix        # Index for face within the refel for each side
+#     facebid::Vector             # BID of each face (0=interior face)
     
-    # When partitioning the grid, this stores the ghost info.
-    # Items specifying (for solver type) will be empty/0 for other types.
-    is_subgrid::Bool            # Is this a partition of a greater grid?
-    elemental_order::Vector     # Order used in elemental loops
-    nel_global::Int             # Number of global elements
-    nel_owned::Int              # Number of elements owned by this partition
-    nel_ghost::Int              # Number of ghost elements (for FV)
-    nface_owned::Int            # Number of faces owned by this partition
-    nface_ghost::Int            # Number of ghost faces that are not owned (for FV)
-    nnodes_global::Int          # Number of global nodes
-    nnodes_borrowed::Int        # Number of nodes borrowed from another partition (for CG)
-    element_owner::Vector       # The rank of each element's owner or -1 if locally owned (for FV)
-    node_owner::Vector          # The rank of each node's owner (for FE)
-    grid2mesh::Vector           # Map from partition elements to global mesh element index
-    partition2global::Vector    # Global index of nodes (for CG,DG)
-    global_bdry_index::Vector   # Index in bids for every global node, or 0 for interior (Only proc 0 holds, only for FE)
+#     # When partitioning the grid, this stores the ghost info.
+#     # Items specifying (for solver type) will be empty/0 for other types.
+#     is_subgrid::Bool            # Is this a partition of a greater grid?
+#     elemental_order::Vector     # Order used in elemental loops
+#     nel_global::Int             # Number of global elements
+#     nel_owned::Int              # Number of elements owned by this partition
+#     nel_ghost::Int              # Number of ghost elements (for FV)
+#     nface_owned::Int            # Number of faces owned by this partition
+#     nface_ghost::Int            # Number of ghost faces that are not owned (for FV)
+#     nnodes_global::Int          # Number of global nodes
+#     nnodes_borrowed::Int        # Number of nodes borrowed from another partition (for CG)
+#     element_owner::Vector       # The rank of each element's owner or -1 if locally owned (for FV)
+#     node_owner::Vector          # The rank of each node's owner (for FE)
+#     grid2mesh::Vector           # Map from partition elements to global mesh element index
+#     partition2global::Vector    # Global index of nodes (for CG,DG)
+#     global_bdry_index::Vector   # Index in bids for every global node, or 0 for interior (Only proc 0 holds, only for FE)
     
-    num_neighbor_partitions::Int   # number of partitions that share ghosts with this.
-    neighboring_partitions::Vector # IDs of neighboring partitions
-    ghost_counts::Vector           # How many ghost elements for each neighbor (for FV)
-    ghost_index::Vector{Array}     # Lists of ghost elements to send/recv for each neighbor (for FV)
+#     num_neighbor_partitions::Int   # number of partitions that share ghosts with this.
+#     neighboring_partitions::Vector # IDs of neighboring partitions
+#     ghost_counts::Vector           # How many ghost elements for each neighbor (for FV)
+#     ghost_index::Vector{Array}     # Lists of ghost elements to send/recv for each neighbor (for FV)
     
-    # constructors
-    Grid(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
-         face2element, facenormals, faceRefelInd, facebid) = 
-     new(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
-         face2element, facenormals, faceRefelInd, facebid, 
-         false, Array(1:size(loc2glb,2)), size(loc2glb,2), size(loc2glb,2), 0,size(face2element,2), 0, 0, 0, zeros(Int,0), zeros(Int,0), 
-         zeros(Int,0), zeros(Int,0), zeros(Int8,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]); # up to facebid only
+#     # constructors
+#     Grid(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
+#          face2element, facenormals, faceRefelInd, facebid) = 
+#      new(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
+#          face2element, facenormals, faceRefelInd, facebid, 
+#          false, Array(1:size(loc2glb,2)), size(loc2glb,2), size(loc2glb,2), 0,size(face2element,2), 0, 0, 0, zeros(Int,0), zeros(Int,0), 
+#          zeros(Int,0), zeros(Int,0), zeros(Int8,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]); # up to facebid only
      
-    Grid(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
-         face2element, facenormals, faceRefelInd, facebid, 
-         ispartitioned, el_order, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
-         node_owner, grid2mesh, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
-     new(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
-         face2element, facenormals, faceRefelInd, facebid, 
-         ispartitioned, el_order, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
-         node_owner, grid2mesh, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
-end
-
-etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices for each type
-etypetodim= [1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3]; # dimension of each type
-etypetonf = [2, 3, 4, 4, 6, 5, 5, 2, 3, 4, 4, 6, 5, 5, 1, 4, 6, 5, 5]; # number of faces for element types
-etypetoftype=[0,1, 1, 2, 3, 3, 3, 0, 1, 1, 2, 3, 3, 3, 0, 0, 0, 0, 0]; # type of faces for this element type
+#     Grid(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
+#          face2element, facenormals, faceRefelInd, facebid, 
+#          ispartitioned, el_order, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
+#          node_owner, grid2mesh, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
+#      new(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
+#          face2element, facenormals, faceRefelInd, facebid, 
+#          ispartitioned, el_order, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
+#          node_owner, grid2mesh, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
+         
+#     # An empty Grid
+#     Grid() = new(
+#         [],[],[],[],[],[],[],[],[],[],[],[],[],[],
+#         false,[],0,0,0,0,0,0,0,[],[],[],[],[],0,[],[],[]
+#     )
+# end
 
 # Build a grid from a mesh
 # This is for full grids. For partitioned grids see partitioned_grid_from_mesh()
 function grid_from_mesh(mesh; grid_type=CG, order=1)
+    etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices for each type
+    etypetodim= [1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3]; # dimension of each type
+    etypetonf = [2, 3, 4, 4, 6, 5, 5, 2, 3, 4, 4, 6, 5, 5, 1, 4, 6, 5, 5]; # number of faces for element types
+    etypetoftype=[0,1, 1, 2, 3, 3, 3, 0, 1, 1, 2, 3, 3, 3, 0, 0, 0, 0, 0]; # type of faces for this element type
+    
+    config = finch_state.config;
     log_entry("Building full grid from mesh data. Types = "*string(grid_type), 2);
     t_grid_from_mesh = Base.Libc.time();
     int_type = config.index_type;
@@ -336,7 +343,7 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
     t_grid_from_mesh = Base.Libc.time() - t_grid_from_mesh;
     log_entry("Total grid building time: "*string(t_grid_from_mesh), 2);
     
-    return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, 
+    return (refel, Grid(finch_state.config.float_type, allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, 
                         element2face, face2element, facenormals, faceRefelInd, facebid));
 end
 
@@ -364,6 +371,12 @@ end
 # For FV: only status 1 ghosts are needed.
 # For FE: all ghosts are needed.
 function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
+    etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices for each type
+    etypetodim= [1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3]; # dimension of each type
+    etypetonf = [2, 3, 4, 4, 6, 5, 5, 2, 3, 4, 4, 6, 5, 5, 1, 4, 6, 5, 5]; # number of faces for element types
+    etypetoftype=[0,1, 1, 2, 3, 3, 3, 0, 1, 1, 2, 3, 3, 3, 0, 0, 0, 0, 0]; # type of faces for this element type
+    
+    config = finch_state.config;
     log_entry("Building partitioned grid from mesh data", 2);
     t_grid_from_mesh = Base.Libc.time();
     int_type = config.index_type;
@@ -1229,12 +1242,12 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     log_entry("Partitioned grid building time: "*string(t_grid_from_mesh), 2);
     
     if grid_type == FV
-        return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, 
+        return (refel, Grid(finch_state.config.float_type, allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
             true, Array(1:nel_owned), nel_global, nel_owned, nel_face_ghost, owned_faces, ghost_faces, nnodes_global, 0, element_owners, zeros(int_type,0), grid2mesh, zeros(int_type,0), 
             zeros(Int8, 0), num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
     else
-        return (refel, Grid(allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, 
+        return (refel, Grid(finch_state.config.float_type, allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
             true, Array(1:nel_owned), nel_global, nel_owned, 0, owned_faces, 0, nnodes_global, nnodes_borrowed, zeros(int_type,0), node_owner_index, grid2mesh, partition2global, 
             global_bdry_flag, num_neighbors, neighbor_ids, zeros(int_type,0), [zeros(int_type,0)]));
@@ -1274,8 +1287,8 @@ function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, scale=1, depth=5, min
     # defaults
     # depth = 5; # 32768 for 3D
     # mincount = 50; # don't subdivide if less than this
-    int_type = config.index_type;
-    float_type = config.float_type;
+    int_type = finch_state.config.index_type;
+    float_type = finch_state.config.float_type;
     
     # Strategy: divide nodes into bins compare against nodes in bin
     tmpNnodes = size(nodes,2);
@@ -1330,7 +1343,7 @@ function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, scale=1, depth=5, min
         startind = bin_ends[bini] + 1;
     end
     # Then check cbin against itself for the rare case of split nodes
-    # println("part "*string(config.partition_index)*" cbin "*string(length(cbin)));
+    # println("part "*string(finch_state.config.partition_index)*" cbin "*string(length(cbin)));
         
     for ni=2:length(cbin)
         if replace_with[cbin[ni]] == 0 # It may have already been handled
@@ -1788,7 +1801,7 @@ function tetrahedron_refel_to_xyz(r, s, t, v)
     A = [p2-p1   p3-p1   p4-p1];
     
     np = length(r);
-    mv = zeros(config.float_type, 3,np);
+    mv = zeros(finch_state.config.float_type, 3,np);
     for i=1:np
         tmp = [(r[i]+1)/2, (s[i]+1)/2, (t[i]+1)/2];
         mv[:,i] = A*tmp + p1;
@@ -1811,8 +1824,8 @@ end
 function is_same_face_center(l1, l2, tol, scale=1)
     n1 = size(l1,2);
     n2 = size(l2,2);
-    center1 = zeros(config.float_type, size(l1,1));
-    center2 = zeros(config.float_type, size(l2,1));
+    center1 = zeros(finch_state.config.float_type, size(l1,1));
+    center2 = zeros(finch_state.config.float_type, size(l2,1));
     for i=1:n1
         center1 = center1 .+ l1[:,i];
     end
@@ -1830,8 +1843,8 @@ end
 function face_center_distance(l1, l2)
     n1 = size(l1,2);
     n2 = size(l2,2);
-    center1 = zeros(config.float_type, size(l1,1));
-    center2 = zeros(config.float_type, size(l2,1));
+    center1 = zeros(finch_state.config.float_type, size(l1,1));
+    center2 = zeros(finch_state.config.float_type, size(l2,1));
     for i=1:n1
         center1 = center1 .+ l1[:,i];
     end
@@ -1909,8 +1922,9 @@ end
 
 # Adds a boundary ID to some region. Find boundary points satifying on_bdry and moves them to a new set for this bid.
 function add_boundary_ID_to_grid(bid, on_bdry, grid)
-    int_type = config.index_type;
-    float_type = config.float_type;
+    int_type = finch_state.config.index_type;
+    float_type = finch_state.config.float_type;
+    dim = finch_state.config.dimension;
     # Find if this bid exists. If so, just add points to it, removing from others.
     ind = indexin([bid], grid.bids)[1];
     nbids = length(grid.bids);
@@ -1921,7 +1935,7 @@ function add_boundary_ID_to_grid(bid, on_bdry, grid)
         push!(grid.bids, bid);
         push!(grid.bdry, zeros(int_type, 0));
         push!(grid.bdryface, zeros(int_type, 0));
-        push!(grid.bdrynorm, zeros(float_type, config.dimension, 0));
+        push!(grid.bdrynorm, zeros(float_type, dim, 0));
     end
     
     # Search all other bids for nodes and faces on this segment. Remove them there and add them here.
@@ -1938,17 +1952,17 @@ function add_boundary_ID_to_grid(bid, on_bdry, grid)
             # First the nodes
             for j=1:length(grid.bdry[i])
                 nj = grid.bdry[i][j];
-                if config.dimension == 1
+                if dim == 1
                     if on_bdry(grid.allnodes[1, nj])
                         push!(move_nodes[i], nj);
                         node_count[i] += 1;
                     end
-                elseif config.dimension == 2
+                elseif dim == 2
                     if on_bdry(grid.allnodes[1, nj], grid.allnodes[2, nj])
                         push!(move_nodes[i], nj);
                         node_count[i] += 1;
                     end
-                elseif config.dimension == 3
+                elseif dim == 3
                     if on_bdry(grid.allnodes[1, nj], grid.allnodes[2, nj], grid.allnodes[3, nj])
                         push!(move_nodes[i], nj);
                         node_count[i] += 1;
@@ -1968,11 +1982,11 @@ function add_boundary_ID_to_grid(bid, on_bdry, grid)
                 end
                 fcenter = fcenter./nfp;
                 
-                if config.dimension == 1
+                if dim == 1
                     isbdryface = on_bdry(fcenter[1]);
-                elseif config.dimension == 2
+                elseif dim == 2
                     isbdryface = on_bdry(fcenter[1], fcenter[2]);
-                elseif config.dimension == 3
+                elseif dim == 3
                     isbdryface = on_bdry(fcenter[1], fcenter[2], fcenter[3]);
                 end
                 
@@ -2009,7 +2023,7 @@ function add_boundary_ID_to_grid(bid, on_bdry, grid)
             # Remove bdrynorm and bdryfacenorm
             numremove = length(move_nodes[i]);
             if numremove > 0
-                newbdrynorm = zeros(float_type, config.dimension, size(grid.bdrynorm[i],2) - numremove);
+                newbdrynorm = zeros(float_type, dim, size(grid.bdrynorm[i],2) - numremove);
                 nextind = 1;
                 for j=1:length(grid.bdry[i])
                     keepit = true;

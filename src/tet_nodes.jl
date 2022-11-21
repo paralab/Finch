@@ -40,7 +40,7 @@ function tetrahedron_refel_nodes!(refel)
                         get_face2local_map(refel.r, tf4)];
     
     # Surface quadrature nodes/weights are not ready. TODO
-    if config.solver_type == DG
+    if finch_state.config.solver_type == DG
         printerr("Surface quadrature for tets is not ready. Sorry.", fatal=true);
     end
 end

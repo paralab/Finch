@@ -134,7 +134,7 @@ function is_same_entity(a::SymEntity, b::SymEntity)
 end
 
 function is_test_function(ent)
-    for t in test_functions
+    for t in finch_state.test_functions
         if string(t.symbol) == ent.name
             return true;
         end
@@ -143,7 +143,7 @@ function is_test_function(ent)
 end
 
 function is_unknown_var(ent, vars)
-    if typeof(vars) == Variable
+    if typeof(vars) <: Variable
         return ent.name == string(vars.symbol);
     elseif typeof(vars) <:Array
         for v in vars
@@ -193,13 +193,13 @@ end
 function is_constant_coef(c)
     isit = false;
     val = 0;
-    for i=1:length(coefficients)
-        if c === coefficients[i].symbol
-            isit = (typeof(coefficients[i].value[1]) <: Number);
+    for i=1:length(finch_state.coefficients)
+        if c === finch_state.coefficients[i].symbol
+            isit = (typeof(finch_state.coefficients[i].value[1]) <: Number);
             if isit
-                val = coefficients[i].value[1];
+                val = finch_state.coefficients[i].value[1];
             else
-                val = coefficients[i].value[1].name;
+                val = finch_state.coefficients[i].value[1].name;
             end
         end
     end
@@ -226,18 +226,18 @@ function get_coef_val(c)
     
     type = 0;
     val = 0;
-    for i=1:length(coefficients)
-        if c.name == string(coefficients[i].symbol)
+    for i=1:length(finch_state.coefficients)
+        if c.name == string(finch_state.coefficients[i].symbol)
             if typeof(c.index) == Int
-                isit = (typeof(coefficients[i].value[c.index]) <: Number);
+                isit = (typeof(finch_state.coefficients[i].value[c.index]) <: Number);
                 if isit
                     type = 1; # a constant wrapped in a coefficient ... not ideal
-                    val = coefficients[i].value[c.index];
+                    val = finch_state.coefficients[i].value[c.index];
                 else
                     type = 2; # a function
-                    name = coefficients[i].value[c.index].name;
-                    for j=1:length(genfunctions)
-                        if name == genfunctions[j].name
+                    name = finch_state.coefficients[i].value[c.index].name;
+                    for j=1:length(finch_state.genfunctions)
+                        if name == finch_state.genfunctions[j].name
                             val = j;
                         end
                     end
@@ -250,10 +250,10 @@ function get_coef_val(c)
         end
     end
     if type == 0 # a variable
-        for i=1:length(variables)
-            if c.name == string(variables[i].symbol)
+        for i=1:length(finch_state.variables)
+            if c.name == string(finch_state.variables[i].symbol)
                 type = 3;
-                val = variables[i].index;
+                val = finch_state.variables[i].index;
             end
         end
     end
@@ -268,9 +268,9 @@ end
 # or -1 if it is not there.
 function get_coef_index(c)
     ind = -1;
-    for i=1:length(coefficients)
-        if c.name == string(coefficients[i].symbol)
-            ind = coefficients[i].index;
+    for i=1:length(finch_state.coefficients)
+        if c.name == string(finch_state.coefficients[i].symbol)
+            ind = finch_state.coefficients[i].index;
         end
     end
     

@@ -42,10 +42,10 @@ finalizeFinch();
 # exact solution is sin(pi*0.5*x)*sin(pi*y)*sin(pi*z)
 # check error
 maxerr = 0;
-for i=1:size(Finch.grid_data.allnodes,2)
-    x = Finch.grid_data.allnodes[1,i];
-    y = Finch.grid_data.allnodes[2,i];
-    z = Finch.grid_data.allnodes[3,i];
+for i=1:size(Finch.finch_state.grid_data.allnodes,2)
+    x = Finch.finch_state.grid_data.allnodes[1,i];
+    y = Finch.finch_state.grid_data.allnodes[2,i];
+    z = Finch.finch_state.grid_data.allnodes[3,i];
     err = abs(u.values[i] - sin(0.5*pi*x)*sin(pi*y)*sin(pi*z));
     global maxerr;
     maxerr = max(err,maxerr);

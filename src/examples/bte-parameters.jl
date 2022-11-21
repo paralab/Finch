@@ -434,7 +434,6 @@ function get_next_temp!(temp_next, temp_last, I_next, freq, dw; polarization="T"
     
     # didt = dIdT(freq, dw, temp_last, polarization=polarization); # Use single version in loop instead
     
-    dt = Finch.time_stepper.dt;
     idt = 1/dt;
     
     max_iters = 0;
@@ -510,7 +509,6 @@ function get_next_temp_par!(temp_next, temp_last, I_next, freq, dw; polarization
     end
     # didt = dIdT(freq, dw, temp_last, polarization=polarization); # Use single version in loop instead
     
-    dt = Finch.time_stepper.dt;
     idt = 1/dt;
     
     max_iters = 0;

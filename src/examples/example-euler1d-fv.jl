@@ -65,7 +65,7 @@ Q2U = variableTransform(Q, U,
 initial(r, "x<0.3 ? 1 : 0.125")
 initial(u, "x<0.3 ? 0.75 : 0")
 initial(p, "x<0.3 ? 1 : 0.1")
-Finch.eval_initial_conditions(); # set U initial conditions
+evalInitialConditions(); # set U initial conditions
 transformVariable(U2Q); # set Q initial conditions
 
 # Boundary conditions
@@ -191,7 +191,7 @@ finalizeFinch()
 
 ##### Uncomment below to plot
 
-# x = Finch.fv_info.cellCenters[:];
+# x = Finch.finch_state.fv_info.cellCenters[:];
 
 # using Plots
 # pyplot();

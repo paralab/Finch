@@ -11,12 +11,6 @@ import ..Finch: build_symexpressions
 
 using SymEngine, LinearAlgebra
 
-# An operator struct that ties a symbol to a function.
-struct SymOperator
-    symbol::Symbol      # The name used in the input expression
-    op                  # Function handle for the operator
-end
-
 struct CallbackPlaceholder
     name::String
     args::Array
@@ -48,22 +42,11 @@ function to_string(x::CallbackPlaceholder)
     return x.name*"("*argstr*")"
 end
 
-#### globals ########################
-# Basic symbolic operators that are included automatically and have precedence
-op_names = [];
-ops = [];
-
-# Custom operators that can be added by a user
-custom_op_names = [];
-custom_ops = [];
-#####################################
-
-include("basic_ops.jl");
 include("symbolic_stepper_reformat.jl");
+include("symbolic_utils.jl");
 
 # These are special function symbols that need to be defined.
 # They can be used in operators.
-# They are defined in symexpression.jl for now
 @funs(conditional)
 @funs(symbolmin)
 @funs(symbolmax)
@@ -106,17 +89,29 @@ function /(a::Array{Basic,1}, b::Number) return a./b; end
 function -(a::Array{Basic,1}) return .-a; end
 
 # Adds a single custom operator
-function add_custom_op(s, handle)
-    global custom_op_names;
-    global custom_ops;
-    push!(custom_op_names, s); # add the Symbol s to the list
-    push!(custom_ops, SymOperator(s, handle));
-    log_entry("Added custom operator: "*string(s), 2);
+function add_custom_op(s::Symbol, handle::Function)
+    ops = finch_state.ops;
+    # check to see if op is already defined
+    # replace if it is
+    foundit = false;
+    for i=1:length(ops)
+        if ops[i].symbol === s
+            ops[i] = SymOperator(s, handle);
+            foundit = true;
+            break;
+        end
+    end
+    if !foundit
+        push!(ops, SymOperator(s, handle));
+        log_entry("Added custom operator: "*string(s), 2);
+    else
+        log_entry("Replaced existing operator: "*string(s), 2);
+    end
 end
 
 # Includes a set of custom operators
 # The file will include an array of symbols and an array of function handles
-function add_custom_op_file(file)
+function add_custom_op_file(file::String)
     include(file);
     for i=1:length(_names)
         add_custom_op(_names[i], _handles[i]);
@@ -124,7 +119,7 @@ function add_custom_op_file(file)
 end
 
 # Builds an array of symbolic layer symbols
-function sym_var(name, type, components=1)
+function sym_var(name::String, type::String, components::Int=1)
     if type == VAR_ARRAY
         # These must be indexed
         symvar = [symbols("_"*name*"_INDEXED")];
@@ -146,7 +141,7 @@ end
 # or (lhs, surf_lhs, rhs, surf_rhs) when there are surface integral terms
 # lhs contains terms including the unknown variable
 # rhs contains terms without it
-function sp_parse(ex, var; is_FV=false, is_flux=false)
+function sp_parse(ex, var; is_FV::Bool=false, is_flux::Bool=false)
     lhs = nothing;
     rhs = nothing;
     varcount = 1;
@@ -180,7 +175,7 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
     log_entry("SP replace symbols -> "*string(symex), 3);
     
     # Look for indexes like [i] where i is an indexer
-    if length(indexers) > 0
+    if length(finch_state.indexers) > 0
         symex = handle_indexers(symex);
         log_entry("SP symbolic indicies -> "*string(symex), 3);
     end
@@ -322,7 +317,7 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
                     # println("nlt: "*string(nlt[vi][1][i])*" nlv: "*string(nlv[vi][1][i]))
                     old_nlv = apply_old_to_symbol(nlv[vi][1][i]);
                     old_term = subs(nlt[vi][1][i], (nlv[vi][1][i], old_nlv));
-                    deriv_term = create_deriv_func(old_term, old_nlv, prob.derivative_type);
+                    deriv_term = create_deriv_func(old_term, old_nlv, finch_state.prob.derivative_type);
                     
                     expanded_deriv_terms = get_sym_terms(deriv_term);
                     
@@ -340,7 +335,7 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
                 # println("nlt: "*string(nlt[1][i])*" nlv: "*string(nlv[1][i]))
                 old_nlv = apply_old_to_symbol(nlv[1][i]);
                 old_term = subs(nlt[1][i], (nlv[1][i], old_nlv));
-                deriv_term = create_deriv_func(old_term, old_nlv, prob.derivative_type);
+                deriv_term = create_deriv_func(old_term, old_nlv, finch_state.prob.derivative_type);
                 # println("old: "*string(old_term))
                 push!(rhs[1], -old_term);
                 push!(rhs[1], deriv_term * old_nlv);
@@ -358,10 +353,10 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
     
     # If needed, reformat for time stepper
     if timederiv || is_FV
-        stepper_type = config.stepper;
+        stepper_type = finch_state.config.stepper;
         if is_FV
-            if stepper_type == MIXED_STEPPER && typeof(time_stepper) <: Array
-                stepper_type = time_stepper[2].type;
+            if stepper_type == MIXED_STEPPER && typeof(finch_state.time_stepper) <: Array
+                stepper_type = finch_state.time_stepper[2].type;
             end
             log_entry("flux, before modifying for time: "*string(surflhs)*" - "*string(surfrhs));
             (newsurflhs, newsurfrhs) = reformat_for_stepper_fv_flux(stepper_type, surflhs, surfrhs);
@@ -371,8 +366,8 @@ function sp_parse(ex, var; is_FV=false, is_flux=false)
             log_entry("source, modified for time stepping: "*string(newlhs)*" + "*string(newrhs));
             
         else # FE
-            if stepper_type == MIXED_STEPPER && typeof(time_stepper) <: Array
-                stepper_type = time_stepper[1].type;
+            if stepper_type == MIXED_STEPPER && typeof(finch_state.time_stepper) <: Array
+                stepper_type = finch_state.time_stepper[1].type;
             end
             if has_surface
                 log_entry("Weak form, before modifying for time: Dt("*string(dtlhs)*") + "*string(lhs)*" + surface("*string(surflhs)*") = "*string(rhs)*" + surface("*string(surfrhs)*")");
@@ -525,7 +520,7 @@ end
 function insert_parameters(ex)
     if typeof(ex) == Symbol
         # parameter?
-        for p in parameters
+        for p in finch_state.parameters
             if ex === p.symbol
                 if p.type == SCALAR
                     return insert_parameters(p.value[1]);
@@ -559,13 +554,13 @@ function replace_symbols(ex)
         return Basic(ex);
     elseif typeof(ex) == Symbol
         # variable?
-        for v in variables
+        for v in finch_state.variables
             if ex === v.symbol
                 return v.symvar;
             end
         end
         # coefficient?
-        for c in coefficients
+        for c in finch_state.coefficients
             if ex === c.symbol
                 # constant coefficients are entered as numbers
                 if c.type == SCALAR && typeof(c.value[1]) <: Number
@@ -575,26 +570,20 @@ function replace_symbols(ex)
             end
         end
         # operator?
-        for i=1:length(ops)
-            if ex === ops[i].symbol
+        for i=1:length(finch_state.ops)
+            if ex === finch_state.ops[i].symbol
                 #return Symbol(string(ops[i].op));
-                return :(ops[$i].op);
-            end
-        end
-        for i=1:length(custom_ops)
-            if ex === custom_ops[i].symbol
-                #return Symbol(string(custom_ops[i].op));
-                return :(custom_ops[$i].op);
+                return :(finch_state.ops[$i].op);
             end
         end
         # test function?
-        for c in test_functions
+        for c in finch_state.test_functions
             if ex === c.symbol
                 return c.symvar;
             end
         end
         # callback functions
-        for c in callback_functions
+        for c in finch_state.callback_functions
             if string(ex) == c.name
                 # Make a special SymEngine function for this and process it later
                 cname = Symbol("CALLBACK_" * c.name);
@@ -1398,7 +1387,7 @@ function create_deriv_func(term, var, method)
         # Figure out the present test function symbol
         allsymbols = SymEngine.free_symbols(term);
         test_symbol = nothing;
-        for c in test_functions
+        for c in finch_state.test_functions
             for s in allsymbols
                 if occursin("_"*string(c.symbol)*"_", string(s)) && test_symbol === nothing
                     test_symbol = s;
@@ -1435,10 +1424,10 @@ function create_deriv_func(term, var, method)
         dfunc = eval(Meta.parse(dfunc_str));
         
         # Put it in a callback function
-        i = length(callback_functions);
+        i = length(finch_state.callback_functions);
         dfunc_name = "ADFUNCTION"*string(i+1);
         # callbackFunction(dfunc, name=dfunc_name);
-        push!(callback_functions, CallbackFunction(dfunc_name, arg_list, "", dfunc))
+        push!(finch_state.callback_functions, CallbackFunction(dfunc_name, arg_list, "", dfunc))
         log_entry("Added callback function for AD: "*dfunc_name, 2);
         
         # This will be placed in the term like ADFUNCTIONi(args)

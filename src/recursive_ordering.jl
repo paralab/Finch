@@ -10,16 +10,12 @@
 # Morton is the simplest with one rule [s1,s2,s3,s4] and ordering [1,2,3,4]
 =#
 export get_recursive_order, reorder_grid_recursive!
-export HILBERT_ORDERING, MORTON_ORDERING
 
 struct RecursiveOrdering
     states::Int                 # Number of possible states
     rules::Array{Array{Int,1}}  # Rules for each state mapping sectors to states
     orders::Array{Array{Int,1}} # Ordering for each state
 end
-
-HILBERT_ORDERING = "hilbert ordering";
-MORTON_ORDERING = "morton ordering";
 
 # Use this function to build an ordering for a specified grid size
 function get_recursive_order(type, dim, griddim)
@@ -41,10 +37,10 @@ function get_recursive_order(type, dim, griddim)
         end
         twoN = 2^N;
         
-        if type == HILBERT_ORDERING
+        if type == "hilbert"
             rorder_rules = hilbert_ordering_rules(2); # The RecursiveOrdering object
             rorder = build_ordering_2d(rorder_rules, N, false); # The ordering (false -> inverse)
-        elseif type == MORTON_ORDERING
+        elseif type == "morton"
             rorder_rules = morton_ordering_rules(2); # The RecursiveOrdering object
             rorder = build_ordering_2d(rorder_rules, N, false); # The ordering (false -> inverse)
         end
