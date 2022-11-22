@@ -253,7 +253,7 @@ end
 
 # NOTE: Only returns the Jacobian determinant. Use the volume Jacobian for derivatives.
 # Also, this refel is a lower dimensional refel
-function geometric_factors_face(refel::Refel, pts::Matrix{FT}, normal::Vector{Float64}, constantJ::Bool=true) where FT<:AbstractFloat
+function geometric_factors_face(refel::Refel, pts::Matrix{FT}, normal::Vector{FT}, constantJ::Bool=true) where FT<:AbstractFloat
     # pts = face node global coords
     if refel.dim == 0
         # A 1D face is just a point

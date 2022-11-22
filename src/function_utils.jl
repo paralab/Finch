@@ -21,9 +21,14 @@ export stringToFunction, add_genfunction, makeFunction, makeFunctions, makeCompl
 # end
 
 # Generates a function from a string
-function stringToFunction(name, args, fun)
+function stringToFunction(name, args, fun, wheretype="")
     # return eval(Meta.parse(name*"("*args*")="*fun));
-    return eval(Meta.parse("function "*name*"("*args*") return ("*fun*"); end"));
+    if length(wheretype) > 1
+        return eval(Meta.parse("function "*name*"("*args*") "*wheretype*"\n return ("*fun*"); end"));
+    else
+        return eval(Meta.parse("function "*name*"("*args*") return ("*fun*"); end"));
+    end
+    
 end
 
 # Adds the GenFunction to a global array of generated functions
@@ -34,22 +39,30 @@ end
 
 # Makes either: a constant number, a genfunction, or an array of genfunctions
 function makeFunctions(ex; args="DEFAULT_ARGS")
+    wheretype = "";
     if args == "DEFAULT_ARGS"
-        ftype = "Union{Float64,"*string(finch_state.config.float_type)*"}";
-        args="x::$ftype,y::$ftype,z::$ftype,t::$ftype,node_index::Int,face_index::Int,indices::Vector{Int}"
+        ftype = finch_state.config.float_type;
+        if ftype == Float64 || ftype == Float32 || ftype == Float16
+            ftype = "Union{Float64,"*string(ftype)*"}";
+            args="x::$ftype,y::$ftype,z::$ftype,t::$ftype,node_index::Int,face_index::Int,indices::Vector{Int}"
+        else
+            args="x::FT,y::FT,z::FT,t::FT,node_index::Int,face_index::Int,indices::Vector{Int}"
+            wheretype = "where {FT<:AbstractFloat}"
+        end
+        
     end
     nfuns = 0;
     if typeof(ex) <: Array
         for i=1:length(ex)
             if typeof(ex[i]) == String
-                tmp = makeFunction(args, ex[i]);
+                tmp = makeFunction(args, ex[i], wheretype);
                 nfuns += 1;
             # else # It could be a number or function handle
             end
         end
     else
         if typeof(ex) == String
-            makeFunction(args, ex);
+            makeFunction(args, ex, wheretype);
             nfuns = 1;
         # else # It could be a number or function handle
         end
@@ -60,16 +73,16 @@ end
 # Makes a GenFunction and adds it to the
 # args is a string like "x,y,z"
 # fun is a string like "sin(x)*y + 3*z" OR an Expr
-function makeFunction(args, fun)
+function makeFunction(args, fun, wheretype="")
     count = length(finch_state.genfunctions);
     name = "genfunction_"*string(count+1);
     if typeof(fun) == Expr
         ex = fun;
         strfun = string(fun);
-        nf = GenFunction(name, args, strfun, ex, stringToFunction(name, args, strfun));
+        nf = GenFunction(name, args, strfun, ex, stringToFunction(name, args, strfun, wheretype));
     else
         ex = Meta.parse(fun);
-        nf = GenFunction(name, args, fun, ex, stringToFunction(name, args, fun));
+        nf = GenFunction(name, args, fun, ex, stringToFunction(name, args, fun, wheretype));
     end
     add_genfunction(nf);
 end
