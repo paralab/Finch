@@ -94,6 +94,9 @@ function generate_code_layer_julia(var::Vector{Variable{FT}}, IR::IR_part, solve
     
     itype = string(finch_state.config.index_type);
     ftype = string(finch_state.config.float_type);
+    if !(ftype=="Float64"||ftype=="Float32"||ftype==Float16)
+        ftype *= "\n    $ftype = FT"
+    end
     
     code *="
     # User specified data types for int and float

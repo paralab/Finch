@@ -1074,6 +1074,7 @@ function importCode(filename)
             func_end_flag = "# end solve function for "*var;
             func_none_flag = "# No code set for "*var;
             func_string = "";
+            var_found = false;
             for st=1:length(lines)
                 if occursin(func_begin_flag, lines[st])
                     # st+1 is the start of the function
@@ -1086,9 +1087,14 @@ function importCode(filename)
                             func_string *= lines[en];
                         end
                     end
+                    var_found = true;
                 elseif occursin(func_none_flag, lines[st])
                     # There is no function for this variable
                     log_entry("While importing, no solve function was found for "*var);
+                    var_found = true;
+                end
+                if var_found
+                    break;
                 end
             end # lines loop
             
@@ -1308,6 +1314,19 @@ function solve(var)
         if need_indexers && length(finch_state.ordered_indexers) == length(finch_state.indexers)
             log_entry("Indexed variables detected, but no assembly loops specified. Using default.")
             assemblyLoops(["elements"; finch_state.ordered_indexers]);
+        end
+        
+        if finch_state.prob.time_dependent && finch_state.time_stepper.Nsteps == 0
+            # some measure of element size
+            dim = finch_state.config.dimension;
+            min_detj = minimum(finch_state.geo_factors.detJ);
+            el_size = (2^dim * min_detj)^(1/dim);
+            init_stepper(el_size, finch_state.time_stepper);
+            if finch_state.use_specified_steps
+                finch_state.time_stepper.dt = finch_state.specified_dt;
+                finch_state.time_stepper.Nsteps = finch_state.specified_Nsteps;
+            end
+            share_time_step_info(finch_state.time_stepper, finch_state.config);
         end
         
         # # If nonlinear, a matching set of variables should have been created. find them
