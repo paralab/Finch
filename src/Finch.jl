@@ -340,7 +340,7 @@ function add_test_function(state::FinchState, v, type::String)
     end
     symvar = sym_var(string(v), type, components);
 
-    push!(state.test_functions, Coefficient(v, symvar, varind, type, NODAL, Vector{Union{GenFunction,finch_state.config.float_type}}(undef,0), false, false););
+    push!(state.test_functions, Coefficient(v, symvar, varind, type, NODAL, Vector{Union{Float64,GenFunction}}(undef,0), false, false););
     log_entry("Set test function symbol: "*string(v)*" of type: "*type, 2);
 end
 
@@ -415,9 +415,9 @@ function add_coefficient(state::FinchState, c, type, location, val, nfuns, eleme
     # The values of c will have the same array structure as val
     ftype = finch_state.config.float_type;
     if typeof(val) <: Array
-        vals = Vector{Union{ftype,GenFunction}}(undef,length(val));
+        vals = Vector{Union{Float64,GenFunction}}(undef,length(val));
     else
-        vals = Vector{Union{ftype,GenFunction}}(undef,1);
+        vals = Vector{Union{Float64,GenFunction}}(undef,1);
         val = [val];
     end
     
@@ -427,7 +427,7 @@ function add_coefficient(state::FinchState, c, type, location, val, nfuns, eleme
             vals[i] = state.genfunctions[ind];
             ind += 1;
         else
-            vals[i] = ftype(val[i]);
+            vals[i] = Float64(val[i]);
         end
     end
     

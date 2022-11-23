@@ -254,13 +254,13 @@ rather than numbers.
 
 This should be built with the `coefficient` function.
 """
-struct Coefficient{T<:AbstractFloat}
+struct Coefficient
     symbol::Symbol          # symbol used in expressions referring to this coefficient
     symvar::Vector{Basic}  # Array of symbolic layer symbols(Basic symbols)
     index::Int              # index in the Finch list of coefficients
     type::String            # constants for SCALAR, VECTOR, etc.
     location::String        # constant for NODAL, MODAL, CELL
-    value::Vector{Union{T, GenFunction}} # An array of either constant values(numbers) or genfunctions
+    value::Vector{Union{Float64, GenFunction}} # An array of either constant values(numbers) or genfunctions
     
     is_element_array::Bool  # Are the values specified for each element in an array?
     is_time_dependent::Bool # Is it time dependent?
@@ -671,9 +671,9 @@ mutable struct FinchState{T<:AbstractFloat}
     
     # Entities
     variables::Vector{Variable{T}}
-    coefficients::Vector{Coefficient{T}}
+    coefficients::Vector{Coefficient}
     parameters::Vector{Parameter}
-    test_functions::Vector{Coefficient{T}}
+    test_functions::Vector{Coefficient}
     indexers::Vector{Indexer}
     ordered_indexers::Vector{Indexer}
     variable_transforms::Vector{VariableTransform}

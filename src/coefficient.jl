@@ -28,8 +28,8 @@
 
 # Returns the value of the coefficient for the specified component, coordinates and time.
 # There are optional node index and face index inputs
-function evaluate_coefficient(c::Coefficient, comp::Int, x::Float64, y::Float64, z::Float64, t::Float64, 
-                                nodeind::Int, faceind::Int, indices::Vector{Int})
+function evaluate_coefficient(c::Coefficient, comp::Int, x::XT, y::YT, z::ZT, t::TT, 
+                                nodeind::Int, faceind::Int, indices::Vector{Int}) where {XT<:AbstractFloat, YT<:AbstractFloat, ZT<:AbstractFloat, TT<:AbstractFloat}
     #
     if typeof(c.value[comp]) == Float64
         result = c.value[comp];

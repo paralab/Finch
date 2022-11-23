@@ -49,10 +49,10 @@ function makeFunctions(ex; args="DEFAULT_ARGS")
             # args="x::FT,y::FT,z::FT,t::FT,node_index::Int,face_index::Int,indices::Vector{Int}"
             # wheretype = "where {FT<:AbstractFloat}"
             
-            # args="x,y,z,t,node_index::Int,face_index::Int,indices::Vector{Int}"
+            args="x,y,z,t,node_index::Int,face_index::Int,indices::Vector{Int}"
             
-            args="x::XT,y::YT,z::ZT,t::TT,node_index::Int,face_index::Int,indices::Vector{Int}"
-            wheretype = "where {XT<:AbstractFloat,YT<:AbstractFloat,ZT<:AbstractFloat,TT<:AbstractFloat}"
+            # args="x::XT,y::YT,z::ZT,t::TT,node_index::Int,face_index::Int,indices::Vector{Int}"
+            # wheretype = "where {XT<:AbstractFloat,YT<:AbstractFloat,ZT<:AbstractFloat,TT<:AbstractFloat}"
         end
         
     end

@@ -35,8 +35,8 @@ function generate_code_layer_julia(var::Vector{Variable{FT}}, IR::IR_part, solve
     # 
     if solver == CG || solver == DG
         args = "(var::Vector{Variable{FT}}, mesh::Grid, refel::Refel, geometric_factors::GeometricFactors, "*
-                "config::FinchConfig, coefficients::Vector{Coefficient{FT}}, variables::Vector{Variable{FT}}, "*
-                "test_functions::Vector{Coefficient{FT}}, ordered_indexers::Vector{Indexer}, prob::FinchProblem, "*
+                "config::FinchConfig, coefficients::Vector{Coefficient}, variables::Vector{Variable{FT}}, "*
+                "test_functions::Vector{Coefficient}, ordered_indexers::Vector{Indexer}, prob::FinchProblem, "*
                 "time_stepper::Stepper, buffers::ParallelBuffers, timer_output::TimerOutput, nl_var=nothing) where FT<:AbstractFloat";
         disc_specific = "
     # FEM specific pieces
@@ -50,8 +50,8 @@ function generate_code_layer_julia(var::Vector{Variable{FT}}, IR::IR_part, solve
         
     elseif solver == FV
         args = "(var::Vector{Variable{FT}}, mesh::Grid, refel::Refel, geometric_factors::GeometricFactors, "*
-                "fv_info::FVInfo, config::FinchConfig, coefficients::Vector{Coefficient{FT}}, variables::Vector{Variable{FT}}, "*
-                "test_functions::Vector{Coefficient{FT}}, ordered_indexers::Vector{Indexer}, prob::FinchProblem, "*
+                "fv_info::FVInfo, config::FinchConfig, coefficients::Vector{Coefficient}, variables::Vector{Variable{FT}}, "*
+                "test_functions::Vector{Coefficient}, ordered_indexers::Vector{Indexer}, prob::FinchProblem, "*
                 "time_stepper::Stepper, buffers::ParallelBuffers, timer_output::TimerOutput, nl_var=nothing) where FT<:AbstractFloat";
         disc_specific = "
     # FVM specific pieces
