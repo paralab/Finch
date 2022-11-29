@@ -416,5 +416,6 @@ include("IR_utils.jl");
 include("IR_build_shared.jl");
 include("IR_build_FEM.jl");
 include("IR_build_FVM.jl");
+include("IR_build_FEM_dendrite.jl");
 
 #############################################################################################################

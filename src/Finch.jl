@@ -71,8 +71,6 @@ end
 # 1. get_external_language_elements() - file extensions, comment chars etc.
 # 3. generate_external_files(var, IR) - Writes all files based on generated code
 function set_custom_gen_target(state::FinchState, lang_elements, file_maker, dirpath::String, name::String; head::String="", params=nothing)
-    state.target_language = CUSTOM_GEN_TARGET;
-    state.target_framework = CUSTOM_GEN_TARGET;
     state.output_dir = dirpath;
     state.project_name = name;
     state.external_target = true;
@@ -610,11 +608,11 @@ function add_boundary_condition(state::FinchState, var, bid, type, ex, nfuns)
     var_count = length(state.variables);
     # make sure the arrays are big enough
     if size(state.prob.bc_func, 1) < var_count || size(state.prob.bc_func, 2) < bid
-        if !(state.grid_data===nothing)
+        if length(state.grid_data.bids) > 0
             nbid = length(state.grid_data.bids);
         else
             # For some targets no grid is created
-            nbid = 1;
+            nbid = bid;
         end
         
         tmp1 = fill(NO_BC, var_count, nbid);

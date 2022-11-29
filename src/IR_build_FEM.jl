@@ -19,6 +19,12 @@ build mat
 )
 =#
 function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config, prob, time_stepper)
+    # Some targets need a different kind of IR
+    if finch_state.target_framework == "Dendrite"
+        return build_IR_fem_dendrite(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config, prob, time_stepper);
+    end
+    #
+    
     dimension = config.dimension;
     refel = finch_state.refel;
     # Count variables, dofs, and store offsets

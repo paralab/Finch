@@ -41,34 +41,43 @@ filename refers to the name to be applied to the generated code. The header text
 will be placed at the top of each generated code file. If the target requires 
 some extra parameters, those are included in params.
 """
-function generateFor(lang; filename=project_name, header="", params=nothing)
+function generateFor(lang; filename=finch_state.project_name, header="", params=nothing)
     global finch_state;
     outputDirPath = pwd()*"/"*filename;
     if finch_state.config.proc_rank == 0 && !isdir(outputDirPath)
         mkdir(outputDirPath);
     end
     framew = 0;
-    if !in(lang, [CPP,MATLAB,DENDRO])
+    if !in(lang, [CPP,MATLAB,DENDRO, "Dendrite"])
         # lang should be a filename for a custom target
         # This file must include these three functions:
         # 1. get_external_language_elements() - file extensions, comment chars etc.
         # 3. generate_external_files(var, IR) - Writes all files based on generated code
+        finch_state.target_framework = CUSTOM_GEN_TARGET;
+        finch_state.target_language = CUSTOM_GEN_TARGET;
         include(lang);
         set_custom_gen_target(finch_state, get_external_language_elements, generate_external_files, outputDirPath, filename, head=header);
         
     else # Use an included target
         target_dir = @__DIR__
         if lang == DENDRO
-            framew = DENDRO;
-            lang = CPP;
+            printerr("Sorry, this target is not ready for this version of Finch.", fatal=true)
+            finch_state.target_framework = DENDRO;
+            finch_state.target_language = CPP;
             target_file = "/targets/target_dendro.jl";
         elseif lang == MATLAB
-            framew = MATLAB;
-            lang = MATLAB;
+            printerr("Sorry, this target is not ready for this version of Finch.", fatal=true)
+            finch_state.target_framework = "";
+            finch_state.target_language = MATLAB;
             target_file = "/targets/target_matlab.jl";
+        elseif lang == "Dendrite"
+            finch_state.target_framework = "Dendrite";
+            finch_state.target_language = CPP;
+            target_file = "/targets/target_dendrite.jl";
         else #CPP
-            framew = "";
-            lang = CPP;
+            printerr("Sorry, this target is not ready for this version of Finch.", fatal=true)
+            finch_state.target_framework = "";
+            finch_state.target_language = CPP;
             target_file = "/targets/target_cpp.jl";
         end
         include(target_dir * target_file);

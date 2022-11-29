@@ -90,7 +90,7 @@ function set_generation_target(lang_elements, file_maker)
     code_gen_context.external_generate_code_files_function = file_maker;
     code_gen_context.using_custom_target = true;
     
-    (file_extension, comment_char, block_comment_char) = Base.invokelatest(external_get_language_elements_function);
+    (file_extension, comment_char, block_comment_char) = Base.invokelatest(code_gen_context.external_get_language_elements_function);
     code_gen_context.file_extension = file_extension;
     code_gen_context.comment_char = comment_char;
     code_gen_context.block_comment_char = block_comment_char;
@@ -116,7 +116,7 @@ end
 
 function generate_all_files(var, IR; parameters=0)
     if code_gen_context.using_custom_target
-        external_generate_code_files_function(var, IR);
+        code_gen_context.external_generate_code_files_function(var, IR);
     end
 end
 
