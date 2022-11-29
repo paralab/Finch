@@ -360,11 +360,24 @@ end
 #############################################################################################################
 
 # builds one derivative matrix in place
-function build_derivative_matrix(refel::Refel, geofacs::GeometricFactors, direction::Int, eid::Int, type::Int, mat::Matrix{FT}) where FT<:AbstractFloat
+function build_derivative_matrix(refel::Refel, geofacs::GeometricFactors, direction::Int, eid::Int, type::Int, mat::Union{SubArray, Matrix{FT}}) where FT<:AbstractFloat
     N = size(mat,2);
     M = size(mat,1);
     J = geofacs.J[eid];
     const_j = (length(J.rx) == 1);
+    if direction == 1
+        Jr = J.rx;
+        Js = J.sx;
+        Jt = J.tx;
+    elseif direction == 2
+        Jr = J.ry;
+        Js = J.sy;
+        Jt = J.ty;
+    else
+        Jr = J.rz;
+        Js = J.sz;
+        Jt = J.tz;
+    end
     if type == 0
         refel_dr = refel.Qr;
         refel_ds = refel.Qs;
@@ -378,95 +391,33 @@ function build_derivative_matrix(refel::Refel, geofacs::GeometricFactors, direct
     if refel.dim == 1
         # Multiply rows of dr by J.rx
         if const_j
-            for i=1:N # loop over columns
-                for j=1:M # loop over rows
-                    mat[j,i] = J.rx[1] * refel_dr[j,i];
-                end
-            end
+            mat .= J.rx[1] .* refel_dr;
         else
-            for i=1:N # loop over columns
-                for j=1:M # loop over rows
+            for i=1:N
+                for j=1:M
                     mat[j,i] = J.rx[j] * refel_dr[j,i];
                 end
             end
         end
         
     elseif refel.dim == 2
-        if direction == 1
-            if const_j
-                for i=1:N # loop over columns
-                    for j=1:M # loop over rows
-                        mat[j,i] = J.rx[1] * refel_dr[j,i] + J.sx[1] * refel_ds[j,i];
-                    end
-                end
-            else
-                for i=1:N # loop over columns
-                    for j=1:M # loop over rows
-                        mat[j,i] = J.rx[j] * refel_dr[j,i] + J.sx[j] * refel_ds[j,i];
-                    end
-                end
-            end
-            
+        if const_j
+            mat .= Jr[1] .* refel_dr .+ Js[1] .* refel_ds;
         else
-            if const_j
-                for i=1:N # loop over columns
-                    for j=1:M # loop over rows
-                        mat[j,i] = J.ry[1] * refel_dr[j,i] + J.sy[1] * refel_ds[j,i];
-                    end
-                end
-            else
-                for i=1:N # loop over columns
-                    for j=1:M # loop over rows
-                        mat[j,i] = J.ry[j] * refel_dr[j,i] + J.sy[j] * refel_ds[j,i];
-                    end
+            for i=1:N
+                for j=1:M
+                    mat[j,i] = Jr[j] * refel_dr[j,i] + Js[j] * refel_ds[j,i];
                 end
             end
-            
         end
         
     elseif refel.dim == 3
-        if direction == 1
-            if const_j
-                for i=1:N # loop over columns
-                    for j=1:M # loop over rows
-                        mat[j,i] = J.rx[1] * refel_dr[j,i] + J.sx[1] * refel_ds[j,i] + J.tx[1] * refel_dt[j,i];
-                    end
-                end
-            else
-                for i=1:N # loop over columns
-                    for j=1:M # loop over rows
-                        mat[j,i] = J.rx[j] * refel_dr[j,i] + J.sx[j] * refel_ds[j,i] + J.tx[j] * refel_dt[j,i];
-                    end
-                end
-            end
-            
-        elseif direction == 2
-            if const_j
-                for i=1:N # loop over columns
-                    for j=1:M # loop over rows
-                        mat[j,i] = J.ry[1] * refel_dr[j,i] + J.sy[1] * refel_ds[j,i] + J.ty[1] * refel_dt[j,i];
-                    end
-                end
-            else
-                for i=1:N # loop over columns
-                    for j=1:M # loop over rows
-                        mat[j,i] = J.ry[j] * refel_dr[j,i] + J.sy[j] * refel_ds[j,i] + J.ty[j] * refel_dt[j,i];
-                    end
-                end
-            end
-            
+        if const_j
+            mat .= Jr[1] .* refel_dr .+ Js[1] .* refel_ds .+ Jt[1] .* refel_dt;
         else
-            if const_j
-                for i=1:N # loop over columns
-                    for j=1:M # loop over rows
-                        mat[j,i] = J.rz[1] * refel_dr[j,i] + J.sz[1] * refel_ds[j,i] + J.tz[1] * refel_dt[j,i];
-                    end
-                end
-            else
-                for i=1:N # loop over columns
-                    for j=1:M # loop over rows
-                        mat[j,i] = J.rz[j] * refel_dr[j,i] + J.sz[j] * refel_ds[j,i] + J.tz[j] * refel_dt[j,i];
-                    end
+            for i=1:N # loop over columns
+                for j=1:M # loop over rows
+                    mat[j,i] = Jr[j] * refel_dr[j,i] + Js[j] * refel_ds[j,i] + Jt[j] * refel_dt[j,i];
                 end
             end
         end
@@ -474,49 +425,6 @@ function build_derivative_matrix(refel::Refel, geofacs::GeometricFactors, direct
     
     end # inbounds
 end
-
-# function build_deriv_matrix(refel, J)
-#     if refel.dim == 1
-#         RQ1 = zeros(size(refel.Q));
-#         RD1 = zeros(size(refel.Q));
-#         # Multiply rows of Qr and Ddr by J.rx
-#         for i=1:size(RQ1,2) # loop over columns
-#             RQ1[:,i] = J.rx .* refel.Qr[:,i];
-#             RD1[:,i] = J.rx .* refel.Ddr[:,i];
-#         end
-#         return (RQ1,RD1);
-        
-#     elseif refel.dim == 2
-#         RQ1 = zeros(size(refel.Q));
-#         RQ2 = zeros(size(refel.Q));
-#         RD1 = zeros(size(refel.Q));
-#         RD2 = zeros(size(refel.Q));
-#         for i=1:size(RQ1,2)
-#             RQ1[:,i] = J.rx .* refel.Qr[:,i] + J.sx .* refel.Qs[:,i];
-#             RQ2[:,i] = J.ry .* refel.Qr[:,i] + J.sy .* refel.Qs[:,i];
-#             RD1[:,i] = J.rx .* refel.Ddr[:,i] + J.sx .* refel.Dds[:,i];
-#             RD2[:,i] = J.ry .* refel.Ddr[:,i] + J.sy .* refel.Dds[:,i];
-#         end
-#         return (RQ1, RQ2, RD1, RD2);
-        
-#     elseif refel.dim == 3
-#         RQ1 = zeros(size(refel.Q));
-#         RQ2 = zeros(size(refel.Q));
-#         RQ3 = zeros(size(refel.Q));
-#         RD1 = zeros(size(refel.Q));
-#         RD2 = zeros(size(refel.Q));
-#         RD3 = zeros(size(refel.Q));
-#         for i=1:size(RQ1,2)
-#             RQ1[:,i] = J.rx .* refel.Qr[:,i] + J.sx .* refel.Qs[:,i] + J.tx .* refel.Qt[:,i];
-#             RQ2[:,i] = J.ry .* refel.Qr[:,i] + J.sy .* refel.Qs[:,i] + J.ty .* refel.Qt[:,i];
-#             RQ3[:,i] = J.rz .* refel.Qr[:,i] + J.sz .* refel.Qs[:,i] + J.tz .* refel.Qt[:,i];
-#             RD1[:,i] = J.rx .* refel.Ddr[:,i] + J.sx .* refel.Dds[:,i] + J.tx .* refel.Ddt[:,i];
-#             RD2[:,i] = J.ry .* refel.Ddr[:,i] + J.sy .* refel.Dds[:,i] + J.ty .* refel.Ddt[:,i];
-#             RD3[:,i] = J.rz .* refel.Ddr[:,i] + J.sz .* refel.Dds[:,i] + J.tz .* refel.Ddt[:,i];
-#         end
-#         return (RQ1, RQ2, RQ3, RD1, RD2, RD3);
-#     end
-# end
 
 # Build the regular deriv matrices, then extract the relevant face parts
 function build_face_deriv_matrix(refel, face, J, full = false)

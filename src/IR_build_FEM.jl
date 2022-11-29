@@ -213,18 +213,19 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     end
     
     # Allocate all coefficient space
-    (allocate, coef) = prepare_coefficient_values_fem(all_entities, var, dimension, 2);
     push!(allocate_block.parts, IR_comment_node("Allocate coefficient vectors."));
-    append!(allocate_block.parts, allocate);
+    entity_allocate = [];
     
     # vol loop
     (allocate, coef) = prepare_coefficient_values_fem(separate_entities[1], var, dimension, 1); # LHS volume
     push!(coefficient_block.parts, IR_comment_node("Evaluate coefficients."));
     append!(coefficient_block.parts, coef);
+    append!(entity_allocate, allocate);
     (allocate, coef) = prepare_coefficient_values_fem(separate_entities[2], var, dimension, 2); # RHS volume
     append!(coefficient_block.parts, coef);
     push!(time_coefficient_block.parts, IR_comment_node("Evaluate coefficients."));
     append!(time_coefficient_block.parts, coef);
+    append!(entity_allocate, allocate);
     
     if constantJ
         detj = IR_data_node(IRtypes.float_data, :detj, [], []);
@@ -272,8 +273,28 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
     (allocate, coef) = prepare_coefficient_values_fem(separate_entities[3], var, dimension, 3); # LHS surface
     push!(face_coefficient_block.parts, IR_comment_node("Evaluate coefficients."));
     append!(face_coefficient_block.parts, coef);
+    append!(entity_allocate, allocate);
     (allocate, coef) = prepare_coefficient_values_fem(separate_entities[4], var, dimension, 4); # RHS surface
     append!(face_coefficient_block.parts, coef);
+    append!(entity_allocate, allocate);
+    
+    # Remove duplicates and put in allocate block
+    if length(entity_allocate) > 0
+        push!(allocate_block.parts, entity_allocate[1]);
+    end
+    for i=2:length(entity_allocate)
+        name = entity_allocate[i].args[1].label;
+        duplicate = false;
+        for j=1:(i-1)
+            if entity_allocate[j].args[1].label === name
+                duplicate = true;
+                break;
+            end
+        end
+        if !duplicate
+            push!(allocate_block.parts, entity_allocate[i]);
+        end
+    end
     
     # computation
     if !(lhs_vol === nothing)
@@ -691,6 +712,7 @@ function prepare_derivative_matrices(entities, counts, var)
     allocate_part = Vector{IR_part}(undef,0); # Allocations that are done outside of the loops
     
     needed_derivative_matrices = fill(false, 8); # 1,2,3 = x,y,z quadrature points, 5,6,7 = nodes
+    dimension = finch_state.config.dimension;
     
     # Loop over entities to check for derivatives
     for i=1:(counts[1]+counts[2])

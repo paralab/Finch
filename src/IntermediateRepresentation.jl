@@ -43,10 +43,11 @@ struct IR_entry_types
     # operation types
     allocate_op::Int8 # = 11 # allocation has at least two args: type, dims...
     assign_op::Int8     # = 12 # assignment is like lhs = rhs, lhs is a data node, rhs is data or op
-    function_op::Int8   # = 13 # function evaluation has name and tuple of args like name(args)
-    math_op::Int8       # = 14 # a function_op for arithmetic just in case it is useful to specify
-    member_op::Int8     # = 15 # access a member of a struct
-    named_op::Int8      # = 16 # a special op keyword that will be interpreted by codegen as needed
+    math_assign_op::Int8# = 13 # operation assign like +=, -+, *=, /=
+    function_op::Int8   # = 14 # function evaluation has name and tuple of args like name(args)
+    math_op::Int8       # = 15 # a function_op for arithmetic just in case it is useful to specify
+    member_op::Int8     # = 16 # access a member of a struct
+    named_op::Int8      # = 17 # a special op keyword that will be interpreted by codegen as needed
     
     # data types
     int_data::Int8      # = 21 # These are for abstract int and float
@@ -72,10 +73,11 @@ struct IR_entry_types
             
             11=>"allocate op",
             12=>"assign op",
-            13=>"function op",
-            14=>"math op",
-            15=>"member op",
-            16=>"named op",
+            13=>"math assign op",
+            14=>"function op",
+            15=>"math op",
+            16=>"member op",
+            17=>"named op",
             
             21=>"CustomInt",
             22=>"CustomFloat",
@@ -88,7 +90,7 @@ struct IR_entry_types
             31=>"read",
             32=>"write"
         ),
-        1,2,3,4,5, 11,12,13,14,15,16, 21,22,25,26,27,28,29, 31,32
+        1,2,3,4,5, 11,12,13,14,15,16,17, 21,22,25,26,27,28,29, 31,32
         );
 end
 

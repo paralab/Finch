@@ -236,6 +236,31 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
                 code *= string(IR.args[2]);
             end
             
+        elseif IR.type == IRtypes.math_assign_op # x += ...
+            # What is the math op?
+            math_op = IR.args[1];
+            if math_op in [:+, :-, :/, :*, :(.+), :(.-), :(.*), :(./)]
+                math_op = string(math_op);
+            else
+                printerr("Unsupported math op in math-assignment: "*string(math_op)*"=");
+                math_op = "";
+            end
+            
+            # Note that if the symbol (IR.args[1]) is not yet on the declared list, 
+            # it will be here.
+            if typeof(IR.args[2]) <: IR_part
+                code = indent * generate_from_IR_julia(IR.args[2], IRtypes);
+            else
+                code = indent * string(IR.args[2]);
+            end
+            
+            code *= " "*math_op*"= ";
+            if typeof(IR.args[2]) <: IR_part
+                code *= generate_from_IR_julia(IR.args[2], IRtypes);
+            else
+                code *= string(IR.args[2]);
+            end
+            
         elseif IR.type == IRtypes.function_op # f(...)
             if typeof(IR.args[1]) <: IR_part
                 code = generate_from_IR_julia(IR.args[1], IRtypes);
