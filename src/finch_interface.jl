@@ -362,24 +362,36 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
     add_mesh(finch_state, mshdat, partitions=partitions);
     
     # If bids>1 were specified for built meshes, add them here
+    bid_defs = []
     if bids > 1
         @timeit finch_state.timer_output "bids" begin
         if msh == LINEMESH
-            # already done in mesh_data
-            # if bn == 2
-            #     add_boundary_ID_to_grid(2, x -> (x >= interval[2]), finch_state.grid_data);
-            # end
-            
-        elseif msh == QUADMESH
             if bids == 2
-                add_boundary_ID_to_grid(2, (x,y) -> (y <= interval[3]) || (y >= interval[4]), finch_state.grid_data);
+                # already done in mesh_data
+                # add_boundary_ID_to_grid(2, x -> (x >= interval[2]), finch_state.grid_data);
+                add_boundary_ID_to_problem(1, "XMIN");
+                add_boundary_ID_to_problem(2, "XMAX");
+            end
+            
+        elseif msh == QUADMESH || msh == TRIMESH
+            if bids == 2
+                add_boundary_ID_to_grid(2, (x,y) -> (abs(y - interval[3]) <= eps()) || (abs(y - interval[4]) <= eps()), finch_state.grid_data);
+                add_boundary_ID_to_problem(1, "XMIN || XMAX");
+                add_boundary_ID_to_problem(2, "YMIN || YMAX");
             elseif bids == 3
                 add_boundary_ID_to_grid(2, (x,y) -> (x >= interval[2]), finch_state.grid_data);
                 add_boundary_ID_to_grid(3, (x,y) -> ((y <= interval[3]) || (y >= interval[4])) && (x > interval[1] && x < interval[2]), finch_state.grid_data);
+                add_boundary_ID_to_problem(1, "XMIN");
+                add_boundary_ID_to_problem(2, "XMAX");
+                add_boundary_ID_to_problem(3, "YMIN || YMAX");
             elseif bids == 4
                 add_boundary_ID_to_grid(2, (x,y) -> (x >= interval[2]), finch_state.grid_data);
                 add_boundary_ID_to_grid(3, (x,y) -> (y <= interval[3] && (x > interval[1] && x < interval[2])), finch_state.grid_data);
                 add_boundary_ID_to_grid(4, (x,y) -> (y >= interval[4] && (x > interval[1] && x < interval[2])), finch_state.grid_data);
+                add_boundary_ID_to_problem(1, "XMIN");
+                add_boundary_ID_to_problem(2, "XMAX");
+                add_boundary_ID_to_problem(3, "YMIN");
+                add_boundary_ID_to_problem(4, "YMAX");
             end
             
         elseif msh == HEXMESH
@@ -391,28 +403,58 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
                 add_boundary_ID_to_grid(4, (x,y,z) -> (y >= interval[4]-tiny), finch_state.grid_data);
                 add_boundary_ID_to_grid(5, (x,y,z) -> (z <= interval[5]+tiny), finch_state.grid_data);
                 add_boundary_ID_to_grid(6, (x,y,z) -> (z >= interval[6]-tiny), finch_state.grid_data);
+                add_boundary_ID_to_problem(1, "XMIN");
+                add_boundary_ID_to_problem(2, "XMAX");
+                add_boundary_ID_to_problem(3, "YMIN");
+                add_boundary_ID_to_problem(4, "YMAX");
+                add_boundary_ID_to_problem(5, "ZMIN");
+                add_boundary_ID_to_problem(6, "ZMAX");
             elseif bids == 5
                 # bids = [1,2,3,4,5]; # combine z
                 add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny), finch_state.grid_data);
                 add_boundary_ID_to_grid(3, (x,y,z) -> (y <= interval[3]+tiny), finch_state.grid_data);
                 add_boundary_ID_to_grid(4, (x,y,z) -> (y >= interval[4]-tiny), finch_state.grid_data);
                 add_boundary_ID_to_grid(5, (x,y,z) -> (z <= interval[5]+tiny) || (z >= interval[6]-tiny), finch_state.grid_data);
+                add_boundary_ID_to_problem(1, "XMIN");
+                add_boundary_ID_to_problem(2, "XMAX");
+                add_boundary_ID_to_problem(3, "YMIN");
+                add_boundary_ID_to_problem(4, "YMAX");
+                add_boundary_ID_to_problem(5, "ZMIN || ZMAX");
             elseif bids == 4
                 # bids = [1,2,3,4]; # combine y and z
                 add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]), finch_state.grid_data);
                 add_boundary_ID_to_grid(3, (x,y,z) -> ((y <= interval[3]+tiny) || (y >= interval[4]-tiny)), finch_state.grid_data);
                 add_boundary_ID_to_grid(4, (x,y,z) -> ((z <= interval[5]+tiny) || (z >= interval[6]-tiny)), finch_state.grid_data);
+                add_boundary_ID_to_problem(1, "XMIN");
+                add_boundary_ID_to_problem(2, "XMAX");
+                add_boundary_ID_to_problem(3, "YMIN || YMAX");
+                add_boundary_ID_to_problem(4, "ZMIN || ZMAX");
             elseif bids == 3
                 # bids = [1,2,3]; # combine x,y,z
                 add_boundary_ID_to_grid(2, (x,y,z) -> (y <= interval[3]+tiny) || (y >= interval[4]-tiny), finch_state.grid_data);
                 add_boundary_ID_to_grid(3, (x,y,z) -> (z <= interval[5]+tiny) || (z >= interval[6]-tiny), finch_state.grid_data);
+                add_boundary_ID_to_problem(1, "XMIN || XMAX");
+                add_boundary_ID_to_problem(2, "YMIN || YMAX");
+                add_boundary_ID_to_problem(3, "ZMIN || ZMAX");
             elseif bids == 2
                 # bids = [1,2]; # x=0, other
                 add_boundary_ID_to_grid(2, (x,y,z) -> (x >= interval[2]-tiny) || (y <= interval[3]+tiny) || (y >= interval[4]-tiny) || (z <= interval[5]+tiny) || (z >= interval[6]-tiny), finch_state.grid_data);
+                add_boundary_ID_to_problem(1, "XMIN");
+                add_boundary_ID_to_problem(2, "XMAX || YMIN || YMAX || ZMIN || ZMAX");
             end
             
         end
         end # bids timer
+        
+    else # only 1 bid
+        dimension = finch_state.config.dimension;
+        if dimension == 1
+            add_boundary_ID_to_problem(1, "XMIN || XMAX");
+        elseif dimension == 2
+            add_boundary_ID_to_problem(1, "XMIN || XMAX || YMIN || YMAX");
+        elseif dimension == 3
+            add_boundary_ID_to_problem(1, "XMIN || XMAX || YMIN || YMAX || ZMIN || ZMAX");
+        end
     end
     
     # If FV order was already set to > 1, set it here
@@ -698,9 +740,13 @@ interior faces.
 function addBoundaryID(bid::Int, trueOnBdry)
     # trueOnBdry(x, y, z) = something # points with x,y,z on this bdry segment evaluate true here
     if typeof(trueOnBdry) == String
-        trueOnBdry = stringToFunction("trueOnBdry", "x,y=0,z=0", trueOnBdry);
+        trueOnBdryfun = stringToFunction("trueOnBdry", "x,y=0,z=0", trueOnBdry);
+    elseif typeof(trueOnBdry) == Function
+        trueOnBdryfun = trueOnBdry;
+        trueOnBdry = "CUSTOM";
     end
-    add_boundary_ID_to_grid(bid, trueOnBdry, finch_state.grid_data);
+    add_boundary_ID_to_grid(bid, trueOnBdryfun, finch_state.grid_data);
+    add_boundary_ID_to_problem(bid, trueOnBdry);
 end
 
 """

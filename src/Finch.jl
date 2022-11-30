@@ -618,13 +618,13 @@ function add_boundary_condition(state::FinchState, var, bid, type, ex, nfuns)
         tmp1 = fill(NO_BC, var_count, nbid);
         tmp2 = Matrix{Vector{Union{Float64,GenFunction}}}(undef, (var_count, nbid));
         fill!(tmp2, [0.0]);
-        tmp3 = zeros(Int, (var_count, nbid));
+        tmp3 = zeros(Int, nbid);
         
         for i=1:size(state.prob.bc_func,1)
             for j=1:size(state.prob.bc_func,2)
                 tmp1[i,j] = state.prob.bc_type[i,j];
                 tmp2[i,j] = state.prob.bc_func[i,j];
-                tmp3[i,j] = state.prob.bid[i,j];
+                tmp3[j] = state.prob.bid[j];
             end
         end
         state.prob.bc_type = tmp1;
@@ -680,9 +680,39 @@ function add_boundary_condition(state::FinchState, var, bid, type, ex, nfuns)
         end
     end
     state.prob.bc_type[var.index, bid] = type;
-    state.prob.bid[var.index, bid] = bid;
+    state.prob.bid[bid] = bid;
 
     log_entry("Boundary condition: var="*string(var.symbol)*" bid="*string(bid)*" type="*type*" val="*valstr, 2);
+end
+
+# Add the boundary region to the FinchProblem struct
+function add_boundary_ID_to_problem(bid, trueOnBdry)
+    prob = finch_state.prob;
+    nbid = length(prob.bid) + 1;
+    var_count = length(finch_state.variables);
+    # make sure the arrays are big enough
+    if size(prob.bc_func, 1) < var_count || size(prob.bc_func, 2) < nbid
+        tmp1 = fill(NO_BC, var_count, nbid);
+        tmp2 = Matrix{Vector{Union{Float64,GenFunction}}}(undef, (var_count, nbid));
+        fill!(tmp2, [0.0]);
+        tmp3 = zeros(Int, nbid);
+        tmp4 = Vector{String}(undef, nbid);
+        
+        for i=1:size(prob.bc_func,1)
+            for j=1:size(prob.bc_func,2)
+                tmp1[i,j] = prob.bc_type[i,j];
+                tmp2[i,j] = prob.bc_func[i,j];
+                tmp3[j] = prob.bid[j];
+                tmp4[j] = prob.bid_def[j];
+            end
+        end
+        prob.bc_type = tmp1;
+        prob.bc_func = tmp2;
+        prob.bid = tmp3;
+        prob.bid_def = tmp4;
+    end
+    prob.bid[nbid] = bid;
+    prob.bid_def[nbid] = trueOnBdry;
 end
 
 # A reference point is a single point with a defined value.

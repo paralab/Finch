@@ -1938,6 +1938,12 @@ function add_boundary_ID_to_grid(bid, on_bdry, grid)
         push!(grid.bdrynorm, zeros(float_type, dim, 0));
     end
     
+    # If it is an empty Grid, do nothing else
+    if size(grid.allnodes,2) == 0
+        log_entry("Added boundary ID: "*string(bid));
+        return;
+    end
+    
     # Search all other bids for nodes and faces on this segment. Remove them there and add them here.
     # First find indices and count them. Then move.
     move_nodes = Array{Array{Int,1},1}(undef,nbids);

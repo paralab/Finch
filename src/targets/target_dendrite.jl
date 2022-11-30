@@ -29,9 +29,10 @@ function generate_external_files(var, IR)
         dendrite_build_files();
         
         # The generated code
-        dendrite_main_file(var, config);
-        dendrite_equation_file(var, config, IR);
-        dendrite_nodedata_file(var, config);
+        dendrite_main_file(var);
+        dendrite_equation_file(var, IR);
+        dendrite_boundary_file(var);
+        dendrite_nodedata_file(var);
         dendrite_inputdata_file(var);
     end
     
@@ -809,6 +810,28 @@ function cpp_genfunction_to_string(genfun)
     return ns;
 end
 
+# Returns the C++ string corresponding to a bid_def string.
+function cpp_bid_def(str::String)
+    result = str;
+    # Check for CUSTOM
+    if occursin("CUSTOM", str) || length(str)<1
+        result = "false; // Must manually specify custom boundaries";
+        printerr("Custom boundary regions must be specified manually. See XXXBoundaryConditions.h");
+    else
+        # Build by replacing keywords with expressions
+        # Julia 1.7+ has a more elegant way to do this, but for now...
+        result = replace(str, "XMIN" => "(fabs(x - domainMin.x(0)) < eps)")
+        result = replace(result, "XMAX" => "(fabs(x - domainMax.x(0)) < eps)")
+        result = replace(result, "YMIN" => "(fabs(y - domainMin.x(1)) < eps)")
+        result = replace(result, "YMAX" => "(fabs(y - domainMax.x(1)) < eps)")
+        result = replace(result, "ZMIN" => "(fabs(z - domainMin.x(2)) < eps)")
+        result = replace(result, "ZMAX" => "(fabs(z - domainMax.x(2)) < eps)")
+        result = replace(result, "eps()" => "eps")
+    end
+    
+    return result;
+end
+
 #######################################################
 # Write code files
 
@@ -818,14 +841,15 @@ end
 ##         ##    ##        ##       #   ###
 ##       ######  ########  #######   #####
 
-# # The generated code
-# dendrite_main_file(var, config);
-# dendrite_equation_file(var, config, IR);
-# dendrite_nodedata_file(var, config);
-# dendrite_inputdata_file(var);
+# dendrite_main_file(var, config)
+# dendrite_equation_file(var, config, IR)
+# dendrite_boundary_file(var)
+# dendrite_nodedata_file(var, config)
+# dendrite_inputdata_file(var)
 #######################################################
 
-function dendrite_main_file(var, config)
+function dendrite_main_file(var)
+    config = finch_state.config;
     project_name = finch_state.project_name;
     file = add_generated_file(project_name*".cpp", dir="src");
     hfile = add_generated_file(project_name*".hpp", dir="include");
@@ -855,12 +879,12 @@ function dendrite_main_file(var, config)
     
     content = """
 /**
-* Main file for """*project_name*""".
+* Main file for $(project_name).
 *
 * See readme.txt for instructions
 */ 
 
-#include """*"\""*project_name*".hpp\""*""" 
+#include "$(project_name).hpp" 
 
 
 int main(int argc, char* argv[]) {
@@ -880,7 +904,8 @@ end
 #=
 This file contains the elemental matrix and vector computations.
 =#
-function dendrite_equation_file(var, config, IR)
+function dendrite_equation_file(var, IR)
+    config = finch_state.config;
     project_name = finch_state.project_name;
     file = add_generated_file(project_name*"Equation.hpp", dir="include");
     
@@ -923,12 +948,12 @@ function dendrite_equation_file(var, config, IR)
 #pragma once
 
 #include <talyfem/fem/cequation.h>
-#include """*"\""*project_name*"""NodeData.h"
+#include "$(project_name)NodeData.h"
 #include <DataTypes.h>
 #include <Basis/MatVec.h>
 #include <Basis/Vec.h>
 #include <Basis/Mat.h>
-class """*project_name*"""Equation : public TALYFEMLIB::CEquation<"""*project_name*"""NodeData> {
+class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)NodeData> {
 
     double timespan = 0;
 
@@ -1011,9 +1036,157 @@ protected:
 end
 
 #=
+Sets boundary conditions.
+=#
+function dendrite_boundary_file(var)
+    config = finch_state.config;
+    prob = finch_state.prob;
+    project_name = finch_state.project_name;
+    file = add_generated_file(project_name*"BoundaryCondition.hpp", dir="include");
+    
+    if config.dimension == 1
+        extract_coords = """
+        double x = pos.x();
+        Point<1> domainMin(inputData_->mesh_def.min);
+        Point<1> domainMax(inputData_->mesh_def.max);"""
+    elseif config.dimension == 2
+        extract_coords = """
+        double x = pos.x();
+        double y = pos.y();
+        Point<2> domainMin(inputData_->mesh_def.min);
+        Point<2> domainMax(inputData_->mesh_def.max);"""
+    elseif config.dimension == 3
+        extract_coords = """
+        double x = pos.x();
+        double y = pos.y();
+        double z = pos.z();
+        Point<3> domainMin(inputData_->mesh_def.min);
+        Point<3> domainMax(inputData_->mesh_def.max);"""
+    end
+    
+    # bool on_BID_1 = (fabs(y - domainMax.x(1)) < eps);
+    bid_defs = "";
+    nbids = length(prob.bid);
+    for i=1:nbids
+        bid_name = "on_bid_"*string(prob.bid[i]);
+        bid_location = cpp_bid_def(prob.bid_def[i]);
+        bid_defs *= "    bool " * bid_name * " = " * bid_location * ";\n";
+    end
+    
+    # genfunctions
+    bdry_genfunctions = [];
+    
+    # if on_BID_1 {
+    #     b.addDirichlet($(project_name)NodeData::U_1, 0.0);
+    # } else if on_BID_2 {
+    #     b.addDirichlet($(project_name)NodeData::U_1, 0.0);
+    # }
+    dirichlet_bc = "";
+    for i=1:nbids
+        bid_name = "on_bid_"*string(prob.bid[i]);
+        # One line for each var with a dirichlet bdry on this bid
+        add_dirichlet = "";
+        for vi = 1:length(var)
+            var_ind = var[vi].index;
+            # One line for each component
+            for ci=1:var[vi].total_components
+                if prob.bc_type[var_ind] == DIRICHLET
+                    # Constant or genfunction values
+                    if typeof(prob.bc_func[var_ind][ci]) <: Number
+                        bc_val = string(prob.bc_func[var_ind][ci]);
+                    elseif typeof(prob.bc_func[var_ind][ci]) == GenFunction
+                        bc_val = prob.bc_func[var_ind][ci].name * "(pos)";
+                        push!(bdry_genfunctions, prob.bc_func[var_ind][ci]);
+                    else # uh oh
+                        printerr("Boundary values that are not constant or [x,y,z,t] gen functions must be entered manually.");
+                        bc_val = "0.0";
+                    end
+                    
+                    dof_name = string(var[vi].symbol) * "_" * string(ci) * "_dofind"; # u_1_dofind
+                    add_dirichlet *= "b.addDirichlet($(project_name)NodeData::$(dof_name), $(bc_val));\n";
+                end
+            end
+        end
+        
+        # Put them in their repective bid
+        if i==1
+            dirichlet_bc *= "    if(" * bid_name * "){\n        " * add_dirichlet * "    }";
+        else
+            dirichlet_bc *= " else if(" * bid_name * "){\n        " * add_dirichlet * "    }";
+        end
+    end
+    
+    # if (FEQUALS(x, 0.0) and (FEQUALS(y, 0.0)) and (FEQUALS(z, 0.0))) {
+    #     b.addDirichlet($(project_name)NodeData::U_1, 0.0);
+    # }
+    # TODO
+    reference_points = "";
+    
+    # genfunctions to define here
+    function_defs = "";
+    function_decs = "";
+    args ="(const TALYFEMLIB::ZEROPTV &pt)";
+    finished_genfunctions = [];
+    for i = 1:length(bdry_genfunctions)
+        # avoid duplicates
+        new_gf = true;
+        for j=1:length(finished_genfunctions)
+            if bdry_genfunctions[i].name == finished_genfunctions[j]
+                new_gf = false;
+                break;
+            end
+        end
+        if new_gf
+            str = cpp_genfunction_to_string(bdry_genfunctions[i]);
+            fun = "    return "*str*";";
+            
+            function_defs *= "double $(project_name)BoundaryConditions::" * bdry_genfunctions[i].name * args * "{\n";
+            function_defs *= "    " * fun * "\n}\n";
+            function_decs *= "        double " * bdry_genfunctions[i].name * args * ";\n";
+        end
+    end
+    
+    content = """
+#pragma once
+
+#include <TimeInfo.h>
+#include <PETSc/BoundaryConditions.h>
+#include <DataTypes.h>
+#include "$(project_name)InputData.h"
+#include "$(project_name)NodeData.h"
+class $(project_name)BoundaryConditions {
+    private:
+        const $(project_name)InputData *inputData_;
+    public:
+        $(project_name)BoundaryConditions(const $(project_name)InputData *idata);
+        void get$(project_name)BoundaryCondition(PETSc::Boundary &b, const TALYFEMLIB::ZEROPTV &pos);
+$(function_decs)
+};
+$(project_name)BoundaryConditions::$(project_name)BoundaryConditions(const $(project_name)InputData *idata) {
+    inputData_ = idata;
+}
+
+void $(project_name)BoundaryConditions::get$(project_name)BoundaryCondition(PETSc::Boundary &b, const TALYFEMLIB::ZEROPTV &pos) {
+    static constexpr double eps = 1e-14;
+$(extract_coords)
+    
+$(bid_defs)
+    
+$(dirichlet_bc)
+    
+$(reference_points)
+}
+
+$(function_defs)
+"""
+    println(file, content);
+end
+
+#=
 
 =#
-function dendrite_nodedata_file(var, config)
+function dendrite_nodedata_file(var)
+    config = finch_state.config;
     project_name = finch_state.project_name;
     file = add_generated_file(project_name*"NodeData.hpp", dir="include");
     

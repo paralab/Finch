@@ -134,7 +134,8 @@ A struct containing problem information
 mutable struct FinchProblem
     # Boundary condition info
     bc_type::Matrix{String}        # DIRICHLET, etc. for each variable and bid
-    bid::Matrix{Int}               # BID for each variable and boundary section
+    bid::Vector{Int}               # BID for each boundary section
+    bid_def::Vector{String}        # Description of boundary region if possible (ALL, XMIN, XMAX, (x-1)<eps, CUSTOM, ...)
     bc_func::Matrix{Vector{Union{Float64,GenFunction}}} # GenFunctions or numbers for each variable and bid
     
     # Reference points for pinning solutions without Dirichlet conditions
@@ -161,7 +162,8 @@ mutable struct FinchProblem
     # Constructor builds an empty prob.
     FinchProblem() = new(
         Matrix{String}(undef,(0,0)), 
-        Matrix{Int}(undef,(0,0)), 
+        Vector{Int}(undef,(0)), 
+        Vector{String}(undef,(0)), 
         Matrix{Vector}(undef,(0,0)),
         Vector{Bool}(undef,0),
         Matrix{Vector}(undef,(0,0)),

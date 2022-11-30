@@ -17,19 +17,18 @@ useLog("poisson3d-dendritelog", level=3)
 
 generateFor("Dendrite")
 
-ord = 1;
-
 domain(3)
-functionSpace(order=ord)
+# functionSpace(order=2)
 
 u = variable("u")
-
 testSymbol("v")
 
-boundary(u, 1, DIRICHLET, 0)
+addBoundaryID(1, "XMIN || XMAX || YMIN || YMAX || ZMIN || ZMAX")
+# boundary(u, 1, DIRICHLET, 0)
+boundary(u, 1, DIRICHLET, "0")
 
-# Write the weak form 
-coefficient("f", "-3*pi*pi*sin(pi*x)*sin(pi*y)*sin(pi*z)")
+coefficient("f", "-14*pi*pi*sin(pi*x)*sin(2*pi*y)*sin(3*pi*z)")
+
 weakForm(u, "-dot(grad(u), grad(v)) - f*v")
 
 solve(u);
