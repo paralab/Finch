@@ -8,7 +8,7 @@ Pages = ["configuration.md"]
 ```
 
 ```@docs
-generateFor(lang; filename=project_name, header="", params=nothing)
+generateFor(lang; filename=project_name, header="", params...)
 useLog(name=project_name; dir=output_dir, level=2)
 domain(dims; shape=SQUARE, grid=UNIFORM_GRID)
 solverType(method, backend=DEFAULT_SOLVER)

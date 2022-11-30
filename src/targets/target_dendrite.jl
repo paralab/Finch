@@ -852,7 +852,7 @@ function dendrite_main_file(var)
     config = finch_state.config;
     project_name = finch_state.project_name;
     file = add_generated_file(project_name*".cpp", dir="src");
-    hfile = add_generated_file(project_name*".hpp", dir="include");
+    hfile = add_generated_file(project_name*".h", dir="include");
     
     if !(typeof(var) <:Array)
         var = [var];
@@ -884,7 +884,7 @@ function dendrite_main_file(var)
 * See readme.txt for instructions
 */ 
 
-#include "$(project_name).hpp" 
+#include "$(project_name).h" 
 
 
 int main(int argc, char* argv[]) {
@@ -907,7 +907,7 @@ This file contains the elemental matrix and vector computations.
 function dendrite_equation_file(var, IR)
     config = finch_state.config;
     project_name = finch_state.project_name;
-    file = add_generated_file(project_name*"Equation.hpp", dir="include");
+    file = add_generated_file(project_name*"Equation.h", dir="include");
     
     # Generate the elemental matrix and vector calculation
     matrix_part = "// Matrix computation not found in IR";
@@ -1042,7 +1042,7 @@ function dendrite_boundary_file(var)
     config = finch_state.config;
     prob = finch_state.prob;
     project_name = finch_state.project_name;
-    file = add_generated_file(project_name*"BoundaryCondition.hpp", dir="include");
+    file = add_generated_file(project_name*"BoundaryCondition.h", dir="include");
     
     if config.dimension == 1
         extract_coords = """
@@ -1188,7 +1188,7 @@ end
 function dendrite_nodedata_file(var)
     config = finch_state.config;
     project_name = finch_state.project_name;
-    file = add_generated_file(project_name*"NodeData.hpp", dir="include");
+    file = add_generated_file(project_name*"NodeData.h", dir="include");
     
     content = """
 //TODO
@@ -1197,14 +1197,181 @@ function dendrite_nodedata_file(var)
 end
 
 #=
+Stores configuration input from config.txt or default generated values
+The basics are:
+basisFunction = "linear" # "quadratic" "cubic" "hermite"
+mfree = false # "true"
 
+Mesh options: (depends on MeshDef struct)
+background_mesh = {
+  refine_lvl = 4
+  min = [0.0, 0.0]   
+  max = [1.0, 1.0] 
+  # max or scalingFactor = [1.0, 1.0] 
+  # You can pass either of these two but not both. InputData needs to be updated accordingly 
+}
+
+PETSc options: (any other PETSc options can be added as needed)
+solver_options_bt = {
+  ksp_max_it = 2000
+  ksp_type = "bcgs"
+  pc_type = "asm"
+  ksp_atol = 1e-7
+  ksp_rtol = 1e-10
+  ksp_monitor = ""
+  ksp_converged_reason = ""
+  
+  # nonlinear snes
+  snes_atol = 1e-8
+  snes_rtol = 1e-8
+  snes_stol = 1e-10
+  snes_max_it = 40
+  snes_max_funcs = 80000
+  snes_monitor = ""
+  snes_converged_reason = ""
+  
+  # multigrid
+  ksp_type = "bcgs"
+  pc_type = "gamg"
+  pc_gamg_asm_use_agg = True
+  mg_levels_ksp_type = "bcgs"
+  mg_levels_pc_type = "asm"
+  mg_levels_sub_pc_type = "lu"
+  mg_levels_ksp_max_it = 50
+  
+  # direct solver
+  ksp_type = "bcgs"
+  pc_type = "lu"
+  pc_factor_mat_solver_package = "mumps"
+  pc_factor_levels = 3
+}
 =#
 function dendrite_inputdata_file(var)
     project_name = finch_state.project_name;
-    file = add_generated_file(project_name*"InputData.hpp", dir="include");
+    file = add_generated_file(project_name*"InputData.h", dir="include");
+    
+    params = finch_state.target_parameters;
+    DIM = finch_state.config.dimension;
+    order = finch_state.config.basis_order_min;
+    if order > 3
+        printerr("This target only supports element order up to 3. Changing to 3.")
+        order = 3;
+    end
+    if order == 1
+        default_order = "linear";
+    elseif order == 2
+        default_order = "quadratic";
+    else # order == 3
+        default_order = "cubic";
+    end
+    default_matfree = finch_state.config.linalg_matrixfree;
+    default_refine = 3;
+    if haskey(params, :refineLevel)
+        default_refine = params[:refineLevel];
+    end
+    
+    time_stepping_part = ""; # TODO
     
     content = """
-//TODO
+#pragma once
+
+#include <talyfem/input_data/input_data.h>
+#include <DataTypes.h>
+#include <point.h>
+
+/**
+ * Parameters for mesh
+ */
+struct MeshDef : public DomainInfo {
+    /// refinement level
+    DENDRITE_UINT refineLevel = $(default_refine);
+    
+    void read_from_config(const libconfig::Setting &root) {
+        if (root.exists("refineLevel")) {
+            refineLevel= (DENDRITE_UINT) root["refineLevel"];
+        }
+        if (root.exists("min")) {
+            for (DENDRITE_UINT dim = 0; dim < $(DIM); dim++) {
+                min[dim] = (DENDRITE_REAL) root["min"][dim];
+            }
+        }else{
+            TALYFEMLIB::PrintWarning("No min defined for mesh. Using 0.0");
+            for (DENDRITE_UINT dim = 0; dim < $(DIM); dim++) {
+                min[dim] = (DENDRITE_REAL) 0.0;
+            }
+        }
+        if (root.exists("max")) {
+            for (DENDRITE_UINT dim = 0; dim < $(DIM); dim++) {
+                max[dim] = (DENDRITE_REAL) root["max"][dim];
+            }
+        }else if (root.exists("scalingFactor")) {
+            for (DENDRITE_UINT dim = 0; dim < $(DIM); dim++) {
+                max[dim] = (DENDRITE_REAL) (min[dim] + root["scalingFactor"][dim]);
+            }
+        }else{
+            TALYFEMLIB::PrintWarning("No max or scalingFactor defined for mesh. Using 1.0");
+            for (DENDRITE_UINT dim = 0; dim < $(DIM); dim++) {
+                max[dim] = (DENDRITE_REAL) 1.0;
+            }
+        }
+    }
+};
+
+class $(project_name)InputData : public TALYFEMLIB::InputData {
+    public:
+        /// Mesh definition
+        MeshDef meshDef;
+        /// Basis function
+        std::string basisFunctionStr = "$(default_order)";
+        /// Matrix  free
+        bool mfree = $(default_matfree);
+        
+        SolverOptions solverOptions$(project_name);
+        // bool dump_vec = false; // This is used for regression testing
+        
+    bool ReadFromFile(const std::string &filename = std::string("config.txt")) {
+        ReadConfigFile(filename);
+        /// mesh size and level
+        meshDef.read_from_config(cfg.getRoot()["background_mesh"]);
+        
+        /// basis function order
+        basisFunction = TALYFEMLIB::basis_string_to_enum(basisFunctionStr);
+        if (ReadValue("basisFunction", basisFunctionStr)) {
+            if (!basisFunctionStr.empty()){
+                basisFunction = TALYFEMLIB::basis_string_to_enum(basisFunctionStr);
+            }
+        }
+        
+        /// Other parameters
+        if (ReadValue("mfree", mfree)) {}
+        if (ReadValue("dump_vec", dump_vec)) {}
+        
+        $(time_stepping_part)
+            
+        /// PETSc options
+        solverOptions$(project_name) = read_solver_options(cfg, "solver_options");
+        return true;
+    }
+
+    /// check if the input are valid
+    bool CheckInputData() {
+        /// Matrix free version of the code cannot have pre-conditioner
+        if (mfree) {
+            if (solverOptions$(project_name).vals.count("pc_type") == 1) {
+                solverOptions$(project_name).vals.at("pc_type") = "none";
+                TALYFEMLIB::PrintWarning("mfree = True, changing pc_type to 'none'");
+            }
+        }
+        
+        /// Basis function order
+        if (basisFunction < 1 || basisFunction > 4){
+            basisFunction = TALYFEMLIB::basis_string_to_enum("$(default_order)");
+            TALYFEMLIB::PrintWarning("invalid basis function selection, changing order to $(default_order)");
+        }
+        return true;
+    }
+};
+
 """
     println(file, content);
 end

@@ -33,15 +33,16 @@ function initFinch(name="unnamedProject", floatType::DataType=Float64)
 end
 
 """
-    generateFor(lang; filename=project_name, header="", params=nothing)
+    generateFor(lang; filename=project_name, header="", params...)
 
 Specify the generation target. Lang could be one of the included target constants: 
 (MATLAB, DENDRO) or the filename where the target is defined. The keyword argument
 filename refers to the name to be applied to the generated code. The header text 
 will be placed at the top of each generated code file. If the target requires 
-some extra parameters, those are included in params.
+some extra parameters, those are included in params and available to the target 
+as a `Dict{Symbol, Any}`.
 """
-function generateFor(lang; filename=finch_state.project_name, header="", params=nothing)
+function generateFor(lang; filename=finch_state.project_name, header="", params...)
     global finch_state;
     outputDirPath = pwd()*"/"*filename;
     if finch_state.config.proc_rank == 0 && !isdir(outputDirPath)
@@ -84,9 +85,7 @@ function generateFor(lang; filename=finch_state.project_name, header="", params=
         set_custom_gen_target(finch_state, get_external_language_elements, generate_external_files, outputDirPath, filename, head=header);
     end
     
-    if !(params === nothing)
-        set_codegen_parameters(finch_state, params);
-    end
+    set_codegen_parameters(finch_state, params);
 end
 
 """

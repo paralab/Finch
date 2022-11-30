@@ -79,8 +79,9 @@ function set_custom_gen_target(state::FinchState, lang_elements, file_maker, dir
 end
 
 # Set parameters used by code generation. This is specific to the target.
+# params is the named pairs passed in the interface
 function set_codegen_parameters(state::FinchState, params)
-    state.target_parameters = params;
+    state.target_parameters = Dict(params);
 end
 
 # Set the needed discretizations and backend
