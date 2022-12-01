@@ -1905,10 +1905,14 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
     # end
     last_minor = IR_data_node(IRtypes.int_data, :last_minor_progress);
     last_major = IR_data_node(IRtypes.int_data, :last_major_progress);
+    root_print = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(==), :proc_rank, 0]),
+                        IR_block_node([]));
     progress_init = IR_block_node([
         IR_operation_node(IRtypes.assign_op, [last_minor, 0]),
         IR_operation_node(IRtypes.assign_op, [last_major, 0]),
-        IR_operation_node(IRtypes.named_op, [:PRINT_STRING, "Time step progress(%) 0"])
+        IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(==), :proc_rank, 0]),
+            IR_block_node([IR_operation_node(IRtypes.named_op, [:PRINT_STRING, "Time step progress(%) 0"])]))
+        
     ])
     progress_update = IR_block_node([
         IR_conditional_node(
@@ -1918,7 +1922,8 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
             IR_block_node([
                 IR_operation_node(IRtypes.assign_op, [last_major, IR_operation_node(IRtypes.math_op, [:+, last_major, 10])]),
                 IR_operation_node(IRtypes.assign_op, [last_minor, IR_operation_node(IRtypes.math_op, [:+, last_minor, 2])]),
-                IR_operation_node(IRtypes.named_op, [:PRINT_STRING, last_major])
+                IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(==), :proc_rank, 0]),
+                    IR_block_node([IR_operation_node(IRtypes.named_op, [:PRINT_STRING, last_major])]))
             ]),
             IR_block_node([
                 IR_conditional_node(
@@ -1927,7 +1932,8 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
                         IR_operation_node(IRtypes.math_op, [:+, last_minor, 2])]),
                     IR_block_node([
                         IR_operation_node(IRtypes.assign_op, [last_minor, IR_operation_node(IRtypes.math_op, [:+, last_minor, 2])]),
-                        IR_operation_node(IRtypes.named_op, [:PRINT_STRING, "."])
+                        IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(==), :proc_rank, 0]),
+                            IR_block_node([IR_operation_node(IRtypes.named_op, [:PRINT_STRING, "."])]))
                     ])
                 )
             ])

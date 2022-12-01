@@ -223,15 +223,19 @@ function replace_symbols_in_conditions(ex)
                 if finch_state.variables[v_index].type == SCALAR
                     newex = :(Finch.finch_state.variables[$v_index].values[node_index]);
                 else
-                    newex = :(Finch.finch_state.variables[$v_index].values[:,node_index]);
+                    newex = :(view(Finch.finch_state.variables[$v_index].values, :, node_index));
                 end
                 ex = newex;
             elseif c_index > 0
-                if finch_state.coefficients[c_index].type == LinearAlgebra.ConvertibleSpecialMatrix
+                if finch_state.coefficients[c_index].type == SCALAR
                     newex = :(evaluate_coefficient(Finch.finch_state.coefficients[$c_index], 1, x, y, z, t, node_index, face_index, indices));
                 else
                     num_comps = length(finch_state.coefficients[c_index].value);
-                    newex = :([evaluate_coefficient(Finch.finch_state.coefficients[$c_index], comp, x, y, z, t, node_index, face_index, indices) for comp in 1:$num_comps]);
+                    if typeof(finch_state.coefficients[c_index].value[1]) <: Number # assume all numbers
+                        newex = :(Finch.finch_state.coefficients[$c_index].value);
+                    else # assume all genfunctions
+                        newex = :([evaluate_coefficient(Finch.finch_state.coefficients[$c_index], comp, x, y, z, t, node_index, face_index, indices) for comp in 1:$num_comps]);
+                    end
                 end
                 ex = newex;
             elseif i_index > 0

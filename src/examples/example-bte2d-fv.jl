@@ -50,6 +50,7 @@ I = variable("I", type=VAR_ARRAY, location=CELL, index = [direction, band]) # In
 Io = variable("Io", type=VAR_ARRAY, location=CELL, index = [band]) # Equilibrium intensity for each band
 beta = variable("beta", type=VAR_ARRAY, location=CELL, index = [band]) # Relaxation time scale
 temperature = variable("temperature", location=CELL) # temperature of each cell
+temperatureLast = variable("temperatureLast", location=CELL) # temperature from last time step
 G_last = variable("G_last", type=VAR_ARRAY, location=CELL, index = [band]) # integrated intensity from last step
 G_next = variable("G_next", type=VAR_ARRAY, location=CELL, index = [band]) # integrated intensity for current step
 
@@ -72,6 +73,7 @@ initial(I, [equilibrium_intensity(center_freq[b], delta_freq, init_temp) for d=1
 initial(Io, [equilibrium_intensity(center_freq[b], delta_freq, init_temp) for b=1:nbands])
 initial(beta, [get_time_scale(center_freq[b], init_temp) for b=1:nbands])
 initial(temperature, init_temp);
+initial(temperatureLast, init_temp);
 
 # To get initial values here before calling solve, manually initialize.
 evalInitialConditions();
@@ -79,7 +81,7 @@ get_integrated_intensity!(G_last.values, I.values, ndirs, nbands);
 
 # After each time step the temperature, equilibrium I, and time scales are updated
 function post_step()
-    update_temperature(temperature.values, I.values, center_freq, delta_freq);
+    update_temperature(temperature.values, temperatureLast.values, I.values, beta.values, center_freq, delta_freq);
 end
 postStepFunction(post_step);
 
@@ -90,8 +92,8 @@ assemblyLoops(["elements", band, direction])
 # Input conservation form representing: (Io-I)/beta + surface(vg * I * S.n)
 conservationForm(I, "(Io[band] - I[direction,band]) / beta[band] + surface(vg[band] * upwind([Sx[direction];Sy[direction]] , I[direction,band]))")
 
-exportCode("bte2dcode") # uncomment to export generated code to a file
-# importCode("bte2dcode") # uncomment to import code from a file
+# exportCode("bte2dcode") # uncomment to export generated code to a file
+importCode("bte2dcode") # uncomment to import code from a file
 
 solve(I)
 

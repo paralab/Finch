@@ -204,15 +204,20 @@ function evaluate_at_node(val::Union{VT,GenFunction,CallbackFunction}, node::Int
         result = val.func(x,y,z,t,node,face,indices);
         
     elseif typeof(val) == CallbackFunction
-        result = evaluate_callback_node(val, node, face, t, grid, indices);
+        result = evaluate_callback_node(val, x, y, z, node, face, t, grid, indices);
     end
     return result;
 end
 
-function evaluate_callback_node(val::CallbackFunction, node::Int, face::Int, t::FT, grid::Grid, indices::Vector{Int}) where FT<:AbstractFloat
+function evaluate_callback_node(val::CallbackFunction, x::Union{Float64, FT}, y::Union{Float64, FT}, z::Union{Float64, FT}, 
+                    node::Int, face::Int, t::Union{Float64, FT}, grid::Grid, indices::Vector{Int}) where FT<:AbstractFloat
     #form a dict for the arguments. x,y,z,t are always included
-    arg_list = [];
-    append!(arg_list, [("x", x), ("y", y), ("z", z), ("t", t)]);
+    args = Dict{String, Any}();
+    args["x"] = x;
+    args["y"] = y;
+    args["z"] = z;
+    args["t"] = t;
+    
     # Add in the requires list
     for r in val.args
         foundit = false;
@@ -220,14 +225,16 @@ function evaluate_callback_node(val::CallbackFunction, node::Int, face::Int, t::
         if typeof(r) <: Variable
             foundit = true;
             if size(r.values,1) == 1
-                push!(arg_list, (string(r.symbol), r.values[1,node]));
+                args[string(r.symbol)] = r.values[1,node];
             else
-                push!(arg_list, (string(r.symbol), r.values[:,node]));
+                args[string(r.symbol)] = @view(r.values[:,node]);
             end
+            
         elseif typeof(r) == Coefficient
             # TODO: evaluate coefficient at node
             foundit = true;
-            push!(arg_list, (string(r.symbol), evaluate_at_node(r, node, face, t, grid, indices)));
+            args[string(r.symbol)] = evaluate_at_node(r, node, face, t, grid, indices)
+            
         elseif typeof(r) == String
             # This could also be a variable, coefficient, or special thing like normal, 
             if r in ["x","y","z","t"]
@@ -235,15 +242,17 @@ function evaluate_callback_node(val::CallbackFunction, node::Int, face::Int, t::
                 # These are already included
             elseif r == "normal"
                 foundit = true;
-                push!(arg_list, ("normal", grid.facenormals[:,face]));
+                args["normal"] = grid.facenormals[:,face];
             else
                 for v in finch_state.variables
                     if string(v.symbol) == r
                         foundit = true;
                         if size(v.values,1) == 1
                             push!(arg_list, (r, v.values[1,node]));
+                            args[r] = v.values[1,node];
                         else
                             push!(arg_list, (r, v.values[:,node]));
+                            args[r] = @view(v.values[:,node]);
                         end
                         break;
                     end
@@ -251,7 +260,7 @@ function evaluate_callback_node(val::CallbackFunction, node::Int, face::Int, t::
                 for c in finch_state.coefficients
                     if string(c.symbol) == r
                         foundit = true;
-                        push!(arg_list, (r, evaluate_at_node(c, node, face, t, grid, indices)));
+                        args[r] = evaluate_at_node(c, node, face, t, grid, indices);
                         break;
                     end
                 end
@@ -265,9 +274,6 @@ function evaluate_callback_node(val::CallbackFunction, node::Int, face::Int, t::
             printerr("Unknown requirement for callback function "*string(fun)*" : "*string(r));
         end
     end
-    
-    # Build the dict
-    args = Dict(arg_list);
     
     # call the function
     result = val.func(args);
@@ -304,11 +310,12 @@ end
 function FV_evaluate_callback(val::CallbackFunction, eid::Int, fid::Int, facex::Vector{FT}, 
                                 t::Union{Float64, FT}, dim::Int, fv_info::FVInfo, indices::Vector{Int}) where FT<:AbstractFloat
     #form a dict for the arguments. x,y,z,t are always included
-    arg_list = [];
-    append!(arg_list, [("x", facex[1]),
-                ("y", dim>1 ? facex[2] : 0.0),
-                ("z", dim>2 ? facex[3] : 0.0),
-                ("t", t)]);
+    args = Dict{String, Any}();
+    args["x"] = faces[1];
+    args["y"] = dim>1 ? facex[2] : 0.0;
+    args["z"] = dim>2 ? facex[3] : 0.0;
+    args["t"] = t;
+    
     # Add in the requires list
     for r in val.args
         foundit = false;
@@ -316,25 +323,32 @@ function FV_evaluate_callback(val::CallbackFunction, eid::Int, fid::Int, facex::
         if typeof(r) <: Variable
             foundit = true;
             if size(r.values,1) == 1
-                push!(arg_list, (string(r.symbol), r.values[1,eid]));
+                args[string(r.symbol)] = r.values[1,eid];
             else
-                push!(arg_list, (string(r.symbol), r.values[:,eid]));
+                args[string(r.symbol)] = @view(r.values[:,eid]);
             end
+            
         elseif typeof(r) == Coefficient
             foundit = true;
-            cvals = zeros(typeof(facex[1]), size(r.value));
-            facex = fv_info.faceCenters[:,fid];
-            for i=1:length(cvals)
-                cvals[i] = evaluate_coefficient(r, i, facex[1],facex[2],facex[3], t, eid, fid, indices);
+            if typeof(r.value[1]) <: Number # assume all numbers
+                cvals = r.value;
+            else # assume all genfunctions
+                cvals = zeros(typeof(facex[1]), size(r.value));
+                facex = fv_info.faceCenters[:,fid];
+                for i=1:length(cvals)
+                    cvals[i] = evaluate_coefficient(r, i, facex[1],facex[2],facex[3], t, eid, fid, indices);
+                end
             end
-            push!(arg_list, (string(r.symbol), cvals));
+            args[string(r.symbol)] = cvals;
+            
         elseif typeof(r) == Indexer
             # if an indexer is present
             if !(indices === nothing)
                 ind_val = indices[r.symbol];
                 foundit = true;
-                push!(arg_list, (r.symbol, ind_val));
+                args[string(r.symbol)] = ind_val;
             end
+            
         elseif typeof(r) == String
             # This could also be a variable, coefficient, or special thing like normal, 
             if r in ["x","y","z","t"]
@@ -342,15 +356,15 @@ function FV_evaluate_callback(val::CallbackFunction, eid::Int, fid::Int, facex::
                 # These are already included
             elseif r == "normal"
                 foundit = true;
-                push!(arg_list, ("normal", finch_state.fv_grid.facenormals[:,fid]));
+                args["normal"] = finch_state.fv_grid.facenormals[:,fid];
             else
                 for v in finch_state.variables
                     if string(v.symbol) == r
                         foundit = true;
                         if size(v.values,1) == 1
-                            push!(arg_list, (r, v.values[1,eid]));
+                            args[r] = v.values[1,eid];
                         else
-                            push!(arg_list, (r, v.values[:,eid]));
+                            args[r] = @view(v.values[:,eid]);
                         end
                         break;
                     end
@@ -358,7 +372,7 @@ function FV_evaluate_callback(val::CallbackFunction, eid::Int, fid::Int, facex::
                 for c in finch_state.coefficients
                     if string(c.symbol) == r
                         foundit = true;
-                        push!(arg_list, (r, FV_evaluate_bc(c, eid, fid, facex, t, dim, fv_info, indices)));
+                        args[r] = FV_evaluate_bc(c, eid, fid, facex, t, dim, fv_info, indices);
                         break;
                     end
                 end
@@ -372,9 +386,6 @@ function FV_evaluate_callback(val::CallbackFunction, eid::Int, fid::Int, facex::
             printerr("Unknown requirement for callback function "*string(fun)*" : "*string(requires[i]));
         end
     end
-    
-    # Build the dict
-    args = Dict(arg_list);
     
     # call the function
     result = val.func(args);

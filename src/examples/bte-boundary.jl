@@ -1,7 +1,7 @@
 @callbackFunction(
-    function adiabatic_bdry(intensity, vg, sx, sy, dir, band, normal)
+    function adiabatic_bdry(intensity, vg::Vector, sx::Vector, sy::Vector, dir::Int, band::Int, normal::Vector{Float64})
         # debug = (fid == 1 && t > 0.29);
-        result = intensity[dir + (band-1)*ndirs];
+        result::Float64 = intensity[dir + (band-1)*ndirs];
         
         specularity = 0.5;
         #specular_tol = 1e-5; # tolerance for selecting specular reflection direction
@@ -54,10 +54,14 @@
     end
 )
 @callbackFunction(
-    function isothermal_bdry(intensity, vg, sx, sy, band, dir, normal, temp)
-        interior_intensity = intensity[dir + (band-1)*ndirs];
-        iso_intensity = equilibrium_intensity(center_freq[band], delta_freq, temp);
-        sdotn = sx[dir]*normal[1] + sy[dir]*normal[2];
+    function isothermal_bdry(intensity, vg::Vector, sx::Vector, sy::Vector, 
+                            band::Int, dir::Int, normal::Vector{Float64}, temp)
+        center_f::Float64 = center_freq[band];
+        delta_f::Float64 = delta_freq;
+        temp::Float64 = Float64(temp);
+        interior_intensity::Float64 = intensity[dir + (band-1)*ndirs];
+        iso_intensity::Float64 = equilibrium_intensity(center_f, delta_freq, temp);
+        sdotn::Float64 = sx[dir]*normal[1] + sy[dir]*normal[2];
         if sdotn > 0
             result = -vg[band] * interior_intensity * sdotn;
         else
@@ -67,11 +71,13 @@
     end
 )
 @callbackFunction(
-    function symmetric_bdry(intensity, vg, sx, sy, band, dir, normal)
+    function symmetric_bdry(intensity, vg::Vector, sx::Vector, sy::Vector, 
+                            band::Int, dir::Int, normal::Vector{Float64})
         # This is essentially the same as pure specular reflection?
-        interior_intensity = intensity[dir + (band-1)*ndirs];
-        sym_intensity = intensity[reflect[dir] + (band-1)*ndirs];
-        sdotn = sx[dir]*normal[1] + sy[dir]*normal[2];
+        interior_intensity::Float64 = intensity[dir + (band-1)*ndirs];
+        reflectdir::Int = reflect[dir];
+        sym_intensity::Float64 = intensity[reflectdir + (band-1)*ndirs];
+        sdotn::Float64 = sx[dir]*normal[1] + sy[dir]*normal[2];
         if sdotn > 0
             result = -vg[band] * interior_intensity * sdotn;
         else

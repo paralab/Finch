@@ -14,15 +14,15 @@ const hobol = 7.63822401661014e-12; # dirac/boltzman
 #   2nd: A = accoustic phonons, O = optical phonons
 #   3rd: S = silicon, G = germanium
 # For this test we are only considering TAS. Later LAS will be added.
-const freq_min_TAS = 0;
+const freq_min_TAS = 0.0;
 const freq_max_TAS = 2.97927417405992e13;
 const c_TAS = -2.26e-7; # c and vs are coefficients in the wave vector equation:
-const vs_TAS= 5230;     # wk = wo + vs*|K| + c*|K|^2   where wo=0 for Transverse.
+const vs_TAS= 5230.0;     # wk = wo + vs*|K| + c*|K|^2   where wo=0 for Transverse.
 
 const freq_min_LAS = freq_max_TAS; # In the original code this was 0??
 const freq_max_LAS = 7.728337675901222e13;
 const c_LAS = -2.0e-7;
-const vs_LAS= 9010;
+const vs_LAS= 9010.0;
 
 # Others to be added as needed
 
@@ -42,27 +42,36 @@ const a_n_LAS = 7.10e-20;
 const a_u_LAS = 9.51e-47;
 
 # 5-point gaussian quadrature
-g5xi = [-0.906179845938664, -0.538469310105683, 0.0, 0.538469310105683, 0.906179845938664]; # gaussian quadrature points
-g5wi = [0.23692688505618908, 0.47862867049936647, 0.5688888888888889, 0.47862867049936647, 0.23692688505618908]; # gaussian weights
+const g5xi = [-0.906179845938664, -0.538469310105683, 0.0, 0.538469310105683, 0.906179845938664]; # gaussian quadrature points
+const g5wi = [0.23692688505618908, 0.47862867049936647, 0.5688888888888889, 0.47862867049936647, 0.23692688505618908]; # gaussian weights
 
-# 20-point gaussian quadrature
-g20xi = zeros(20);
-g20wi = zeros(20);
-g20xi[1] = 0.076526521133497; g20wi[1] = 0.152753387130725;
-g20xi[2] = 0.227785851141645; g20wi[2] = 0.149172986472603;
-g20xi[3] = 0.373706088715419; g20wi[3] = 0.142096109318382;
-g20xi[4] = 0.510867001950827; g20wi[4] = 0.131688638449176;
-g20xi[5] = 0.636053680726515; g20wi[5] = 0.118194531961518;
-g20xi[6] = 0.746331906460150; g20wi[6] = 0.101930119817240;
-g20xi[7] = 0.839116971822218; g20wi[7] = 0.083276741576704;
-g20xi[8] = 0.912234428251325; g20wi[8] = 0.062672048334109;
-g20xi[9] = 0.963971927277913; g20wi[9] = 0.040601429800386;
-g20xi[10] = 0.993128599185094; g20wi[10] = 0.017614007139152;
-for i = 1:10
-    g20xi[10+i] = -g20xi[i];
-    g20wi[10+i] = g20wi[i];
-end
-
+# # 20-point gaussian quadrature
+# g20xi = zeros(20);
+# g20wi = zeros(20);
+# g20xi[1] = 0.076526521133497; g20wi[1] = 0.152753387130725;
+# g20xi[2] = 0.227785851141645; g20wi[2] = 0.149172986472603;
+# g20xi[3] = 0.373706088715419; g20wi[3] = 0.142096109318382;
+# g20xi[4] = 0.510867001950827; g20wi[4] = 0.131688638449176;
+# g20xi[5] = 0.636053680726515; g20wi[5] = 0.118194531961518;
+# g20xi[6] = 0.746331906460150; g20wi[6] = 0.101930119817240;
+# g20xi[7] = 0.839116971822218; g20wi[7] = 0.083276741576704;
+# g20xi[8] = 0.912234428251325; g20wi[8] = 0.062672048334109;
+# g20xi[9] = 0.963971927277913; g20wi[9] = 0.040601429800386;
+# g20xi[10] = 0.993128599185094; g20wi[10] = 0.017614007139152;
+# for i = 1:10
+#     g20xi[10+i] = -g20xi[i];
+#     g20wi[10+i] = g20wi[i];
+# end
+const g20xi = [0.076526521133497, 0.227785851141645, 0.373706088715419, 0.510867001950827, 0.636053680726515, 
+                0.74633190646015, 0.839116971822218, 0.912234428251325, 0.963971927277913, 0.993128599185094, 
+                -0.076526521133497, -0.227785851141645, -0.373706088715419, -0.510867001950827, -0.636053680726515, 
+                -0.74633190646015, -0.839116971822218, -0.912234428251325, -0.963971927277913, -0.993128599185094];
+#
+const g20wi = [0.152753387130725, 0.149172986472603, 0.142096109318382, 0.131688638449176, 0.118194531961518, 
+                0.10193011981724, 0.083276741576704, 0.062672048334109, 0.040601429800386, 0.017614007139152, 
+                0.152753387130725, 0.149172986472603, 0.142096109318382, 0.131688638449176, 0.118194531961518, 
+                0.10193011981724, 0.083276741576704, 0.062672048334109, 0.040601429800386, 0.017614007139152];
+#
 
 ############################################################################
 
@@ -238,9 +247,10 @@ end
 # Scattering time scale from relaxtime.f90 (NOT Broido version)
 # input: beta array to update, band center frequencies, temperature
 # output: band average inverse time scales (beta = 1/tau)
-function get_time_scale!(beta::Array, freq::Array, temp::Array; polarization="T")
+function get_time_scale!(beta::Matrix{Float64}, freq::Vector{Float64}, temp::Array{Float64}; polarization="T")
     n = length(temp); # number of cells
     m = length(freq); # number of bands
+    @inbounds begin
     for j=1:n # loop over cells
         for i=1:m # loop over bands
             if polarization == "T"
@@ -253,16 +263,17 @@ function get_time_scale!(beta::Array, freq::Array, temp::Array; polarization="T"
             end
         end
     end
+    end#inbounds
 end
 # Similar to above, but for a single band and temp
-function get_time_scale(freq::Number, temp::Number; polarization="T")
+function get_time_scale(freq::Float64, temp::Union{Int, Float64}; polarization="T")
     if polarization == "T"
-        beta = btn * (temp^4) * freq
+        beta = btn * (temp*temp*temp*temp) * freq
         if freq >= wmax_half                  
             beta += btu * (freq*freq) / sinh(hobol * freq / temp);             
         end
     else
-        beta = bl * (temp^3) * (freq*freq);  
+        beta = bl * (temp*temp*temp) * (freq*freq);  
     end
     
     return beta;
@@ -275,7 +286,9 @@ end
 #
 # input: Intensity array to update, band center frequency, band width, temperature of each cell
 # output: equilibrium intensity in each cell
-function equilibrium_intensity!(intensity::Array, freq::Array, dw, temp::Array; polarization="T")
+function equilibrium_intensity!(intensity::Matrix{Float64}, freq::Vector{Float64}, dw::Float64, temp::Array{Float64}; polarization="T")
+    vs::Float64 = 0.0;
+    c::Float64 = 0.0;
     if polarization=="T"
         vs = vs_TAS;
         c = c_TAS;
@@ -289,6 +302,7 @@ function equilibrium_intensity!(intensity::Array, freq::Array, dw, temp::Array; 
     n = length(temp); # should be number of cells
     # dirac/(32*pi^3) = 1.062861036647414e-37
     const_part = 1.062861036647414e-37 / (c*c) * dw/2; # constants to pull out of integral
+    @inbounds begin
     for ci=1:n # loop over cells
         for i=1:length(freq) # loop over bands
             tmp = 0.0;
@@ -299,9 +313,12 @@ function equilibrium_intensity!(intensity::Array, freq::Array, dw, temp::Array; 
             intensity[i,ci] = tmp * const_part;
         end
     end
+    end#inbounds
 end
 # Similar to above, but for a single frequency band and temperature
-function equilibrium_intensity(freq::Number, dw, temp::Number; polarization="T")
+function equilibrium_intensity(freq::Float64, dw::Float64, temp::Union{Int, Float64}; polarization="T")
+    vs::Float64 = 0.0;
+    c::Float64 = 0.0;
     if polarization=="T"
         vs = vs_TAS;
         c = c_TAS;
@@ -315,21 +332,24 @@ function equilibrium_intensity(freq::Number, dw, temp::Number; polarization="T")
     # dirac/(32*pi^3) = 1.062861036647414e-37
     const_part = 1.062861036647414e-37 * dw/2 / (c*c); # constants to pull out of integral
     intensity = 0.0;
+    @inbounds begin
     for gi=1:20
         fi = freq + dw/2 * g20xi[gi]; # frequency at gauss point
         K2 = (-vs + sqrt(vs*vs + 4*fi*c))^2; # K^2 * (2*c)^2   the (2*c)^2 is put in the const_part
         intensity += (fi * K2 / (exp(hobol*fi/temp) - 1)) * g20wi[gi] * extra_factor;
     end
+    end#inbounds
     intensity *= const_part;
     
     return intensity;
 end
 
 # The integrated intensity in each band in each cell (integrated over directions)
-function get_integrated_intensity!(int_intensity, intensity, ndirs, nbands)
+function get_integrated_intensity!(int_intensity::Matrix{Float64}, intensity::Matrix{Float64}, ndirs::Int, nbands::Int)
     n = size(intensity,2); # num cells
     omega = 2*pi/ndirs; # angle per direction
     # Integrate over local bands and cells
+    @inbounds begin
     for i=1:n
         for j=1:nbands
             int_intensity[j,i] = 0.0;
@@ -338,6 +358,7 @@ function get_integrated_intensity!(int_intensity, intensity, ndirs, nbands)
             end
         end
     end
+    end#inbounds
 end
 function get_integrated_intensity_3d!(int_intensity, intensity, ndirs, nbands, omega)
     n = size(intensity,2); # num cells
@@ -357,6 +378,8 @@ end
 # output: dI/dT at each cell
 # NOTE: This produces an array of dIdT for every cell and band. Single cell/band version is below
 function dIdT(freq, dw, temp; polarization="T")
+    vs::Float64 = 0.0;
+    c::Float64 = 0.0;
     if polarization=="T"
         vs = vs_TAS;
         c = c_TAS;
@@ -370,6 +393,7 @@ function dIdT(freq, dw, temp; polarization="T")
     didt = zeros(m, n);
     const_part = dirac * hobol / (8*pi^3);
     
+    @inbounds begin
     for i=1:n # loop over cells
         for j=1:m # loop over bands
             tmp = 0.0;
@@ -384,6 +408,7 @@ function dIdT(freq, dw, temp; polarization="T")
             didt[j, i] = const_part * dw * tmp / temp[i]^2;
         end
     end
+    end#inbounds
     
     return didt;
 end
@@ -392,7 +417,9 @@ end
 # input: center frequency, bandwidth, temperature at one cell
 # output: dI/dT for one cell and band
 # NOTE: This is for one cell and band. Full cells/bands version above.
-function dIdT_single(freq, dw, temp; polarization="T")
+function dIdT_single(freq::Float64, dw::Float64, temp::Float64; polarization="T")
+    vs::Float64 = 0.0;
+    c::Float64 = 0.0;
     if polarization=="T"
         vs = vs_TAS;
         c = c_TAS;
@@ -402,6 +429,7 @@ function dIdT_single(freq, dw, temp; polarization="T")
     end
     
     tmp = 0.0;
+    @inbounds begin
     for gi=1:20 # gaussian quadrature
         fi = freq + dw/2 * g20xi[gi]; # frequency at gauss point
         # K2 = ((-vs + sqrt(vs*vs + 4*fi*c)) / (2*c))^2; # K^2
@@ -410,6 +438,7 @@ function dIdT_single(freq, dw, temp; polarization="T")
         # tmp += (tmp2 * fi * K2 / (tmp2 - 1)^2) * wi[gi];
         tmp += (tmp2 * (fi * tmpK)^2 / (tmp2 - 1)^2) * g20wi[gi]; # updated to match ipcalc
     end
+    end#inbounds 
     didt = tmp * dw * 3.2473482785757725e-48 / (temp * temp); # dirac * hobol / (8*pi^3) = 3.2473482785757725e-48
     
     return didt;
@@ -434,6 +463,8 @@ function get_next_temp!(temp_next, temp_last, I_next, freq, dw; polarization="T"
     
     # didt = dIdT(freq, dw, temp_last, polarization=polarization); # Use single version in loop instead
     
+    groupV::Vector{Float64} = group_v;
+    
     idt = 1/dt;
     
     max_iters = 0;
@@ -441,13 +472,14 @@ function get_next_temp!(temp_next, temp_last, I_next, freq, dw; polarization="T"
     
     tol = 1e-7;
     maxiters = 200;
+    @inbounds begin
     for i=1:n # loop over cells
         # old values are not updated
         uold = 0.0; # These strange names are taken from the fortran code
         gnb = 0.0;  #
         for j=1:m # loop over bands
-            uold += Io.values[j,i] * idt / group_v[j];
-            gnb += G_last.values[j,i] * idt / group_v[j];
+            uold += Io.values[j,i] * idt / groupV[j];
+            gnb += G_last.values[j,i] * idt / groupV[j];
             G_last.values[j,i] = G_next.values[j,i]; # That was the only place we need G_last, so update it here.
         end
         uold = 4*pi*uold;
@@ -461,9 +493,9 @@ function get_next_temp!(temp_next, temp_last, I_next, freq, dw; polarization="T"
                 beta = 1 / get_time_scale(freq[j], temp_next[i], polarization=polarization);
                 didt = dIdT_single(freq[j], dw, temp_last[i], polarization=polarization);
                 
-                unew += equilibrium_intensity(freq[j], dw, temp_next[i], polarization=polarization) * (beta + idt) / group_v[j];
-                gna += G_next.values[j,i] * (beta + idt) / group_v[j];
-                uprime += 4*pi * didt * (beta + idt) / group_v[j];
+                unew += equilibrium_intensity(freq[j], dw, temp_next[i], polarization=polarization) * (beta + idt) / groupV[j];
+                gna += G_next.values[j,i] * (beta + idt) / groupV[j];
+                uprime += 4*pi * didt * (beta + idt) / groupV[j];
             end
             unew = 4*pi*unew;
             
@@ -484,6 +516,7 @@ function get_next_temp!(temp_next, temp_last, I_next, freq, dw; polarization="T"
             end
         end# iterative refinement
     end# cell loop
+    end#inbounds
     ave_iters = ave_iters/n;
     if debug
         println("ave iterations: "*string(ave_iters)*"  max: "*string(max_iters))
@@ -619,9 +652,12 @@ end
 
 # Update temperature, equilibrium I, and time scale
 #
-function update_temperature(temp, I_next, freq, dw; band_parallel=false, threed=false, omega=nothing)
-    
-    temp_last = deepcopy(temp);
+function update_temperature(temp::Matrix{Float64}, temp_last::Matrix{Float64}, I_next::Matrix{Float64}, beta::Matrix{Float64},
+                                freq::Vector{Float64}, dw::Float64; band_parallel=false, threed=false, omega=nothing)
+    ncells = length(temp);
+    @inbounds for i=1:ncells
+        temp_last[i] = temp[i];
+    end
     
     if band_parallel
         iterations = get_next_temp_par!(temp, temp_last, I_next, freq, dw, threed=threed, omega=omega);
@@ -630,15 +666,15 @@ function update_temperature(temp, I_next, freq, dw; band_parallel=false, threed=
     end
     
     equilibrium_intensity!(Io.values, freq, dw, temp);
-    get_time_scale!(beta.values, freq, temp);
+    get_time_scale!(beta, freq, temp);
     
     # check for problems
-    for i=1:length(I_next)
-        if I_next[i] === NaN
-            println("Error: NaN found in I");
-            exit(0);
-        end
-    end
+    # for i=1:length(I_next)
+    #     if I_next[i] === NaN
+    #         println("Error: NaN found in I");
+    #         exit(0);
+    #     end
+    # end
     
     return iterations;
 end
