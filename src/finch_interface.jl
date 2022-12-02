@@ -739,13 +739,14 @@ interior faces.
 function addBoundaryID(bid::Int, trueOnBdry)
     # trueOnBdry(x, y, z) = something # points with x,y,z on this bdry segment evaluate true here
     if typeof(trueOnBdry) == String
+        trueOnBdrystr = trueOnBdry;
         trueOnBdryfun = stringToFunction("trueOnBdry", "x,y=0,z=0", trueOnBdry);
-    elseif typeof(trueOnBdry) == Function
+    else
         trueOnBdryfun = trueOnBdry;
-        trueOnBdry = "CUSTOM";
+        trueOnBdrystr = "CUSTOM";
     end
     add_boundary_ID_to_grid(bid, trueOnBdryfun, finch_state.grid_data);
-    add_boundary_ID_to_problem(bid, trueOnBdry);
+    add_boundary_ID_to_problem(bid, trueOnBdrystr);
 end
 
 """
