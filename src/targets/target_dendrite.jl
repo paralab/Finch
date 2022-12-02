@@ -820,7 +820,8 @@ function cpp_bid_def(str::String)
     else
         # Build by replacing keywords with expressions
         # Julia 1.7+ has a more elegant way to do this, but for now...
-        result = replace(str, "XMIN" => "(fabs(x - domainMin.x(0)) < eps)")
+        result = replace(str, "abs(" => "fabs(")
+        result = replace(result, "XMIN" => "(fabs(x - domainMin.x(0)) < eps)")
         result = replace(result, "XMAX" => "(fabs(x - domainMax.x(0)) < eps)")
         result = replace(result, "YMIN" => "(fabs(y - domainMin.x(1)) < eps)")
         result = replace(result, "YMAX" => "(fabs(y - domainMax.x(1)) < eps)")
@@ -852,7 +853,6 @@ function dendrite_main_file(var)
     config = finch_state.config;
     project_name = finch_state.project_name;
     file = add_generated_file(project_name*".cpp", dir="src");
-    hfile = add_generated_file(project_name*".h", dir="include");
     
     if !(typeof(var) <:Array)
         var = [var];
@@ -871,8 +871,8 @@ function dendrite_main_file(var)
             offset_ind[i] = dofs_per_node;
             dofs_per_node += var[i].total_components;
             dofs_per_loop += length(var[i].symvar);
-            for i=1:length(var[i].symvar)
-                push!(dof_names, string(var[1].symvar[i]));
+            for j=1:length(var[i].symvar)
+                push!(dof_names, string(var[i].symvar[j]));
             end
         end
     end
@@ -893,12 +893,6 @@ int main(int argc, char* argv[]) {
 }   
 """
     println(file, content);
-    
-    hppcontent = """
-    #pragma once
-    //TODO
-"""
-    println(hfile, hppcontent);
 end
 
 #=
@@ -961,11 +955,11 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
     
     // Do nothing. Needed by talyfem? //////////////////////
     void Solve(double dt, double t) override {
-    assert(false);
+        assert(false);
     }
     void Integrands(const TALYFEMLIB::FEMElm &fe, TALYFEMLIB::ZeroMatrix<double> &Ae,
                     TALYFEMLIB::ZEROARRAY<double> &be) override {
-    assert(false);
+        assert(false);
     }
     ///////////////////////////////////////////////////////
     
@@ -974,7 +968,7 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
     Computes every element of Ae for one quadrature point.
     Will be inside this loop:
     while (fe.next_itg_pt()) {
-    Integrands_Ae(fe, Ae);
+        Integrands_Ae(fe, Ae);
     }
     
     Why do it in such a convoluted way?
@@ -1183,15 +1177,93 @@ $(function_defs)
 end
 
 #=
-
+The NodeData truct has enums for dofs.
 =#
 function dendrite_nodedata_file(var)
     config = finch_state.config;
     project_name = finch_state.project_name;
     file = add_generated_file(project_name*"NodeData.h", dir="include");
     
+    # gather important numbers
+    varcount = 1;
+    dofs_per_node = 0;
+    dofs_per_loop = 0;
+    dof_names = [];
+    varcount = length(var);
+    offset_ind = zeros(Int, varcount);
+    for i=1:length(var)
+        offset_ind[i] = dofs_per_node;
+        dofs_per_node += var[i].total_components;
+        dofs_per_loop += length(var[i].symvar);
+        for j=1:length(var[i].total_components)
+            push!(dof_names, string(var[i].symbol)*"_"*string(j));
+        end
+    end
+    
+    dof_enum = "";
+    value_case = "";
+    name_case = "";
+    for i=1:dofs_per_node
+        dof_enum *= "        " * dof_names[i] * "_dofind = "*string(i-1)*",\n";
+        value_case *= "            case " * dof_names[i] * "_dofind: return var_values[" * string(i) * "];\n";
+        name_case *= "            case " * dof_names[i] * "_dofind: return \"" * dof_names[i] * "\";\n";
+    end
+    dof_enum *= "        " * project_name * "NODEDATA_MAX = "*string(dofs_per_node)*"\n";
+    
     content = """
-//TODO
+#pragma once
+
+#include <exception>
+
+class $(project_name)NodeData {
+    public:
+    // number of  variables in this NodeData
+    static const unsigned int NUM_VARS = $(dofs_per_node);
+    // values? Not sure when this is used.
+    double var_values[$(dofs_per_node)];
+
+    enum Vars : int {
+$(dof_enum)
+    };
+
+    /**
+        * Returns reference to the given value in the object
+        *
+        * @param index the index of the desired item
+        * @return reference to the desired data item
+        */
+    double &value(int index) {
+        switch (index) {
+$(value_case)
+            default: throw std::runtime_error("Invalid $(project_name)NodeData index");
+        }
+    }
+
+    inline double value(int index) const {
+        return const_cast<$(project_name)NodeData *>(this)->value(index);
+    }
+
+    /**
+        * Returns the name of the given data value in the object
+        * @param index the index of the desired item
+        * @return name of the specified data item
+        */
+    static const char *name(int index) {
+        switch (index) {
+$(name_case)
+            default: throw std::runtime_error("Invalid $(project_name)NodeData index");
+        }
+    }
+
+    /**
+        * Returns the number of the data items in the object
+        * @return number of the data items in the object
+        */
+    static int valueno() {
+        return $(project_name)NODEDATA_MAX;
+    }
+};
+  
 """
     println(file, content);
 end
@@ -1382,6 +1454,9 @@ as well as the config.txt file
 =#
 function dendrite_build_files()
     project_name = finch_state.project_name;
+    cmake_file = add_generated_file(project_name*"CMakeLists.txt");
+    readme_file = add_generated_file(project_name*"README.txt");
+    
     
 end
 
