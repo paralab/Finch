@@ -448,9 +448,8 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         end
         
         if use_eval
-            type_name == "";
-            if !(finch_state.config.float_type == Float64)
-                type_name == string(finch_state.config.float_type);
+            if type_name == "Float64"
+                type_name = ""
             end
             code = type_name*"(evaluate_coefficient(coefficients[" * string(IR.args[2]) * "], " * string(IR.args[3]) * 
                 ", " * string(IR.args[4]) * ", " * string(IR.args[5]) * ", " * string(IR.args[6]) * 
