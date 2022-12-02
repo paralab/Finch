@@ -221,6 +221,8 @@ function generate_from_IR_julia(IR, IRtypes::Union{IR_entry_types, Nothing} = no
                     type_name = "::"*type_name;
                 end
                 
+            elseif ((typeof(IR.args[2]) == IR_operation_node) && (IR.args[2].type == IRtypes.named_op) && (IR.args[2].args[1] == :COEF_EVAL))
+                type_name = "::" * string(finch_state.config.float_type);
             else
                 type_name = "";
             end
@@ -427,16 +429,17 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         
     elseif op === :COEF_EVAL
         # Rather than use evaluate_coefficient, try calling one of the nested functions
+        type_name = string(finch_state.config.float_type);
         use_eval = true;
         if typeof(IR.args[2]) == Int
             coef = finch_state.coefficients[IR.args[2]];
             if typeof(IR.args[3]) == Int
                 val = coef.value[IR.args[3]];
                 if typeof(val) <:Number
-                    code = "Float64("*string(val)*")";
+                    code = type_name*"("*string(val)*")";
                     use_eval = false;
                 elseif typeof(val) == GenFunction
-                    code = val.name * "(x,y,z,t,"*string(IR.args[8])*", "*string(IR.args[9])*", index_values)";
+                    code = type_name*"("*val.name * "(x,y,z,t,"*string(IR.args[8])*", "*string(IR.args[9])*", index_values))";
                     use_eval = false;
                 end
             else
@@ -445,9 +448,9 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         end
         
         if use_eval
-            code = "evaluate_coefficient(coefficients[" * string(IR.args[2]) * "], " * string(IR.args[3]) * 
+            code = type_name*"(evaluate_coefficient(coefficients[" * string(IR.args[2]) * "], " * string(IR.args[3]) * 
                 ", " * string(IR.args[4]) * ", " * string(IR.args[5]) * ", " * string(IR.args[6]) * 
-                ", " * string(IR.args[7]) * ", " * string(IR.args[8]) * ", "*string(IR.args[9])*", index_values)";
+                ", " * string(IR.args[7]) * ", " * string(IR.args[8]) * ", "*string(IR.args[9])*", index_values))";
         end
         
     elseif op === :KNOWN_VAR
