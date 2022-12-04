@@ -798,12 +798,32 @@ function cpp_number_to_function(name, val)
     return cpp_functional(indent, name, args, argtypes, ret, rettype, captures, content);
 end
 
+function cpp_conditional_to_oneline_string(ex)
+    if typeof(ex) == Expr
+        if ex.head === :if
+            # :(a ? b : c)
+            # get strings for a, b, c
+            a_str = string(ex.args[1]);
+            b_str = string(ex.args[2]);
+            c_str = string(ex.args[3]); # This could potentially be an error is there is no else, but there should be an else.
+            # Now ex will just be a string expression
+            ex = "($(a_str) ? $(b_str) : $(c_str))";
+        else
+            for i=1:length(ex.args)
+                ex.args[i] = cpp_conditional_to_oneline_string(ex.args[i]);
+            end
+        end
+    end
+    return ex;
+end
+
 function cpp_genfunction_to_string(genfun)
     newex = cpp_change_math_ops(genfun.expr); # change operators to match C++
     newex = cpp_swap_symbol(:pi, :M_PI, newex); # swap pi for M_PI
     newex = cpp_swap_symbol(:x, :(pt.x()), newex); # swap x for pt.x()
     newex = cpp_swap_symbol(:y, :(pt.y()), newex); # swap x for pt.y()
     newex = cpp_swap_symbol(:z, :(pt.z()), newex); # swap x for pt.z()
+    newex = cpp_conditional_to_oneline_string(newex); # make conditionals like (a ? b : c)
     
     s = string(newex);
     ns = replace(s, r"([\d)])([(A-Za-z])" => s"\1*\2"); # explicitly multiply with "*" (2*x not 2x)
@@ -849,8 +869,12 @@ end
 # dendrite_inputdata_file(var)
 #######################################################
 
+#=
+The main function sets everything up and includes the solve or time stepping code.
+=#
 function dendrite_main_file(var)
     config = finch_state.config;
+    prob = finch_state.prob;
     project_name = finch_state.project_name;
     file = add_generated_file(project_name*".cpp", dir="src");
     
@@ -859,29 +883,214 @@ function dendrite_main_file(var)
     end
     
     # gather important numbers
-    varcount = 1;
-    dofs_per_node = var[1].total_components;
-    dofs_per_loop = length(var[1].symvar);
-    offset_ind = [0];
+    dofs_per_node = 0;
+    dofs_per_loop = 0;
     dof_names = [];
-    if length(var) > 1
-        varcount = length(var);
-        offset_ind = zeros(Int, varcount);
-        for i=2:length(var)
-            offset_ind[i] = dofs_per_node;
-            dofs_per_node += var[i].total_components;
-            dofs_per_loop += length(var[i].symvar);
-            for j=1:length(var[i].symvar)
-                push!(dof_names, string(var[i].symvar[j]));
+    varcount = length(var);
+    offset_ind = zeros(Int, varcount);
+    for i=1:length(var)
+        offset_ind[i] = dofs_per_node;
+        dofs_per_node += var[i].total_components;
+        dofs_per_loop += length(var[i].symvar);
+        for j=1:length(var[i].total_components)
+            push!(dof_names, string(var[i].symbol)*"_"*string(j));
+        end
+    end
+    
+    # Make the solve or time stepping part
+    solution_step = ""
+    if prob.time_dependent
+        stepper = finch_state.time_stepper;
+        # Make a function for the initial conditions
+        # std::function<void(const double *, double *)> initial_condition = [](const double *x, double *var) {
+        #     var[0] = sin(M_PI * x[0]) * sin(M_PI * x[1]) * sin(M_PI * x[2]);
+        #     var[1] = ...
+        # };
+        solution_step *= "    std::function<void(const double *, double *)> initial_condition = [](const double *x, double *var) {\n";
+        dof_ind = 0;
+        for vi=1:varcount
+            for ci=1:var[vi].total_components
+                ic = prob.initial[var[vi].index][ci];
+                if typeof(ic) <: Number
+                    solution_step *= "        var[$(dof_ind)] = $(ic);\n";
+                else # genfunction
+                    newex = cpp_change_math_ops(ic.expr); # change operators to match C++
+                    newex = cpp_swap_symbol(:pi, :M_PI, newex); # swap pi for M_PI
+                    newex = cpp_swap_symbol(:x, :(x[0]), newex); # swap x for x[0]
+                    newex = cpp_swap_symbol(:y, :(x[1]), newex); # swap x for x[1]
+                    newex = cpp_swap_symbol(:z, :(x[2]), newex); # swap x for x[2]
+                    newex = cpp_conditional_to_oneline_string(newex); # make conditionals like (a ? b : c)
+                    s = string(newex);
+                    ns = replace(s, r"([\d)])([(A-Za-z])" => s"\1*\2"); # explicitly multiply with "*" (2*x not 2x)
+                    solution_step *= "        var[$(dof_ind)] = $(ns);\n";
+                end
+                dof_ind += 1;
             end
         end
+        solution_step *= "    };\n";
+        
+        # A progress meter
+        solution_step *= "    // Progress meter\n";
+        solution_step *= "    int last_minor_progress = 0;\n";
+        solution_step *= "    int last_major_progress = 0;\n";
+        solution_step *= "    TALYFEMLIB::PrintStatus(\"TIme step progress (%) 0\");\n";
+        progress_update = """
+        if((currentStep * 100.0 / nSteps) >= (last_major_progress + 10)){
+            last_major_progress += 10;
+            last_minor_progress += 2;
+            TALYFEMLIB::PrintStatus(last_major_progress);
+        }else if((currentStep * 100.0 / nSteps) >= (last_minor_progress + 2)){
+            last_minor_progress += 2;
+            TALYFEMLIB::PrintStatus(".");
+        }
+"""
+        
+        # Set up the time stepping loop
+        # Prepare the required storage
+        time_storage = ["prev_solution"];
+        set_initial = [true];
+        step_loop = "";
+        if stepper.type == EULER_IMPLICIT || stepper.type == CRANK_NICHOLSON
+            step_loop = """
+    while (currentStep < nSteps) {
+        currentT += dt;
+        currentStep++;
+        $(project_name)Solver->solve();
+        VecCopy($(project_name)Solver->getCurrentSolution(), prev_solution);
+        
+$(progress_update)
+    }
+"""
+        elseif stepper.type == EULER_EXPLICIT
+            step_loop = """
+    while (currentStep < nSteps) {
+        $(project_name)Solver->solve();
+        currentT += dt;
+        currentStep++;
+        VecCopy($(project_name)Solver->getCurrentSolution(), prev_solution);
+        
+$(progress_update)
+    }
+"""
+        elseif stepper.type == LSRK4
+            printerr("TIme stepper "*string(stepper.type)*" is not supported by this target yet.")
+            step_loop = "UNSUPPORTED TIME STEPPING METHOD "*string(stepper.type);
+            
+        elseif stepper.type == RK4
+            append!(time_storage, ["tmp_solution", "rk_k_1", "rk_k_2", "rk_k_3"]);
+            append!(set_initial, [false, false, false, false]);
+            
+            step_loop = """
+    PetscScalar dt_half = dt/2;
+    PetscScalar dt_full = dt;
+    PetscScalar* rk_b = {0.16666666666666667, 0.33333333333333333, 0.33333333333333333, 0.16666666666666667};
+    Vec rk_vecs[4];
+    rk_vecs[0] = rk_k_1;
+    rk_vecs[1] = rk_k_2;
+    rk_vecs[2] = rk_k_3;
+    while (currentStep < nSteps) {
+        currentStep++;
+        VecCopy(prev_solution, tmp_solution);
+        
+        $(project_name)Solver->solve();
+        VecCopy($(project_name)Solver->getCurrentSolution(), rk_k_1);
+        
+        currentT += dt/2;
+        VecWAXPY(prev_solution, dt_half, rk_k_1, tmp_solution);
+        $(project_name)Solver->solve();
+        VecCopy($(project_name)Solver->getCurrentSolution(), rk_k_2);
+        
+        VecWAXPY(prev_solution, dt_half, rk_k_2, tmp_solution);
+        $(project_name)Solver->solve();
+        VecCopy($(project_name)Solver->getCurrentSolution(), rk_k_3);
+        
+        currentT += dt/2;
+        VecWAXPY(prev_solution, dt_full, rk_k_3, tmp_solution);
+        $(project_name)Solver->solve();
+        
+        rk_vecs[3] = $(project_name)Solver->getCurrentSolution();
+        VecMAXPY(tmp_solution, 4, rk_b, rk_vecs);
+        VecCopy(tmp_solution, prev-solution);
+        
+$(progress_update)
+    }
+    
+"""
+            
+        elseif stepper.type == "BDF2"
+            push!(time_storage, "prev_prev_solution");
+            push!(set_initial, true);
+            step_loop = """
+    while (currentStep < nSteps) {
+        currentT += dt;
+        currentStep++;
+        $(project_name)Solver->solve();
+        VecCopy(prev_solution, prev_prev_solution);
+        VecCopy($(project_name)Solver->getCurrentSolution(), prev_solution);
+        
+$(progress_update)
+    }
+"""
+        else
+            printerr("TIme stepper "*string(stepper.type)*" is not supported by this target yet.")
+            step_loop = "UNSUPPORTED TIME STEPPING METHOD "*string(stepper.type) * "\n";
+        end
+        
+        # Set up the vectors
+        solution_step *= "    // Set up storage used by time stepper.\n";
+        nvecs = length(time_storage);
+        solution_step *= "    Vec " * time_storage[1];
+        for i=2:nvecs
+            solution_step *= ", "*time_storage[i];
+        end
+        solution_step *= ";\n";
+        
+        for i=1:nvecs
+            solution_step *= "    octDA->petscCreateVector("*time_storage[i]*", false, false, NDOF);\n";
+        end
+        
+        # set initial conditions where needed
+        solution_step *= "    // Set initial condtions.\n";
+        solution_step *= "    octDA->petscSetVectorByFunction(prev_solution, initial_condition, false, false, NDOF);\n";
+        for i=2:nvecs
+            if set_initial[i]
+                solution_step *= "    VecCopy(prev_solution, "*time_storage[i]*");\n";
+            end
+        end
+        
+        # Set vectors in Eq
+        vecOfVecs = "{VecInfo("*time_storage[1]*", NDOF, 1)";
+        for i=2:nvecs
+            vecOfVecs *= ", VecInfo("*time_storage[i]*", NDOF, $(i))";
+        end
+        vecOfVecs *= "}";
+        solution_step *= "    $(project_name)Eq->setVectors($(vecOfVecs), SYNC_TYPE::VECTOR_ONLY);\n";
+        
+        # Time stepping loop
+        solution_step *= "    // Beginning time steps\n";
+        solution_step *= step_loop;
+        
+    else # not time dependent
+        # A single solve step
+        solution_step = "    // Solve it\n    " * project_name * "Solver->solve();\n"
+    end # solution_step
+    
+    # Output
+    output_part = "    // Output to vtk\n";
+    output_part *= "    static const char *varname[]{\"" * dof_names[1] * "\"";
+    for i=2:length(dof_names)
+        output_part *= ", \"" * dof_names[i] * "\"";
+    end
+    output_part *= "};\n";
+    if prob.time_dependent
+        output_part *= "    petscVectopvtu(octDA, prev_solution, \"$(project_name)\", varname, physDomain, false, false, $(project_name)NodeData::NUM_VARS);\n";
+    else
+        output_part *= "    petscVectopvtu(octDA, $(project_name)Solver->getCurrentSolution(), \"$(project_name)\", varname, physDomain, false, false, $(project_name)NodeData::NUM_VARS);\n";
     end
     
     content = """
 /**
 * Main file for $(project_name).
-*
-* See readme.txt for instructions
 */ 
 
 #include "$(project_name).h" 
@@ -889,6 +1098,11 @@ function dendrite_main_file(var)
 
 int main(int argc, char* argv[]) {
     //TODO
+    
+$(solution_step)
+
+$(output_part)
+
     return 0;
 }   
 """
@@ -971,7 +1185,7 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
         Integrands_Ae(fe, Ae);
     }
     
-    Why do it in such a convoluted way?
+    Why do it this way?
     */
     void Integrands_Ae(const TALYFEMLIB::FEMElm &fe, TALYFEMLIB::ZeroMatrix<double> &Ae) {
         using namespace TALYFEMLIB;
@@ -1042,20 +1256,23 @@ function dendrite_boundary_file(var)
         extract_coords = """
         double x = pos.x();
         Point<1> domainMin(inputData_->mesh_def.min);
-        Point<1> domainMax(inputData_->mesh_def.max);"""
+        Point<1> domainMax(inputData_->mesh_def.max);
+"""
     elseif config.dimension == 2
         extract_coords = """
         double x = pos.x();
         double y = pos.y();
         Point<2> domainMin(inputData_->mesh_def.min);
-        Point<2> domainMax(inputData_->mesh_def.max);"""
+        Point<2> domainMax(inputData_->mesh_def.max);
+"""
     elseif config.dimension == 3
         extract_coords = """
         double x = pos.x();
         double y = pos.y();
         double z = pos.z();
         Point<3> domainMin(inputData_->mesh_def.min);
-        Point<3> domainMax(inputData_->mesh_def.max);"""
+        Point<3> domainMax(inputData_->mesh_def.max);
+"""
     end
     
     # bool on_BID_1 = (fabs(y - domainMax.x(1)) < eps);
@@ -1185,7 +1402,6 @@ function dendrite_nodedata_file(var)
     file = add_generated_file(project_name*"NodeData.h", dir="include");
     
     # gather important numbers
-    varcount = 1;
     dofs_per_node = 0;
     dofs_per_loop = 0;
     dof_names = [];
@@ -1274,6 +1490,11 @@ The basics are:
 basisFunction = "linear" # "quadratic" "cubic" "hermite"
 mfree = false # "true"
 
+Time stepping:
+dt = 0.1
+nSteps = 10
+finalT = 1,0
+
 Mesh options: (depends on MeshDef struct)
 background_mesh = {
   refine_lvl = 4
@@ -1342,7 +1563,22 @@ function dendrite_inputdata_file(var)
         default_refine = params[:refineLevel];
     end
     
-    time_stepping_part = ""; # TODO
+    time_stepping_parts = "";
+    time_stepping_read = "";
+    if finch_state.prob.time_dependent
+        dt = finch_state.time_stepper.dt;
+        nsteps = finch_state.time_stepper.Nsteps;
+        finalT = dt*nsteps;
+        time_stepping_parts = "        // Time stepping info (can be overridden by config.txt values)\n";
+        time_stepping_parts *= "        double dt = $(dt);\n";
+        time_stepping_parts *= "        unsigned int nSteps = $(nsteps);\n";
+        time_stepping_parts *= "        double finalT = $(finalT);\n";
+        
+        time_stepping_read = "        // Time stepping info\n";
+        time_stepping_read *= "        if (ReadValue(\"dt\", dt)) {};\n";
+        time_stepping_read *= "        if (ReadValue(\"nSteps\", nSteps)) {};\n";
+        time_stepping_read *= "        if (ReadValue(\"finalT\", finalT)) {};\n";
+    end
     
     content = """
 #pragma once
@@ -1398,11 +1634,15 @@ class $(project_name)InputData : public TALYFEMLIB::InputData {
         /// Matrix  free
         bool mfree = $(default_matfree);
         
+$(time_stepping_parts)
+        
         SolverOptions solverOptions$(project_name);
-        // bool dump_vec = false; // This is used for regression testing
+        
+        bool dump_vec = false; // This is used for regression testing
         
     bool ReadFromFile(const std::string &filename = std::string("config.txt")) {
         ReadConfigFile(filename);
+        
         /// mesh size and level
         meshDef.read_from_config(cfg.getRoot()["background_mesh"]);
         
@@ -1418,7 +1658,7 @@ class $(project_name)InputData : public TALYFEMLIB::InputData {
         if (ReadValue("mfree", mfree)) {}
         if (ReadValue("dump_vec", dump_vec)) {}
         
-        $(time_stepping_part)
+$(time_stepping_read)
             
         /// PETSc options
         solverOptions$(project_name) = read_solver_options(cfg, "solver_options");
@@ -1454,9 +1694,9 @@ as well as the config.txt file
 =#
 function dendrite_build_files()
     project_name = finch_state.project_name;
-    cmake_file = add_generated_file(project_name*"CMakeLists.txt");
-    readme_file = add_generated_file(project_name*"README.txt");
-    
+    cmake_file = add_generated_file(project_name*"CMakeLists.txt", make_header_text=false);
+    readme_file = add_generated_file(project_name*"README.txt", make_header_text=false);
+    config_file = add_generated_file(project_name*"config.txt", make_header_text=false);
     
 end
 
