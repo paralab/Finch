@@ -2164,7 +2164,7 @@ function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=t
                 IR_block_node([update_ki_loop_two]));
             
             stage_loop_body = IR_block_node([
-                # last_t = t;
+                # last_t = t; # before stage loop
                 # t = last_t + stepper.c[rki]*stepper.dt;
                 IR_operation_node(IRtypes.assign_op, [
                     :t,

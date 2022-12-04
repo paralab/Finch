@@ -648,3 +648,380 @@ function generate_term_calculation_fem_dendrite(term, var, lorr, vors, config, r
     
     return (test_part, trial_part, coef_part, test_ind, trial_ind);
 end
+
+# Generates the time stepping loop using the supplied assembly block and stepper
+function generate_time_stepping_loop_fem(stepper, assembly, include_var_update=true)
+    IRtypes = IR_entry_types();
+    tloop_body = IR_block_node([]);
+    stepper_nsteps = IR_operation_node(IRtypes.member_op, [:time_stepper, :Nsteps]);
+    zero_el_vec = IR_operation_node(IRtypes.named_op, [
+        :FILL_ARRAY, IR_data_node(IRtypes.float_data, :global_vector, [:dofs_global], []), 0, :dofs_global]);
+    zero_bdry_done = IR_operation_node(IRtypes.named_op, [
+        :FILL_ARRAY, IR_data_node(IRtypes.int_data, :bdry_done, [:nnodes_global], []), 0, :nnodes_global]);
+    # If pre or post-step functions have been set, include those
+    if !(finch_state.prob.pre_step_function === nothing)
+        pre_step_call = IR_operation_node(IRtypes.function_op, [:pre_step_function]);
+    else
+        pre_step_call = IR_comment_node("No pre-step function specified");
+    end
+    if !(finch_state.prob.post_step_function === nothing)
+        post_step_call = IR_operation_node(IRtypes.function_op, [:post_step_function]);
+    else
+        post_step_call = IR_comment_node("No post-step function specified");
+    end
+    # For partitioned meshes
+    gather_vector = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(>), :num_partitions, 1]),
+        IR_block_node([IR_operation_node(IRtypes.named_op, [:GLOBAL_GATHER_VECTOR])]));
+    distribute_solution = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(>), :num_partitions, 1]),
+        IR_block_node([IR_operation_node(IRtypes.named_op, [:GLOBAL_DISTRIBUTE_VECTOR, :global_solution, :solution])]));
+    
+    # A progress meter
+    # progress = 100 * ti / time_stepper.Nsteps;
+    # last_minor = 0;
+    # last_major = 0;
+    # if progress >= last_major + 10
+    #   last_major += 10
+    #   last_minor += 2
+    #   print(string(last_major + 10));
+    # elseif progress >= last_minor + 2
+    #   last_minor += 2
+    #   print(".")
+    # end
+    last_minor = IR_data_node(IRtypes.int_data, :last_minor_progress);
+    last_major = IR_data_node(IRtypes.int_data, :last_major_progress);
+    root_print = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(==), :proc_rank, 0]),
+                        IR_block_node([]));
+    progress_init = IR_block_node([
+        IR_operation_node(IRtypes.assign_op, [last_minor, 0]),
+        IR_operation_node(IRtypes.assign_op, [last_major, 0]),
+        IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(==), :proc_rank, 0]),
+            IR_block_node([IR_operation_node(IRtypes.named_op, [:PRINT_STRING, "Time step progress(%) 0"])]))
+        
+    ])
+    progress_update = IR_block_node([
+        IR_conditional_node(
+            IR_operation_node(IRtypes.math_op, [:(>=), 
+                IR_operation_node(IRtypes.math_op, [:*, 100.0, IR_operation_node(IRtypes.math_op, [:/, :ti, stepper_nsteps])]),
+                IR_operation_node(IRtypes.math_op, [:+, last_major, 10])]),
+            IR_block_node([
+                IR_operation_node(IRtypes.assign_op, [last_major, IR_operation_node(IRtypes.math_op, [:+, last_major, 10])]),
+                IR_operation_node(IRtypes.assign_op, [last_minor, IR_operation_node(IRtypes.math_op, [:+, last_minor, 2])]),
+                IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(==), :proc_rank, 0]),
+                    IR_block_node([IR_operation_node(IRtypes.named_op, [:PRINT_STRING, last_major])]))
+            ]),
+            IR_block_node([
+                IR_conditional_node(
+                    IR_operation_node(IRtypes.math_op, [:(>=), 
+                        IR_operation_node(IRtypes.math_op, [:*, 100.0, IR_operation_node(IRtypes.math_op, [:/, :ti, stepper_nsteps])]),
+                        IR_operation_node(IRtypes.math_op, [:+, last_minor, 2])]),
+                    IR_block_node([
+                        IR_operation_node(IRtypes.assign_op, [last_minor, IR_operation_node(IRtypes.math_op, [:+, last_minor, 2])]),
+                        IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(==), :proc_rank, 0]),
+                            IR_block_node([IR_operation_node(IRtypes.named_op, [:PRINT_STRING, "."])]))
+                    ])
+                )
+            ])
+        )
+    ])
+    
+    var_update = IR_comment_node("");
+    allocate_block = IR_block_node([]);
+    if stepper.stages < 2
+        if include_var_update
+            var_update = wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, :solution]));
+        end
+        
+        # # This part would be used if the solution is updated like sol = sol + dt*()
+        # sol_i = IR_data_node(IRtypes.array_data, :solution, [:update_i]);
+        # dsol_i = IR_data_node(IRtypes.array_data, :d_solution, [:update_i]);
+        # update_loop = IR_loop_node(IRtypes.dof_loop, :dof, :update_i, 1, :dofs_global, IR_block_node([
+        #     IR_operation_node(IRtypes.assign_op, [
+        #         sol_i,
+        #         IR_operation_node(IRtypes.math_op, [:+, sol_i, IR_operation_node(IRtypes.math_op, [:*, time_stepper.dt, dsol_i])])
+        #     ])
+        # ]))
+        # tloop_body.parts = [
+        #     wrap_in_timer(:step_assembly, assembly),
+        #     wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :d_solution, :global_matrix, :global_vector])),
+        #     wrap_in_timer(:update_sol, update_loop),
+        #     wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, :solution])),
+        #     IR_operation_node(IRtypes.assign_op, [
+        #         :t,
+        #         IR_operation_node(IRtypes.math_op, [:+, :t, :dt])
+        #     ])
+        # ];
+        
+        # This part is used if the update is coded into the system sol = A\b (not sol = sol + dt*(A\b))
+        tloop_body.parts = [
+            zero_el_vec,
+            zero_bdry_done,
+            pre_step_call,
+            wrap_in_timer(:step_assembly, assembly),
+            gather_vector,
+            wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :global_solution, :global_matrix, :global_vector])),
+            distribute_solution,
+            var_update,
+            post_step_call,
+            IR_operation_node(IRtypes.assign_op, [
+                :t,
+                IR_operation_node(IRtypes.math_op, [:+, :t, :dt])
+            ]),
+            progress_update
+        ];
+        
+        time_loop = IR_block_node([
+            progress_init,
+            IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper_nsteps, tloop_body)
+        ]);
+        
+    else # multistage explicit steppers
+        # LSRK4 is a special case, low storage
+        if stepper.type == LSRK4
+            # Low storage RK4: 
+            # p0 = u
+            #   ki = ai*k(i-1) + dt*f(p(i-1), t+ci*dt)
+            #   pi = p(i-1) + bi*ki
+            # u = p5
+            if include_var_update
+                var_update = wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, :tmppi]));
+            end
+            na = length(stepper.a);
+            nb = length(stepper.b);
+            nc = length(stepper.c);
+            tmp_pi = IR_data_node(IRtypes.float_data, :tmppi, [:dofs_global], []);
+            tmp_ki = IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], []);
+            piki_loop_one = IR_loop_node(IRtypes.space_loop, :dofs, :piki_i, 1, :dofs_global, IR_block_node([
+                # tmpki .= stepper.dt .* sol;
+                # tmppi .= tmppi + stepper.b[rki].*tmpki;
+                IR_operation_node(IRtypes.assign_op, [
+                    IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:piki_i]),
+                    IR_operation_node(IRtypes.math_op, [:*, :dt, IR_data_node(IRtypes.float_data, :solution, [:dofs_global], [:piki_i])])
+                ]),
+                IR_operation_node(IRtypes.assign_op, [
+                    IR_data_node(IRtypes.float_data, :tmppi, [:dofs_global], [:piki_i]),
+                    IR_operation_node(IRtypes.math_op, [:+, IR_data_node(IRtypes.float_data, :tmppi, [:dofs_global], [:piki_i]), 
+                        IR_operation_node(IRtypes.math_op, [:*, 
+                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_data, :b, [nb], [:rki])]), 
+                            IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:piki_i])])
+                    ])
+                ])
+            ]))
+            piki_loop_two = IR_loop_node(IRtypes.space_loop, :dofs, :piki_i, 1, :dofs_global, IR_block_node([
+                # tmpki .= stepper.a[rki].*tmpki + stepper.dt .* sol;
+                # tmppi .= tmppi + stepper.b[rki].*tmpki;
+                IR_operation_node(IRtypes.assign_op, [
+                    IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:piki_i]),
+                    IR_operation_node(IRtypes.math_op, [:+, 
+                        IR_operation_node(IRtypes.math_op, [:*, 
+                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_data, :a, [na], [:rki])]), 
+                            IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:piki_i])]),
+                        IR_operation_node(IRtypes.math_op, [:*, :dt, IR_data_node(IRtypes.float_data, :solution, [:dofs_global], [:piki_i])])
+                    ])
+                ]),
+                IR_operation_node(IRtypes.assign_op, [
+                    IR_data_node(IRtypes.float_data, :tmppi, [:dofs_global], [:piki_i]),
+                    IR_operation_node(IRtypes.math_op, [:+, IR_data_node(IRtypes.float_data, :tmppi, [:dofs_global], [:piki_i]), 
+                        IR_operation_node(IRtypes.math_op, [:*, 
+                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_data, :b, [nb], [:rki])]), 
+                            IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:piki_i])])
+                    ])
+                ])
+            ]))
+            piki_condition = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:<, :rki, 2]),
+                IR_block_node([piki_loop_one]),
+                IR_block_node([piki_loop_two]));
+            
+            stage_loop_body = IR_block_node([
+                # last_t = t;
+                # t = last_t + stepper.c[rki]*stepper.dt;
+                IR_operation_node(IRtypes.assign_op, [
+                    :t,
+                    IR_operation_node(IRtypes.math_op, [:+, :t, 
+                        IR_operation_node(IRtypes.math_op, [:*, :dt, 
+                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_data, :c, [nc], [:rki])])])])
+                ]),
+                # assemble
+                zero_el_vec,
+                zero_bdry_done,
+                pre_step_call,
+                wrap_in_timer(:step_assembly, assembly),
+                gather_vector,
+                # solve
+                wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :global_solution, :global_matrix, :global_vector])),
+                distribute_solution,
+                # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, true);
+                IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution, :var, :true]),
+                # update tmppi and tmpki
+                piki_condition,
+                # copy_bdry_vals_to_vector(var, tmppi, grid_data, dofs_per_node);
+                IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :tmppi]),
+                var_update,
+                post_step_call
+            ]);
+            stage_loop = IR_loop_node(IRtypes.time_loop, :stages, :rki, 1, stepper.stages, stage_loop_body);
+            
+            push!(tloop_body.parts, IR_operation_node(IRtypes.named_op, [:GATHER_VARS, :tmppi]));
+            push!(tloop_body.parts, IR_operation_node(IRtypes.assign_op, [:last_t, :t]));
+            push!(tloop_body.parts, stage_loop);
+            push!(tloop_body.parts, IR_operation_node(IRtypes.assign_op, [:t, IR_operation_node(IRtypes.math_op, [:+, :last_t, :dt])]));
+            push!(tloop_body.parts, progress_update);
+            
+            allocate_block = IR_block_node([
+                IR_operation_node(IRtypes.assign_op, [
+                    tmp_pi,
+                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global])]),
+                IR_operation_node(IRtypes.assign_op, [
+                    tmp_ki,
+                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global])]),
+            ]);
+            
+            time_loop = IR_block_node([
+                progress_init,
+                IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper_nsteps, tloop_body)
+            ]);
+            
+        else
+            # Explicit multi-stage methods: 
+            # x = x + dt*sum(bi*ki)
+            # ki = rhs(t+ci*dt, x+dt*sum(aij*kj)))   j < i
+            if include_var_update
+                var_update = wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, :tmpresult]));
+                var_update2 = wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, :last_result]));
+            else
+                var_update2 = IR_comment_node("");
+            end
+            na = length(stepper.a);
+            nb = length(stepper.b);
+            nc = length(stepper.c);
+            tmp_last = IR_data_node(IRtypes.float_data, :last_result, [:dofs_global], []);
+            tmp_result = IR_data_node(IRtypes.float_data, :tmpresult, [:dofs_global], []);
+            tmp_ki = IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], []);
+            
+            update_ki_loop_one = IR_loop_node(IRtypes.space_loop, :dofs, :k, 1, :dofs_global, IR_block_node([
+                # # Update the values in vars to be used in the next stage
+                # for k=1:dofs_global
+                #     tmpki[k,stage] = solution[k];
+                #     tmpresult[k] = last_result[k];
+                #     for j=1:stage
+                #         tmpresult[k] += stepper.dt * stepper.a[stage+1, j] * tmpki[k,j];
+                #     end
+                # end
+                IR_operation_node(IRtypes.assign_op, [
+                    IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:k, :rki]),
+                    IR_data_node(IRtypes.float_data, :solution, [:dofs_global], [:k])
+                ]),
+                IR_operation_node(IRtypes.assign_op, [
+                    IR_data_node(IRtypes.float_data, :tmpresult, [:dofs_global], [:k]),
+                    IR_data_node(IRtypes.float_data, :last_result, [:dofs_global], [:k])
+                ]),
+                IR_loop_node(IRtypes.time_loop, :stage, :j, 1, :rki, IR_block_node([
+                    IR_operation_node(IRtypes.assign_op, [
+                        IR_data_node(IRtypes.float_data, :tmpresult, [:dofs_global], [:k]),
+                        IR_operation_node(IRtypes.math_op, [:+,
+                            IR_data_node(IRtypes.float_data, :tmpresult, [:dofs_global], [:k]),
+                            IR_operation_node(IRtypes.math_op, [:*, :dt, 
+                                IR_operation_node(IRtypes.member_op, [:time_stepper, 
+                                    IR_data_node(IRtypes.float_data, :a, [na], [IR_operation_node(IRtypes.math_op, [:+, :rki, 1]), :j])]),
+                                IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:k, :j])
+                            ])
+                        ])
+                    ])
+                ]))
+            ]))
+            update_ki_loop_two = IR_loop_node(IRtypes.space_loop, :dofs, :k, 1, :dofs_global, IR_block_node([
+                # for k=1:dofs_global
+                #     tmpki[k,stage] = solution[k];
+                # end
+                IR_operation_node(IRtypes.assign_op, [
+                    IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:k, :rki]),
+                    IR_data_node(IRtypes.float_data, :solution, [:dofs_global], [:k])
+                ])
+            ]))
+            update_ki_condition = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:<, :rki, stepper.stages]),
+                IR_block_node([
+                    update_ki_loop_one,
+                    # copy_bdry_vals_to_vector(var, tmpresult, grid_data, dofs_per_node);
+                    IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :tmpresult]),
+                    # place_vector_in_vars(var, tmpresult, stepper);
+                    var_update
+                ]),
+                IR_block_node([update_ki_loop_two]));
+            
+            stage_loop_body = IR_block_node([
+                # last_t = t;
+                # t = last_t + stepper.c[rki]*stepper.dt;
+                IR_operation_node(IRtypes.assign_op, [
+                    :t,
+                    IR_operation_node(IRtypes.math_op, [:+, :t, 
+                        IR_operation_node(IRtypes.math_op, [:*, :dt, 
+                            IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_data, :c, [nc], [:rki])])])])
+                ]),
+                # assemble
+                zero_el_vec,
+                zero_bdry_done,
+                pre_step_call,
+                wrap_in_timer(:step_assembly, assembly),
+                gather_vector,
+                # solve
+                wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :global_solution, :global_matrix, :global_vector])),
+                distribute_solution,
+                # copy_bdry_vals_to_variables(var, sol, grid_data, dofs_per_node, true);
+                IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution, :var, :true]),
+                # update tmpki
+                update_ki_condition,
+                post_step_call
+            ]);
+            stage_loop = IR_loop_node(IRtypes.time_loop, :stages, :rki, 1, stepper.stages, stage_loop_body);
+            
+            # last_result[k] += stepper.dt * stepper.b[rki] * tmpki[k, rki];
+            combine_loop_body = IR_block_node([
+                IR_loop_node(IRtypes.time_loop, :stages, :rki, 1, stepper.stages, IR_block_node([
+                    IR_operation_node(IRtypes.assign_op, [
+                        IR_data_node(IRtypes.float_data, :last_result, [:dofs_global], [:k]),
+                        IR_operation_node(IRtypes.math_op, [:+,
+                            IR_data_node(IRtypes.float_data, :last_result, [:dofs_global], [:k]), 
+                            IR_operation_node(IRtypes.math_op, [:*, :dt, 
+                                IR_operation_node(IRtypes.member_op, [:time_stepper, IR_data_node(IRtypes.float_data, :b, [nb], [:rki])]),
+                                IR_data_node(IRtypes.float_data, :tmpki, [:dofs_global], [:k, :rki])
+                            ])
+                        ])
+                    ])
+                ]))
+            ])
+            combine_loop = IR_loop_node(IRtypes.space_loop, :dofs, :k, 1, :dofs_global, combine_loop_body);
+            
+            push!(tloop_body.parts, IR_operation_node(IRtypes.named_op, [:GATHER_VARS, :last_result]));
+            push!(tloop_body.parts, IR_operation_node(IRtypes.assign_op, [:last_t, :t]));
+            push!(tloop_body.parts, stage_loop);
+            push!(tloop_body.parts, combine_loop);
+            # copy_bdry_vals_to_vector(var, last_result, grid_data, dofs_per_node);
+            push!(tloop_body.parts, IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :last_result]))
+            # place_vector_in_vars(var, last_result, stepper);
+            push!(tloop_body.parts, var_update2);
+            push!(tloop_body.parts, post_step_call);
+            # update time
+            push!(tloop_body.parts, IR_operation_node(IRtypes.assign_op, [:t, IR_operation_node(IRtypes.math_op, [:+, :last_t, :dt])]));
+            push!(tloop_body.parts, progress_update);
+            
+            allocate_block = IR_block_node([
+                IR_operation_node(IRtypes.assign_op, [
+                    tmp_last,
+                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global])]),
+                IR_operation_node(IRtypes.assign_op, [
+                    tmp_result,
+                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global])]),
+                IR_operation_node(IRtypes.assign_op, [
+                    tmp_ki,
+                    IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :dofs_global, stepper.stages])])
+            ]);
+            
+            time_loop = IR_block_node([
+                progress_init,
+                IR_loop_node(IRtypes.time_loop, :time, :ti, 1, stepper_nsteps, tloop_body)
+            ]);
+            
+        end
+    end
+    
+    return (allocate_block, time_loop);
+end

@@ -174,7 +174,8 @@ end
     timeStepper(type; cfl=0)
 
 Set the type of time stepping method and optionally the CFL number.
-Options include `EULER_EXPLICIT`, `EULER_IMPLICIT`, `CRANK_NICHOLSON`, `RK4`, `LSRK4`, `PECE`.
+Options include `EULER_EXPLICIT`, `EULER_IMPLICIT`, `CRANK_NICHOLSON`, `RK4`, `LSRK4`.
+There are some other options for specific targets, so see their documentation.
 If no CFL number is provided, one will be chosen based on the mesh and stepper type.
 """
 function timeStepper(type; cfl=0)
@@ -910,16 +911,24 @@ function weakForm(var, wf)
     
     # Init stepper here so it can be used in generation
     if finch_state.prob.time_dependent
-        # some measure of element size
-        dim = finch_state.config.dimension;
-        min_detj = minimum(finch_state.geo_factors.detJ);
-        el_size = (2^dim * min_detj)^(1/dim);
-        init_stepper(el_size, finch_state.time_stepper);
-        if finch_state.use_specified_steps
-            finch_state.time_stepper.dt = specified_dt;
-            finch_state.time_stepper.Nsteps = specified_Nsteps;
+        if length(finch_state.grid_data.allnodes) > 0
+            # some measure of element size
+            dim = finch_state.config.dimension;
+            min_detj = minimum(finch_state.geo_factors.detJ);
+            el_size = (2^dim * min_detj)^(1/dim);
+            init_stepper(el_size, finch_state.time_stepper);
+            if finch_state.use_specified_steps
+                finch_state.time_stepper.dt = finch_state.specified_dt;
+                finch_state.time_stepper.Nsteps = finch_state.specified_Nsteps;
+            end
+            share_time_step_info(finch_state.time_stepper, finch_state.config);
+        else # no mesh was built for this target
+            init_stepper(0.1, finch_state.time_stepper); # This should be manually set.
+            if finch_state.use_specified_steps
+                finch_state.time_stepper.dt = finch_state.specified_dt;
+                finch_state.time_stepper.Nsteps = finch_state.specified_Nsteps;
+            end
         end
-        share_time_step_info(finch_state.time_stepper, finch_state.config);
     end
     
     # change symbolic layer into IR
@@ -1008,16 +1017,24 @@ function conservationForm(var, cf)
     
     # Init stepper here so it can be used in generation
     if finch_state.prob.time_dependent
-        # some measure of element size
-        dim = finch_state.config.dimension;
-        min_detj = minimum(finch_state.geo_factors.detJ);
-        el_size = (2^dim * min_detj)^(1/dim);
-        init_stepper(el_size, finch_state.time_stepper);
-        if finch_state.use_specified_steps
-            finch_state.time_stepper.dt = finch_state.specified_dt;
-            finch_state.time_stepper.Nsteps = finch_state.specified_Nsteps;
+        if length(finch_state.grid_data.allnodes) > 0
+            # some measure of element size
+            dim = finch_state.config.dimension;
+            min_detj = minimum(finch_state.geo_factors.detJ);
+            el_size = (2^dim * min_detj)^(1/dim);
+            init_stepper(el_size, finch_state.time_stepper);
+            if finch_state.use_specified_steps
+                finch_state.time_stepper.dt = finch_state.specified_dt;
+                finch_state.time_stepper.Nsteps = finch_state.specified_Nsteps;
+            end
+            share_time_step_info(finch_state.time_stepper, finch_state.config);
+        else # no mesh was built for this target
+            init_stepper(0.1, finch_state.time_stepper); # This should be manually set.
+            if finch_state.use_specified_steps
+                finch_state.time_stepper.dt = finch_state.specified_dt;
+                finch_state.time_stepper.Nsteps = finch_state.specified_Nsteps;
+            end
         end
-        share_time_step_info(finch_state.time_stepper, finch_state.config);
     end
     
     # change symbolic layer into IR
