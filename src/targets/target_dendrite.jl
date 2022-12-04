@@ -1093,8 +1093,6 @@ $(progress_update)
 * Main file for $(project_name).
 */ 
 
-#include "$(project_name).h" 
-
 
 int main(int argc, char* argv[]) {
     //TODO
@@ -1250,28 +1248,28 @@ function dendrite_boundary_file(var)
     config = finch_state.config;
     prob = finch_state.prob;
     project_name = finch_state.project_name;
-    file = add_generated_file(project_name*"BoundaryCondition.h", dir="include");
+    file = add_generated_file(project_name*"BoundaryConditions.h", dir="include");
     
     if config.dimension == 1
         extract_coords = """
         double x = pos.x();
-        Point<1> domainMin(inputData_->mesh_def.min);
-        Point<1> domainMax(inputData_->mesh_def.max);
+        Point<1> domainMin(inputData_->meshDef.min);
+        Point<1> domainMax(inputData_->meshDef.max);
 """
     elseif config.dimension == 2
         extract_coords = """
         double x = pos.x();
         double y = pos.y();
-        Point<2> domainMin(inputData_->mesh_def.min);
-        Point<2> domainMax(inputData_->mesh_def.max);
+        Point<2> domainMin(inputData_->meshDef.min);
+        Point<2> domainMax(inputData_->meshDef.max);
 """
     elseif config.dimension == 3
         extract_coords = """
         double x = pos.x();
         double y = pos.y();
         double z = pos.z();
-        Point<3> domainMin(inputData_->mesh_def.min);
-        Point<3> domainMax(inputData_->mesh_def.max);
+        Point<3> domainMin(inputData_->meshDef.min);
+        Point<3> domainMax(inputData_->meshDef.max);
 """
     end
     
@@ -1497,7 +1495,7 @@ finalT = 1,0
 
 Mesh options: (depends on MeshDef struct)
 background_mesh = {
-  refine_lvl = 4
+  refineLevel = 4
   min = [0.0, 0.0]   
   max = [1.0, 1.0] 
   # max or scalingFactor = [1.0, 1.0] 
@@ -1505,7 +1503,7 @@ background_mesh = {
 }
 
 PETSc options: (any other PETSc options can be added as needed)
-solver_options_bt = {
+solver_options = {
   ksp_max_it = 2000
   ksp_type = "bcgs"
   pc_type = "asm"
@@ -1614,7 +1612,7 @@ struct MeshDef : public DomainInfo {
             }
         }else if (root.exists("scalingFactor")) {
             for (DENDRITE_UINT dim = 0; dim < $(DIM); dim++) {
-                max[dim] = (DENDRITE_REAL) (min[dim] + root["scalingFactor"][dim]);
+                max[dim] = min[dim] + (DENDRITE_REAL) root["scalingFactor"][dim];
             }
         }else{
             TALYFEMLIB::PrintWarning("No max or scalingFactor defined for mesh. Using 1.0");
@@ -1694,9 +1692,9 @@ as well as the config.txt file
 =#
 function dendrite_build_files()
     project_name = finch_state.project_name;
-    cmake_file = add_generated_file(project_name*"CMakeLists.txt", make_header_text=false);
-    readme_file = add_generated_file(project_name*"README.txt", make_header_text=false);
-    config_file = add_generated_file(project_name*"config.txt", make_header_text=false);
+    cmake_file = add_generated_file("CMakeLists.txt", make_header_text=false);
+    readme_file = add_generated_file("README.txt", make_header_text=false);
+    config_file = add_generated_file("config.txt", make_header_text=false);
     
 end
 

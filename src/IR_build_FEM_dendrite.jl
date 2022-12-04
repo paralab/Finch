@@ -543,13 +543,15 @@ function make_elemental_computation_fem_dendrite(terms, var, dofsper, offset_ind
         if lorr == LHS
             # Ae(row,col) += N
             push!(compute_block.parts, IR_operation_node(IRtypes.math_assign_op,[:+,
-                IR_data_node(IRtypes.float_data, :Ae, [:?,:?], [:row, :col]),
+                #IR_data_node(IRtypes.float_data, :Ae, [:?,:?], [:row, :col]),
+                IR_operation_node(IRtypes.function_op, [:Ae, :row, :col]),
                 IR_data_node(IRtypes.float_data, :N)
             ]));
         else
             #be(row) += N
             push!(compute_block.parts, IR_operation_node(IRtypes.math_assign_op,[:+,
-                IR_data_node(IRtypes.float_data, :be, [:?], [:row]),
+                #IR_data_node(IRtypes.float_data, :be, [:?], [:row]),
+                IR_operation_node(IRtypes.function_op, [:be, :row]),
                 IR_data_node(IRtypes.float_data, :N)
             ]));
         end
