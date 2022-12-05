@@ -323,8 +323,12 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         code = gen_func_name * "(p)";
         
     elseif op === :KNOWN_VAR
-        # code = "variables[" * string(IR.args[2]) * "].values[nodeID]";
-        code = "SORRY_THIS_IS_NOT_GOING_TO_WORK_YET_SORRY_SORRY"
+        # code = "p_data_->valueFEM(fe, dofind)";
+        if IR.args[4] == 1
+            code = "p_data_->valueFEM(fe, " * string(IR.args[2]) * ")";
+        else
+            code = "p_data_->valueFEM(fe, " * string(IR.args[2]) * " + eq_idata->valueno())";
+        end
         
     elseif op === :ROWCOL_TO_INDEX
         code = string(IR.args[2]) * " + (" * string(IR.args[3]) * "-1)*" * string(IR.args[4]);
@@ -1046,12 +1050,12 @@ $(progress_update)
         solution_step *= ";\n";
         
         for i=1:nvecs
-            solution_step *= "    octDA->petscCreateVector("*time_storage[i]*", false, false, NDOF);\n";
+            solution_step *= "    octDA->petscCreateVector("*time_storage[i]*", false, false, NUM_VARS);\n";
         end
         
         # set initial conditions where needed
         solution_step *= "    // Set initial condtions.\n";
-        solution_step *= "    octDA->petscSetVectorByFunction(prev_solution, initial_condition, false, false, NDOF);\n";
+        solution_step *= "    octDA->petscSetVectorByFunction(prev_solution, initial_condition, false, false, NUM_VARS);\n";
         for i=2:nvecs
             if set_initial[i]
                 solution_step *= "    VecCopy(prev_solution, "*time_storage[i]*");\n";
@@ -1059,15 +1063,20 @@ $(progress_update)
         end
         
         # Set vectors in Eq
-        vecOfVecs = "{VecInfo("*time_storage[1]*", NDOF, 1)";
+        vecOfVecs = "{VecInfo("*time_storage[1]*", NUM_VARS, 0)";
         for i=2:nvecs
-            vecOfVecs *= ", VecInfo("*time_storage[i]*", NDOF, $(i))";
+            j = i-1;
+            vecOfVecs *= ", VecInfo("*time_storage[i]*", NUM_VARS, $(j))";
         end
         vecOfVecs *= "}";
         solution_step *= "    $(project_name)Eq->setVectors($(vecOfVecs), SYNC_TYPE::VECTOR_ONLY);\n";
         
         # Time stepping loop
         solution_step *= "    // Beginning time steps\n";
+        solution_step *= "    unsigned int currentStep = 0;\n";
+        solution_step *= "    double currentT = 0.0;\n";
+        solution_step *= "    double dt = idata.dt;\n";
+        solution_step *= "    unsigned int nSteps = idata.nSteps;\n";
         solution_step *= step_loop;
         
     else # not time dependent
@@ -1155,15 +1164,20 @@ function dendrite_equation_file(var, IR)
 
 #include <talyfem/fem/cequation.h>
 #include "$(project_name)NodeData.h"
+#include "$(project_name)InputData.h"
 #include <DataTypes.h>
 #include <Basis/MatVec.h>
 #include <Basis/Vec.h>
 #include <Basis/Mat.h>
 class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)NodeData> {
-
-    double timespan = 0;
-
+    
     public:
+    explicit $(project_name)Equation(const $(project_name)InputData * idata)
+        : TALYFEMLIB::CEquation<$(project_name)NodeData>(false, TALYFEMLIB::kAssembleGaussPoints) {
+        eq_idata = idata;
+        dt = idata->dt;
+        currentT = idata->dt;
+    }
     
     // Do nothing. Needed by talyfem? //////////////////////
     void Solve(double dt, double t) override {
@@ -1230,7 +1244,10 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
         
     }
     
-protected:
+    protected:
+    const $(project_name)InputData *eq_idata;
+    double dt;
+    double currentT;
     ////////////////////////////////////////////////////////////////////////
     // Coefficient functions
 """*function_defs*"""
@@ -1568,7 +1585,7 @@ function dendrite_inputdata_file(var)
         nsteps = finch_state.time_stepper.Nsteps;
         finalT = dt*nsteps;
         time_stepping_parts = "        // Time stepping info (can be overridden by config.txt values)\n";
-        time_stepping_parts *= "        double dt = $(dt);\n";
+        time_stepping_parts *= "        dt = $(dt);\n";
         time_stepping_parts *= "        unsigned int nSteps = $(nsteps);\n";
         time_stepping_parts *= "        double finalT = $(finalT);\n";
         
@@ -1631,6 +1648,9 @@ class $(project_name)InputData : public TALYFEMLIB::InputData {
         std::string basisFunctionStr = "$(default_order)";
         /// Matrix  free
         bool mfree = $(default_matfree);
+        /// Time info
+        double dt = 0.0;
+        double currentT = 0.0;
         
 $(time_stepping_parts)
         

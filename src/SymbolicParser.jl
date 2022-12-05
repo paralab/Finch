@@ -1210,6 +1210,12 @@ function basic_to_expr_and_place(ex, placeholders)
         return newex;
         
     elseif typeof(ex) == Expr
+        # There are certain functions that need to apply flags to variables
+        # such as twoPrevious(_u_1...) -> PREV2__u_1...
+        if ex.head === :call && ex.args[1] === :twoPrevious
+            ex = apply_flag_to_variables("PREV2_", ex.args[2]);
+        end
+        
         for i=1:length(ex.args)
             ex.args[i] = basic_to_expr_and_place(ex.args[i], placeholders)
         end
@@ -1270,8 +1276,40 @@ function apply_flag_to_all_symbols(flag, ex)
     return ex;
 end
 
+function apply_flag_to_variables(flag, ex)
+    if typeof(ex) <: Array
+        for i=1:length(ex)
+            ex[i] = apply_flag_to_variables(flag, ex[i]);
+        end
+        
+    elseif typeof(ex) == Expr
+        for i=1:length(ex.args)
+            ex.args[i] = apply_flag_to_variables(flag, ex.args[i]);
+        end
+        
+    elseif typeof(ex) == Symbol
+        # Is it a variable?
+        isvar = false;
+        for v in finch_state.variables
+            vroot = "_" * string(v.symbol) * "_";
+            if string(get_root_symbol(ex)) == vroot
+                isvar = true;
+            end
+        end
+        if isvar
+            ex = Symbol(flag * string(ex));
+        end
+    end
+    
+    return ex;
+end
+
 function get_root_symbol(s)
     str = string(s);
+    if !occursin("_",str)
+        # there is no root symbol
+        return nothing
+    end
     # Find _u_ in FLAG_FLAG__u_n
     # Does it have any flags?
     st = 1;
@@ -1327,6 +1365,7 @@ function apply_old_to_symbol(ex)
     
     return symbols(newstr);
 end
+
 # Adds "DELTA" to the variable symbol
 function apply_delta_to_symbol(ex)
     str = string(ex);
@@ -1355,8 +1394,12 @@ function apply_delta_to_symbol(ex)
     
     return symbols(newstr);
 end
+
 function apply_delta_to_symbols_in_expression(ex, var_symbol)
     root_symbol = get_root_symbol(var_symbol);
+    if root_symbol === nothing 
+        return ex;
+    end
     
     new_ex = ex;
     if typeof(ex) == Basic

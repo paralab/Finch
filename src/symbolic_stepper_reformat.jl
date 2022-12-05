@@ -73,6 +73,44 @@ function reformat_for_stepper(stepper, lhs, rhs, face_lhs, face_rhs, nlt)
             newfacelhs = copy(face_lhs);# dt*facelhs
             newnlt = copy(nlt);
             
+        elseif stepper == BDF2 # 3/2*lhs1 + dt*lhs2 = dt*rhs + 2*lhs1 - 1/2*pre_lhs1
+            plhs1 = copy(lhs[1]);
+            pplhs1 = copy(lhs[1]);
+            @funs(twoPrevious);
+            for i=1:length(lhs[1])
+                lhs[1][i] = lhs[1][i]*Basic(1.5); # 3.2*lhs1
+            end
+            for i=1:length(plhs1)
+                plhs1[i] = plhs1[i]*Basic(2); # 2*lhs1
+            end
+            for i=1:length(pplhs1)
+                pplhs1[i] = twoPrevious(pplhs1[i]*Basic(0.5)); # 1/2*pre_lhs1
+            end
+            for i=1:length(lhs[2])
+                lhs[2][i] = lhs[2][i]*dt; # dt*lhs2
+            end
+            for i=1:length(rhs)
+                rhs[i] = rhs[i]*dt; # dt*rhs
+            end
+            for i=1:length(face_rhs)
+                face_rhs[i] = face_rhs[i]*dt; # dt*facelhs
+            end
+            for i=1:length(face_lhs)
+                face_lhs[i] = face_lhs[i]*dt; # dt*facerhs
+            end
+            for i=1:length(nlt)
+                nlt[i] = nlt[i]*dt; # dt*nlt
+            end
+            
+            newlhs = copy(lhs[1]);
+            append!(newlhs, lhs[2]); # 3/2*lhs1 + dt*lhs2
+            newrhs = copy(rhs);
+            append!(newrhs, plhs1);# dt*rhs + 2*lhs1
+            append!(newrhs, pplhs1);# + 1/2*pre_lhs1
+            newfacerhs = copy(face_rhs);# dt*facerhs
+            newfacelhs = copy(face_lhs);# dt*facelhs
+            newnlt = copy(nlt);
+            
         elseif stepper == EULER_EXPLICIT || stepper == PECE # lhs1 = lhs1 + dt*rhs - dt*lhs2
             # This version includes the lhs1 + dt*(  ) part
             for i=1:length(lhs[2])

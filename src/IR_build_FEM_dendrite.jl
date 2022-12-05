@@ -316,7 +316,38 @@ function prepare_coefficient_values_fem_dendrite(entities, var, dimension, group
                 end
                 
                 if vors == "volume"
-                    # TODO
+                    # This should only happen when refering to the value from a previous time step
+                    # in which case it should be in prev_solution.
+                    # Need to figure out the dofind
+                    varcount = length(var);
+                    dofind = 0;
+                    for i=1:length(var)
+                        if var[i].index == cval
+                            if typeof(index_IR) <: Number
+                                dofind += index_IR;
+                            else
+                                dofind = IR_operation_node(IRtypes.math_op, [:+, dofind, index_IR]);
+                            end
+                            break;
+                        end
+                        dofind += var[i].total_components;
+                    end
+                    dofsper = 0;
+                    for i=1:length(var)
+                        dofsper += var[i].total_components;
+                    end
+                    
+                    if "PREV2" in entities[i].flags
+                        push!(coef_part, IR_operation_node(IRtypes.assign_op,[
+                            IR_data_node(IRtypes.float_data, Symbol(cname)),
+                            IR_operation_node(IRtypes.named_op, [:KNOWN_VAR, dofind, index_IR, 2])
+                        ]));
+                    else
+                        push!(coef_part, IR_operation_node(IRtypes.assign_op,[
+                            IR_data_node(IRtypes.float_data, Symbol(cname)),
+                            IR_operation_node(IRtypes.named_op, [:KNOWN_VAR, dofind, index_IR, 1])
+                        ]));
+                    end
                     
                 else # surface
                     # TODO
