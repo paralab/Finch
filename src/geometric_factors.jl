@@ -107,7 +107,17 @@ function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=fa
         J[e] = e_J;
         
         if do_vol_area
-            volume[e] = element_volume(etype, ve);
+            if constant_jacobian
+                if etype == 4
+                    volume[e] = 4 * e_detJ;
+                elseif etype == 6
+                    volume[e] = 8 * e_detJ;
+                else
+                    volume[e] = element_volume(etype, ve);
+                end
+            else
+                volume[e] = element_volume(etype, ve);
+            end
         end
     end
     
