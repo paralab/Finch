@@ -1388,16 +1388,18 @@ function solve(var)
             assemblyLoops(["elements"; finch_state.ordered_indexers]);
         end
         
-        if finch_state.prob.time_dependent && finch_state.time_stepper.Nsteps == 0
-            # some measure of element size
-            dim = finch_state.config.dimension;
-            min_detj = minimum(finch_state.geo_factors.detJ);
-            el_size = (2^dim * min_detj)^(1/dim);
-            init_stepper(el_size, finch_state.time_stepper);
+        if finch_state.prob.time_dependent
             if finch_state.use_specified_steps
                 finch_state.time_stepper.dt = finch_state.specified_dt;
                 finch_state.time_stepper.Nsteps = finch_state.specified_Nsteps;
+            else
+                # some measure of element size
+                dim = finch_state.config.dimension;
+                min_detj = minimum(finch_state.geo_factors.detJ);
+                el_size = (2^dim * min_detj)^(1/dim);
+                init_stepper(el_size, finch_state.time_stepper);
             end
+            
             share_time_step_info(finch_state.time_stepper, finch_state.config);
         end
         
