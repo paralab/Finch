@@ -320,14 +320,14 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         # "genfunction_"*string(cval)*"(p)"
         gen_func_name = finch_state.coefficients[IR.args[2]].value[IR.args[3]].name;
         
-        code = gen_func_name * "(p)";
+        code = gen_func_name * "(p, t)";
         
     elseif op === :KNOWN_VAR
         # code = "p_data_->valueFEM(fe, dofind)";
         if IR.args[4] == 1
-            code = "p_data_->valueFEM(fe, " * string(IR.args[2]) * ")";
+            code = "p_data_->valueFEM(fe, " * string(IR.args[2]-1) * ")";
         else
-            code = "p_data_->valueFEM(fe, " * string(IR.args[2]) * " + eq_idata->valueno())";
+            code = "p_data_->valueFEM(fe, " * string(IR.args[2]-1) * " + eq_idata->NUM_VARS)";
         end
         
     elseif op === :ROWCOL_TO_INDEX
@@ -901,6 +901,9 @@ function dendrite_main_file(var)
         end
     end
     
+    # Things to delete/destroy at the end
+    delete_part = "";
+    
     # Make the solve or time stepping part
     solution_step = ""
     if prob.time_dependent
@@ -910,7 +913,7 @@ function dendrite_main_file(var)
         #     var[0] = sin(M_PI * x[0]) * sin(M_PI * x[1]) * sin(M_PI * x[2]);
         #     var[1] = ...
         # };
-        solution_step *= "    std::function<void(const double *, double *)> initial_condition = [](const double *x, double *var) {\n";
+        solution_step *= "    std::function<void(const double *, double *)> initial_condition = [](const double *pt, double *var) {\n";
         dof_ind = 0;
         for vi=1:varcount
             for ci=1:var[vi].total_components
@@ -920,10 +923,11 @@ function dendrite_main_file(var)
                 else # genfunction
                     newex = cpp_change_math_ops(ic.expr); # change operators to match C++
                     newex = cpp_swap_symbol(:pi, :M_PI, newex); # swap pi for M_PI
-                    newex = cpp_swap_symbol(:x, :(x[0]), newex); # swap x for x[0]
-                    newex = cpp_swap_symbol(:y, :(x[1]), newex); # swap x for x[1]
-                    newex = cpp_swap_symbol(:z, :(x[2]), newex); # swap x for x[2]
+                    newex = cpp_swap_symbol(:x, :(pt[0]), newex); # swap x for pt[0]
+                    newex = cpp_swap_symbol(:y, :(pt[1]), newex); # swap x for pt[1]
+                    newex = cpp_swap_symbol(:z, :(pt[2]), newex); # swap x for pt[2]
                     newex = cpp_conditional_to_oneline_string(newex); # make conditionals like (a ? b : c)
+                    
                     s = string(newex);
                     ns = replace(s, r"([\d)])([(A-Za-z])" => s"\1*\2"); # explicitly multiply with "*" (2*x not 2x)
                     solution_step *= "        var[$(dof_ind)] = $(ns);\n";
@@ -935,17 +939,13 @@ function dendrite_main_file(var)
         
         # A progress meter
         solution_step *= "    // Progress meter\n";
-        solution_step *= "    int last_minor_progress = 0;\n";
-        solution_step *= "    int last_major_progress = 0;\n";
+        solution_step *= "    int progress_step_size = 10;\n";
+        solution_step *= "    int last_progress = 0;\n";
         solution_step *= "    TALYFEMLIB::PrintStatus(\"TIme step progress (%) 0\");\n";
         progress_update = """
-        if((currentStep * 100.0 / nSteps) >= (last_major_progress + 10)){
-            last_major_progress += 10;
-            last_minor_progress += 2;
-            TALYFEMLIB::PrintStatus(last_major_progress);
-        }else if((currentStep * 100.0 / nSteps) >= (last_minor_progress + 2)){
-            last_minor_progress += 2;
-            TALYFEMLIB::PrintStatus(".");
+        if((currentStep * 100.0 / nSteps) >= (last_progress + progress_step_size)){
+            last_progress += progress_step_size;
+            TALYFEMLIB::PrintStatus(last_progress, "%");
         }
 """
         
@@ -958,6 +958,7 @@ function dendrite_main_file(var)
             step_loop = """
     while (currentStep < nSteps) {
         currentT += dt;
+        $(project_name)Eq->equation()->advanceTime(dt);
         currentStep++;
         $(project_name)Solver->solve();
         VecCopy($(project_name)Solver->getCurrentSolution(), prev_solution);
@@ -970,6 +971,7 @@ $(progress_update)
     while (currentStep < nSteps) {
         $(project_name)Solver->solve();
         currentT += dt;
+        $(project_name)Eq->equation()->advanceTime(dt);
         currentStep++;
         VecCopy($(project_name)Solver->getCurrentSolution(), prev_solution);
         
@@ -1000,6 +1002,7 @@ $(progress_update)
         VecCopy($(project_name)Solver->getCurrentSolution(), rk_k_1);
         
         currentT += dt/2;
+        $(project_name)Eq->equation()->advanceTime(dt/2);
         VecWAXPY(prev_solution, dt_half, rk_k_1, tmp_solution);
         $(project_name)Solver->solve();
         VecCopy($(project_name)Solver->getCurrentSolution(), rk_k_2);
@@ -1009,6 +1012,7 @@ $(progress_update)
         VecCopy($(project_name)Solver->getCurrentSolution(), rk_k_3);
         
         currentT += dt/2;
+        $(project_name)Eq->equation()->advanceTime(dt/2);
         VecWAXPY(prev_solution, dt_full, rk_k_3, tmp_solution);
         $(project_name)Solver->solve();
         
@@ -1027,6 +1031,7 @@ $(progress_update)
             step_loop = """
     while (currentStep < nSteps) {
         currentT += dt;
+        $(project_name)Eq->equation()->advanceTime(dt);
         currentStep++;
         $(project_name)Solver->solve();
         VecCopy(prev_solution, prev_prev_solution);
@@ -1044,8 +1049,10 @@ $(progress_update)
         solution_step *= "    // Set up storage used by time stepper.\n";
         nvecs = length(time_storage);
         solution_step *= "    Vec " * time_storage[1];
+        delete_part *= "    VecDestroy(&" * time_storage[1] * ");\n";
         for i=2:nvecs
             solution_step *= ", "*time_storage[i];
+            delete_part *= "    VecDestroy(&" * time_storage[i] * ");\n";
         end
         solution_step *= ";\n";
         
@@ -1101,15 +1108,102 @@ $(progress_update)
 /**
 * Main file for $(project_name).
 */ 
+// General
+#include <iostream>
+#include <point.h>
+// Dendrite/Taly
+#include <DendriteUtils.h>
+#include <TalyEquation.h>
+#include <PostProcessing/postProcessing.h>
+#include <Traversal/Analytic.h>
+#include <IO/VTU.h>
+// Petsc
+#include <PETSc/Solver/LinearSolver.h>
+#include <PETSc/PetscUtils.h>
+#include <PETSc/IO/petscVTU.h>
 
+// generated
+#include <$(project_name)Equation.h>
+#include <$(project_name)BoundaryConditions.h>
+#include <$(project_name)NodeData.h>
+#include <$(project_name)InputData.h>
 
+using namespace PETSc;
 int main(int argc, char* argv[]) {
-    //TODO
+    /// initialize
+    dendrite_init(argc, argv);
+    int rank = TALYFEMLIB::GetMPIRank();
+    
+    /// read parameters from config.txt
+    heat3dInputData idata;
+    std::ifstream configFile("config.txt");
+    if (configFile.good()) {
+        if (!idata.ReadFromFile()) {
+            throw std::runtime_error("[ERR] Error reading input data, check the config file!");
+        }
+        if (!idata.CheckInputData()) {
+            throw std::runtime_error("[ERR] Problem with input data, check the config file!");
+        }
+    } else{
+        TALYFEMLIB::PrintStatus("No config.txt file found. Copy the generated config.txt into the build directory");
+        return -1;
+    }
+    
+    // Configuration variables
+    unsigned int eleOrder = idata.basisFunction;
+    unsigned int level = idata.meshDef.refineLevel;
+    bool mfree = idata.mfree;
+    
+    // Print status
+    TALYFEMLIB::PrintInfo("Total number of processor = ", TALYFEMLIB::GetMPISize());
+    TALYFEMLIB::PrintStatus("DIM =  ", DIM);
+    TALYFEMLIB::PrintStatus("Element order ", eleOrder);
+    TALYFEMLIB::PrintStatus("Refinement level ", level);
+    TALYFEMLIB::PrintStatus("Mfree ", mfree);
+    
+    // Make the tree
+    std::vector<TREENODE> treePart;
+    DA *octDA = createRegularDA(treePart, level, eleOrder);
+    
+    // Problem specification
+    static const unsigned int NUM_VARS = $(dofs_per_node);
+    DomainInfo physDomain;
+    physDomain.min = idata.meshDef.min;
+    physDomain.max = idata.meshDef.max;
+    
+    // Time steps (define even if no time stepping)
+    unsigned int currentStep = 0;
+    double currentT = 0.0;
+    double dt = idata.dt;
+    unsigned int nSteps = idata.nSteps;
+    
+    auto $(project_name)Eq = new TalyEquation<$(project_name)Equation, $(project_name)NodeData>(octDA, physDomain, NUM_VARS, false, &idata);
+    
+    // Setup PETSc solver
+    LinearSolver *$(project_name)Solver = setLinearSolver($(project_name)Eq, octDA, NUM_VARS, mfree);
+    /// apply solver parameters from config.txt
+    idata.solverOptions$(project_name).apply_to_petsc_options("-$(project_name)_");
+    KSP m_ksp = $(project_name)Solver->ksp();
+    KSPSetOptionsPrefix(m_ksp, "$(project_name)_");
+    KSPSetFromOptions(m_ksp);
+    
+    // Boundary conditions
+    $(project_name)BoundaryConditions $(project_name)BC(&idata);
+    $(project_name)Solver->setDirichletBoundaryCondition([&](const TALYFEMLIB::ZEROPTV &pos, int nodeID) -> Boundary {
+        Boundary b;
+        $(project_name)BC.get$(project_name)BoundaryCondition(b, pos, currentT);
+        return b;
+    });
     
 $(solution_step)
 
 $(output_part)
+    
+$(delete_part)
 
+    delete $(project_name)Eq;
+    delete $(project_name)Solver;
+    dendrite_finalize(octDA);
     return 0;
 }   
 """
@@ -1150,7 +1244,7 @@ function dendrite_equation_file(var, IR)
     genfunctions = finch_state.genfunctions;
     function_defs = "";
     indent = "    ";
-    args ="(const TALYFEMLIB::ZEROPTV &pt)";
+    args ="(const TALYFEMLIB::ZEROPTV &pt, const double t)";
     for i = 1:length(genfunctions)
         str = cpp_genfunction_to_string(genfunctions[i]);
         fun = "    return "*str*";";
@@ -1176,7 +1270,7 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
         : TALYFEMLIB::CEquation<$(project_name)NodeData>(false, TALYFEMLIB::kAssembleGaussPoints) {
         eq_idata = idata;
         dt = idata->dt;
-        currentT = idata->dt;
+        currentT = 0.0;
     }
     
     // Do nothing. Needed by talyfem? //////////////////////
@@ -1242,6 +1336,10 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
             ////////////////////////////////////////////////////////////////////////
         }
         
+    }
+    
+    void advanceTime(const double dti){
+        currentT += dti;
     }
     
     protected:
@@ -1321,7 +1419,7 @@ function dendrite_boundary_file(var)
                     if typeof(prob.bc_func[var_ind][ci]) <: Number
                         bc_val = string(prob.bc_func[var_ind][ci]);
                     elseif typeof(prob.bc_func[var_ind][ci]) == GenFunction
-                        bc_val = prob.bc_func[var_ind][ci].name * "(pos)";
+                        bc_val = prob.bc_func[var_ind][ci].name * "(pos, t)";
                         push!(bdry_genfunctions, prob.bc_func[var_ind][ci]);
                     else # uh oh
                         printerr("Boundary values that are not constant or [x,y,z,t] gen functions must be entered manually.");
@@ -1351,7 +1449,7 @@ function dendrite_boundary_file(var)
     # genfunctions to define here
     function_defs = "";
     function_decs = "";
-    args ="(const TALYFEMLIB::ZEROPTV &pt)";
+    args ="(const TALYFEMLIB::ZEROPTV &pt, const double t)";
     finished_genfunctions = [];
     for i = 1:length(bdry_genfunctions)
         # avoid duplicates
@@ -1385,14 +1483,14 @@ class $(project_name)BoundaryConditions {
         const $(project_name)InputData *inputData_;
     public:
         $(project_name)BoundaryConditions(const $(project_name)InputData *idata);
-        void get$(project_name)BoundaryCondition(PETSc::Boundary &b, const TALYFEMLIB::ZEROPTV &pos);
+        void get$(project_name)BoundaryCondition(PETSc::Boundary &b, const TALYFEMLIB::ZEROPTV &pos, const double t);
 $(function_decs)
 };
 $(project_name)BoundaryConditions::$(project_name)BoundaryConditions(const $(project_name)InputData *idata) {
     inputData_ = idata;
 }
 
-void $(project_name)BoundaryConditions::get$(project_name)BoundaryCondition(PETSc::Boundary &b, const TALYFEMLIB::ZEROPTV &pos) {
+void $(project_name)BoundaryConditions::get$(project_name)BoundaryCondition(PETSc::Boundary &b, const TALYFEMLIB::ZEROPTV &pos, const double t) {
     static constexpr double eps = 1e-14;
 $(extract_coords)
     
@@ -1434,12 +1532,26 @@ function dendrite_nodedata_file(var)
     dof_enum = "";
     value_case = "";
     name_case = "";
+    value_count = 0;
     for i=1:dofs_per_node
         dof_enum *= "        " * dof_names[i] * "_dofind = "*string(i-1)*",\n";
-        value_case *= "            case " * dof_names[i] * "_dofind: return var_values[" * string(i) * "];\n";
+        value_case *= "            case " * dof_names[i] * "_dofind: return var_values[" * string(i-1) * "];\n";
         name_case *= "            case " * dof_names[i] * "_dofind: return \"" * dof_names[i] * "\";\n";
+        value_count += 1;
     end
-    dof_enum *= "        " * project_name * "NODEDATA_MAX = "*string(dofs_per_node)*"\n";
+    # Some time steppers need extra values available to equation, so more values here.
+    stepper_type = finch_state.time_stepper.type;
+    if stepper_type == BDF2
+        # one more for prev2
+        for i=1:dofs_per_node
+            j = dofs_per_node + i;
+            dof_enum *= "        prev2_" * dof_names[i] * "_dofind = "*string(j-1)*",\n";
+            value_case *= "            case prev2_" * dof_names[i] * "_dofind: return var_values[" * string(j-1) * "];\n";
+            name_case *= "            case prev2_" * dof_names[i] * "_dofind: return \"prev2_" * dof_names[i] * "\";\n";
+            value_count += 1;
+        end
+    end
+    dof_enum *= "        " * project_name * "NODEDATA_MAX = "*string(value_count)*"\n";
     
     content = """
 #pragma once
@@ -1450,8 +1562,8 @@ class $(project_name)NodeData {
     public:
     // number of  variables in this NodeData
     static const unsigned int NUM_VARS = $(dofs_per_node);
-    // values? Not sure when this is used.
-    double var_values[$(dofs_per_node)];
+    // values available to equation
+    double var_values[$(value_count)];
 
     enum Vars : int {
 $(dof_enum)

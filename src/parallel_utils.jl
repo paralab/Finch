@@ -79,9 +79,9 @@ function share_time_step_info(stepper::Stepper, config::FinchConfig)
     end
 end
 
-# For multiple processes, gather the system, distribute the solution
+# For multiple processes, gather the system directly using MPI
 # Note: rescatter_b only applies when rhs_only
-function gather_system(A::Union{Nothing, SparseMatrixCSC}, b::Vector, nnodes::Int, dofs_per_node::Int, 
+function gather_system_assembled(A::Union{Nothing, SparseMatrixCSC}, b::Vector, nnodes::Int, dofs_per_node::Int, 
                         b_order::Vector, b_sizes::Vector, config::FinchConfig, buffers::ParallelBuffers; rescatter_b::Bool=false)
     rhs_only = (A===nothing);
     if config.num_procs > 1
@@ -89,6 +89,7 @@ function gather_system(A::Union{Nothing, SparseMatrixCSC}, b::Vector, nnodes::In
             printerr("MPI can only work with types for which isbitstype == true.\nCurrent types are: int="*
                         string(config.index_type)*", float="*string(config.float_type), fatal=true);
         end
+        grid_data = finch_state.grid_data;
         if !rhs_only
             # For now just gather all of A in proc 0 to assemble.
             # The row and column indices have to be changed according to partition2global.
@@ -226,6 +227,327 @@ function gather_system(A::Union{Nothing, SparseMatrixCSC}, b::Vector, nnodes::In
     end
 end
 
+# For multiple processes, gather the system directly using MPI
+# Note: rescatter_b only applies when rhs_only
+function gather_system(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Vector{Int}}, AV::Union{Nothing, Vector}, 
+                        b::Vector, nnodes::Int, dofs_per_node::Int, b_order::Vector{Int}, b_sizes::Vector{Int}, 
+                        config::FinchConfig, buffers::ParallelBuffers; rescatter_b::Bool=false)
+    rhs_only = (AI===nothing);
+    if config.num_procs > 1
+        if !isbitstype(config.float_type)
+            printerr("MPI can only work with types for which isbitstype == true.\nCurrent type is float="*string(config.float_type), fatal=true);
+        end
+        grid_data = finch_state.grid_data;
+        if !rhs_only
+            # For now just gather all of A in proc 0 to assemble.
+            # The row and column indices have to be changed according to partition2global.
+            # Also, b must be reordered on proc 0, so send the needed indices as well.
+            for i=1:length(AI)
+                dof = mod(AI[i]-1,dofs_per_node)+1;
+                node = Int(floor((AI[i]-dof) / dofs_per_node) + 1);
+                AI[i] = (grid_data.partition2global[node] - 1) * dofs_per_node + dof;
+                
+                dof = mod(AJ[i]-1,dofs_per_node)+1;
+                node = Int(floor((AJ[i]-dof) / dofs_per_node) + 1);
+                AJ[i] = (grid_data.partition2global[node] - 1) * dofs_per_node + dof;
+            end
+            
+            if config.proc_rank == 0
+                # First figure out how long each proc's arrays are
+                send_buf = [length(AI)];
+                recv_buf = zeros(Int, config.num_procs);
+                MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
+                
+                # Use gatherv to accumulate A
+                chunk_sizes = recv_buf;
+                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+                total_length = chunk_sizes[1];
+                for proc_i=2:config.num_procs
+                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                    total_length += chunk_sizes[proc_i];
+                end
+                # If buffers aren't allocated yet, do so
+                if length(buffers.full_AI) == 0
+                    buffers.full_AI = zeros(config.index_type, total_length);
+                    buffers.full_AJ = zeros(config.index_type, total_length);
+                    buffers.full_AV = zeros(config.float_type, total_length);
+                end
+                
+                AI_buf = MPI.VBuffer(buffers.full_AI, chunk_sizes, displacements, MPI.Datatype(config.index_type));
+                AJ_buf = MPI.VBuffer(buffers.full_AJ, chunk_sizes, displacements, MPI.Datatype(config.index_type));
+                AV_buf = MPI.VBuffer(buffers.full_AV, chunk_sizes, displacements, MPI.Datatype(config.float_type));
+                
+                MPI.Gatherv!(AI, AI_buf, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AJ, AJ_buf, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AV, AV_buf, 0, MPI.COMM_WORLD);
+                
+                # # Assemble A
+                # full_A = sparse(buffers.full_AI, buffers.full_AJ, buffers.full_AV);
+                
+                # Next gather b
+                chunk_sizes = b_sizes;
+                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+                total_length = chunk_sizes[1];
+                for proc_i=2:config.num_procs
+                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                    total_length += chunk_sizes[proc_i];
+                end
+                if length(buffers.full_b) == 0
+                    buffers.full_b = zeros(config.float_type, total_length);
+                    buffers.vec_b = zeros(config.float_type, grid_data.nnodes_global * dofs_per_node);
+                end
+                b_buf = MPI.VBuffer(buffers.full_b, chunk_sizes, displacements, MPI.Datatype(config.float_type));
+                MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
+                
+                # Overlapping values will be added.
+                buffers.vec_b .= 0.0;
+                for i=1:total_length
+                    buffers.vec_b[b_order[i]] += buffers.full_b[i];
+                end
+                
+                return (buffers.full_AI, buffers.full_AJ, buffers.full_AV, buffers.vec_b);
+                
+            else # other procs just send their data
+                send_buf = [length(AI)];
+                MPI.Gather!(send_buf, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AI, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AJ, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AV, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
+                
+                return (AI, AJ, AV, b);
+            end
+            
+        else # RHS only\
+            if config.proc_rank == 0
+                # gather b
+                chunk_sizes = b_sizes;
+                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+                total_length = chunk_sizes[1];
+                for proc_i=2:config.num_procs
+                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                    total_length += chunk_sizes[proc_i];
+                end
+                if length(buffers.full_b) == 0
+                    buffers.full_b = zeros(config.float_type, total_length);
+                    buffers.vec_b = zeros(config.float_type, grid_data.nnodes_global * dofs_per_node);
+                end
+                
+                b_buf = MPI.VBuffer(buffers.full_b, chunk_sizes, displacements, MPI.Datatype(config.float_type));
+                MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
+                
+                # Overlapping values will be added.
+                buffers.vec_b .= 0.0;
+                for i=1:total_length
+                    buffers.vec_b[b_order[i]] += buffers.full_b[i];
+                end
+                
+                if rescatter_b
+                    distribute_solution!(buffers.vec_b, b, nnodes, dofs_per_node, b_order, b_sizes, config, buffers);
+                end
+                return buffers.vec_b;
+                
+            else # other procs just send their data
+                MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
+                
+                if rescatter_b
+                    distribute_solution!([], b, nnodes, dofs_per_node, b_order, b_sizes, config, buffers);
+                end
+                return b;
+            end
+        end
+        
+    else # one process
+        if rhs_only
+            return b;
+        else
+            return (AI, AJ, AV, b);
+        end
+    end
+end
+
+# For multiple processes, gather the system directly using MPI
+# Note: rescatter_b only applies when rhs_only
+function gather_system_FV(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Vector{Int}}, AV::Union{Nothing, Vector}, 
+                        b::Vector, nel::Int, dofs_per_node::Int, 
+                        config::FinchConfig, buffers::ParallelBuffers; rescatter_b::Bool=false)
+    rhs_only = (AI===nothing);
+    if config.num_procs > 1
+        if !isbitstype(config.float_type)
+            printerr("MPI can only work with types for which isbitstype == true.\nCurrent type is float="*string(config.float_type), fatal=true);
+        end
+        grid_data = finch_state.grid_data;
+        if !rhs_only
+            # For now just gather all of A in proc 0 to assemble.
+            # The row and column indices have to be changed according to partition2global.
+            # Also, b must be reordered on proc 0, so send the needed indices as well.
+            nzlength = length(AI);
+            for i=1:length(AI)
+                if AI[i] == 0
+                    nzlength = i-1;
+                    break;
+                end
+                dof = mod(AI[i]-1,dofs_per_node)+1;
+                el = Int(floor((AI[i]-dof) / dofs_per_node) + 1);
+                AI[i] = (grid_data.partition2global_element[el] - 1) * dofs_per_node + dof;
+                
+                dof = mod(AJ[i]-1,dofs_per_node)+1;
+                el = Int(floor((AJ[i]-dof) / dofs_per_node) + 1);
+                AJ[i] = (grid_data.partition2global_element[el] - 1) * dofs_per_node + dof;
+            end
+            if nzlength < length(AI)
+                # trim them to nonzero parts
+                AI = AI[1:nzlength];
+                AJ = AJ[1:nzlength];
+                AV = AV[1:nzlength];
+            end
+            
+            if config.proc_rank == 0
+                # First figure out how long each proc's arrays are
+                send_buf = [nzlength];
+                recv_buf = zeros(Int, config.num_procs);
+                MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
+                
+                # Use gatherv to accumulate A
+                chunk_sizes = recv_buf;
+                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+                total_length = chunk_sizes[1];
+                for proc_i=2:config.num_procs
+                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                    total_length += chunk_sizes[proc_i];
+                end
+                # If buffers aren't allocated yet, do so
+                if length(buffers.full_AI) == 0
+                    buffers.full_AI = zeros(config.index_type, total_length);
+                    buffers.full_AJ = zeros(config.index_type, total_length);
+                    buffers.full_AV = zeros(config.float_type, total_length);
+                end
+                
+                AI_buf = MPI.VBuffer(buffers.full_AI, chunk_sizes, displacements, MPI.Datatype(config.index_type));
+                AJ_buf = MPI.VBuffer(buffers.full_AJ, chunk_sizes, displacements, MPI.Datatype(config.index_type));
+                AV_buf = MPI.VBuffer(buffers.full_AV, chunk_sizes, displacements, MPI.Datatype(config.float_type));
+                
+                MPI.Gatherv!(AI, AI_buf, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AJ, AJ_buf, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AV, AV_buf, 0, MPI.COMM_WORLD);
+                
+                # # Assemble A
+                # full_A = sparse(buffers.full_AI, buffers.full_AJ, buffers.full_AV);
+                
+                # Next gather b
+                send_buf = [length(b)];
+                recv_buf = zeros(Int, config.num_procs);
+                MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
+                
+                chunk_sizes = recv_buf;
+                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+                total_length = chunk_sizes[1];
+                for proc_i=2:config.num_procs
+                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                    total_length += chunk_sizes[proc_i];
+                end
+                if length(buffers.full_b) == 0
+                    buffers.full_b = zeros(config.float_type, total_length);
+                    buffers.vec_b = zeros(config.float_type, grid_data.nel_global * dofs_per_node);
+                    buffers.b_order = zeros(config.float_type, total_length);
+                end
+                b_buf = MPI.VBuffer(buffers.full_b, chunk_sizes, displacements, MPI.Datatype(config.float_type));
+                MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
+                
+                # get the ordering for b
+                bord_buf = MPI.VBuffer(buffers.b_order, chunk_sizes, displacements, MPI.Datatype(Int));
+                MPI.Gatherv!(grid_data.partition2global_element, bord_buf, 0, MPI.COMM_WORLD);
+                
+                # Overlapping values will be added.
+                buffers.vec_b .= 0.0;
+                for i=1:config.num_procs
+                    for j=1:chunk_sizes[i]
+                        b_ind = displacements[i] + j;
+                        g_ind = buffers.b_order[b_ind];
+                        buffers.vec_b[g_ind] += buffers.full_b[b_ind]; 
+                    end
+                end
+                
+                return (sparse(buffers.full_AI, buffers.full_AJ, buffers.full_AV), buffers.vec_b)
+                # return (buffers.full_AI, buffers.full_AJ, buffers.full_AV, buffers.vec_b);
+                
+            else # other procs just send their data
+                send_buf = [nzlength];
+                MPI.Gather!(send_buf, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AI, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AJ, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(AV, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gather!([length(b)], nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(grid_data.partition2global_element, nothing, 0, MPI.COMM_WORLD);
+                
+                return (sparse(AI,AJ,AV),b);
+                # return (AI,AJ,AV,b);
+            end
+            
+        else # RHS only\
+            if config.proc_rank == 0
+                send_buf = [length(b)];
+                recv_buf = zeros(Int, config.num_procs);
+                MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
+                
+                # gather b
+                chunk_sizes = recv_buf;
+                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+                total_length = chunk_sizes[1];
+                for proc_i=2:config.num_procs
+                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                    total_length += chunk_sizes[proc_i];
+                end
+                if length(buffers.full_b) == 0
+                    buffers.full_b = zeros(config.float_type, total_length);
+                    buffers.vec_b = zeros(config.float_type, grid_data.nel_global * dofs_per_node);
+                    buffers.b_order = zeros(config.float_type, total_length);
+                end
+                
+                b_buf = MPI.VBuffer(buffers.full_b, chunk_sizes, displacements, MPI.Datatype(config.float_type));
+                MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
+                
+                # get the ordering for b
+                bord_buf = MPI.VBuffer(buffers.b_order, chunk_sizes, displacements, MPI.Datatype(Int));
+                MPI.Gatherv!(grid_data.partition2global_element, bord_buf, 0, MPI.COMM_WORLD);
+                
+                # Overlapping values will be added.
+                buffers.vec_b .= 0.0;
+                for i=1:config.num_procs
+                    for j=1:chunk_sizes[i]
+                        b_ind = displacements[i] + j;
+                        g_ind = buffers.b_order[b_ind];
+                        buffers.vec_b[g_ind] += buffers.full_b[b_ind]; 
+                    end
+                end
+                
+                if rescatter_b
+                    distribute_solution!(buffers.vec_b, b, nel, dofs_per_node, b_order, b_sizes, config, buffers);
+                end
+                return buffers.vec_b;
+                
+            else # other procs just send their data
+                MPI.Gather!([length(b)], nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(grid_data.partition2global_element, nothing, 0, MPI.COMM_WORLD);
+                
+                if rescatter_b
+                    distribute_solution!([], b, nel, dofs_per_node, b_order, b_sizes, config, buffers);
+                end
+                return b;
+            end
+        end
+        
+    else # one process
+        if rhs_only
+            return b;
+        else
+            return (AI, AJ, AV, b);
+        end
+    end
+end
+
 function distribute_solution!(sol::Vector, local_sol::Vector, nnodes::Int, dofs_per_node::Int, 
                             b_order::Vector, b_sizes::Vector, config::FinchConfig, buffers::ParallelBuffers)
     if config.num_procs > 1
@@ -253,6 +575,46 @@ function distribute_solution!(sol::Vector, local_sol::Vector, nnodes::Int, dofs_
             MPI.Scatterv!(sol_buf, local_sol, 0, MPI.COMM_WORLD);
             
         else # Others don't have sol
+            MPI.Scatterv!(nothing, local_sol, 0, MPI.COMM_WORLD);
+        end
+    end
+end
+
+function distribute_solution_FV!(sol::Vector, local_sol::Vector, nel::Int, dofs_per_node::Int, 
+                                config::FinchConfig, buffers::ParallelBuffers)
+    if config.num_procs > 1
+        if !isbitstype(config.float_type) || !isbitstype(config.index_type)
+            printerr("MPI can only work with types for which isbitstype == true.\nCurrent types are: int="*
+                        string(config.index_type)*", float="*string(config.float_type), fatal=true);
+        end
+        
+        if config.proc_rank == 0 # 0 has the full sol
+            send_buf = [nel*dofs_per_node];
+            recv_buf = zeros(Int, config.num_procs);
+            MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
+            
+            # Need to reorder b and put in a larger array according to b_order
+            total_length = sum(recv_buf);
+            for i=1:total_length
+                buffers.full_b[i] = sol[buffers.b_order[i]];
+            end
+            
+            # scatter b
+            chunk_sizes = recv_buf;
+            displacements = zeros(Int, config.num_procs); # for the irregular scatterv
+            for proc_i=2:config.num_procs
+                displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+            end
+            sol_buf = MPI.VBuffer(buffers.full_b, chunk_sizes, displacements, MPI.Datatype(config.float_type));
+            
+            # Scatter it amongst the little ones
+            MPI.Scatterv!(sol_buf, local_sol, 0, MPI.COMM_WORLD);
+            
+        else # Others don't have sol
+            send_buf = [nel*dofs_per_node];
+            recv_buf = zeros(Int, config.num_procs);
+            MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
+            
             MPI.Scatterv!(nothing, local_sol, 0, MPI.COMM_WORLD);
         end
     end

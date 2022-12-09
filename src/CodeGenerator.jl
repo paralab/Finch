@@ -244,7 +244,7 @@ function write_grid_to_file(file, grid)
     write(file, grid.nface_ghost);
     
     write(file, grid.nnodes_borrowed);
-    write_binary_array(file, grid.grid2mesh, true);
+    write_binary_array(file, grid.partition2global_element, true);
     
     if grid.nel_ghost == 0 # FE only
         write_binary_array(file, grid.partition2global, true, true);

@@ -39,7 +39,7 @@
 #     nnodes_borrowed::Int        # Number of nodes borrowed from another partition (for CG)
 #     element_owner::Vector       # The rank of each element's owner or -1 if locally owned (for FV)
 #     node_owner::Vector          # The rank of each node's owner (for FE)
-#     grid2mesh::Vector           # Map from partition elements to global mesh element index
+#     partition2global_element::Vector           # Map from partition elements to global mesh element index
 #     partition2global::Vector    # Global index of nodes (for CG,DG)
 #     global_bdry_index::Vector   # Index in bids for every global node, or 0 for interior (Only proc 0 holds, only for FE)
     
@@ -59,11 +59,11 @@
 #     Grid(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
 #          face2element, facenormals, faceRefelInd, facebid, 
 #          ispartitioned, el_order, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
-#          node_owner, grid2mesh, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
+#          node_owner, partition2global_element, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
 #      new(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
 #          face2element, facenormals, faceRefelInd, facebid, 
 #          ispartitioned, el_order, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
-#          node_owner, grid2mesh, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
+#          node_owner, partition2global_element, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
          
 #     # An empty Grid
 #     Grid() = new(
@@ -562,7 +562,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     faceRefelInd = zeros(int_type, 2, totalfaces); # Index in refel for this face for elements on both sides
     facebid = zeros(int_type, totalfaces);       # BID of each face
     
-    grid2mesh = zeros(int_type, nel); # maps partition elements to global mesh elements
+    partition2global_element = zeros(int_type, nel); # maps partition elements to global mesh elements
     
     if grid_type == FV
         tmpallnodes = zeros(float_type, dim, nel*refel.Np);
@@ -630,7 +630,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
             loc2glb[:,next_index] = ((next_index-1)*Np+1):(next_index*Np);
             
             if grid_type == FV
-                grid2mesh[next_index] = ei;
+                partition2global_element[next_index] = ei;
                 
                 # ghost info
                 if element_status[ei] == 1 # ghost
@@ -651,7 +651,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
             else ### FE ###
                 element_owners[next_index] = epart[ei];
                 if element_status[ei] == 0 # owned
-                    grid2mesh[next_index] = ei;
+                    partition2global_element[next_index] = ei;
                 end
             end
         end
@@ -1244,12 +1244,12 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     if grid_type == FV
         return (refel, Grid(finch_state.config.float_type, allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
-            true, Array(1:nel_owned), nel_global, nel_owned, nel_face_ghost, owned_faces, ghost_faces, nnodes_global, 0, element_owners, zeros(int_type,0), grid2mesh, zeros(int_type,0), 
+            true, Array(1:nel_owned), nel_global, nel_owned, nel_face_ghost, owned_faces, ghost_faces, nnodes_global, 0, element_owners, zeros(int_type,0), partition2global_element, zeros(int_type,0), 
             zeros(Int8, 0), num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
     else
         return (refel, Grid(finch_state.config.float_type, allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
-            true, Array(1:nel_owned), nel_global, nel_owned, 0, owned_faces, 0, nnodes_global, nnodes_borrowed, zeros(int_type,0), node_owner_index, grid2mesh, partition2global, 
+            true, Array(1:nel_owned), nel_global, nel_owned, 0, owned_faces, 0, nnodes_global, nnodes_borrowed, zeros(int_type,0), node_owner_index, partition2global_element, partition2global, 
             global_bdry_flag, num_neighbors, neighbor_ids, zeros(int_type,0), [zeros(int_type,0)]));
     end
 end

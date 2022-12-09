@@ -104,6 +104,45 @@ function init_stepper(dx, stepper::Stepper)
         
         return stepper;
         
+    # elseif stepper.type == RK23
+    #     stepper.implicit = false;
+    #     if stepper.cfl == 0
+    #         stepper.cfl = 0.1;
+    #     end
+    #     T = finch_state.prob.end_time;
+    #     stepper.dt = stepper.cfl*dx;
+    #     stepper.Nsteps = ceil(T/stepper.dt); # This method is adaptive, so this will change
+    #     stepper.dt = T/stepper.Nsteps;
+    #     stepper.stages = 4;
+    #     stepper.a = [   0      0     0    0;
+    #                     0.5    0     0    0;
+    #                     0      0.75  0    0;
+    #                     2/9   1/3   4/9   0];
+    #     stepper.b = [2/9  1/3 4/9  0;
+    #                  7/24 1/4 1/3 1/8];
+    #     stepper.c = [0.0, 0.5, 0.75, 1];
+        
+    #     return stepper;
+        
+    # elseif stepper.type == RK45
+    #     stepper.implicit = false;
+    #     if stepper.cfl == 0
+    #         stepper.cfl = 0.1;
+    #     end
+    #     T = finch_state.prob.end_time;
+    #     stepper.dt = stepper.cfl*dx;
+    #     stepper.Nsteps = ceil(T/stepper.dt);
+    #     stepper.dt = T/stepper.Nsteps;
+    #     stepper.stages = 4;
+    #     stepper.a = [   0   0   0   0;
+    #                     0.5 0   0   0;
+    #                     0   0.5 0   0;
+    #                     0   0   1   0];
+    #     stepper.b = [1/6, 1/3, 1/3, 1/6];
+    #     stepper.c = [0.0, 0.5, 0.5, 1];
+        
+    #     return stepper;
+        
     elseif stepper.type == "custom multistep"
         if stepper.cfl == 0
             stepper.cfl = 1;

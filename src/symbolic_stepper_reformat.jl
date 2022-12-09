@@ -84,7 +84,7 @@ function reformat_for_stepper(stepper, lhs, rhs, face_lhs, face_rhs, nlt)
                 plhs1[i] = plhs1[i]*Basic(2); # 2*lhs1
             end
             for i=1:length(pplhs1)
-                pplhs1[i] = twoPrevious(pplhs1[i]*Basic(0.5)); # 1/2*pre_lhs1
+                pplhs1[i] = twoPrevious(pplhs1[i]*Basic(-0.5)); # -1/2*pre_lhs1
             end
             for i=1:length(lhs[2])
                 lhs[2][i] = lhs[2][i]*dt; # dt*lhs2

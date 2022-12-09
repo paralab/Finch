@@ -485,18 +485,33 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
     elseif op === :GLOBAL_FORM_MATRIX
         # This will eventually be more complicated, but let's do the default for now
         code = indent * "global_matrix = sparse(@view(global_matrix_I[1:(next_nonzero_index-1)]), @view(global_matrix_J[1:(next_nonzero_index-1)]), @view(global_matrix_V[1:(next_nonzero_index-1)]));\n"
+        # code = indent * "global_matrix = sparse(global_matrix_I, global_matrix_J, global_matrix_V);\n"
         
     elseif op === :GLOBAL_GATHER_VECTOR
-        code = indent * "global_vector = gather_system(nothing, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config, buffers);"
+        if length(IR.args) > 1 && IR.args[2] === :FV
+            # FV has elemental dofs
+            code *= indent * "global_vector = gather_system_FV(nothing, nothing, nothing, global_vector, mesh.nel_owned, dofs_per_node, config, buffers);"
+        else
+            # FE has nodal dofs
+            code = indent * "global_vector = gather_system(nothing, nothing, nothing, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config, buffers);"
+        end
         
     elseif op === :GLOBAL_GATHER_SYSTEM
-        code *= indent * "(global_matrix, global_vector) = gather_system(global_matrix, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config, buffers);"
+        if length(IR.args) > 1 && IR.args[2] === :FV
+            # FV has elemental dofs
+            # code *= indent * "(global_matrix_I, global_matrix_J, global_matrix_V, global_vector) = gather_system_FV(global_matrix_I, global_matrix_J, global_matrix_V, global_vector, mesh.nel_owned, dofs_per_node, config, buffers);"
+            code *= indent * "(global_matrix, global_vector) = gather_system_FV(global_matrix_I, global_matrix_J, global_matrix_V, global_vector, mesh.nel_owned, dofs_per_node, config, buffers);"
+        else
+            # FE has nodal dofs
+            # code *= indent * "(global_matrix_I, global_matrix_J, global_matrix_V, global_vector) = gather_system(global_matrix_I, global_matrix_J, global_matrix_V, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config, buffers);"
+            code *= indent * "(global_matrix, global_vector) = gather_system(global_matrix_I, global_matrix_J, global_matrix_V, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config, buffers);"
+        end
         
     elseif op === :GHOST_EXCHANGE_FV
         if length(IR.args) < 2
-            code *= indent * "exchange_ghosts_fv(var, mesh, dofs_per_node, ti);"
+            code *= indent * "exchange_ghosts_fv(var, mesh, dofs_per_node, ti, config);"
         else
-            code *= indent * "exchange_ghosts_fv(var, mesh, dofs_per_node, "*generate_from_IR_julia(IR.args[2], IRtypes)*");"
+            code *= indent * "exchange_ghosts_fv(var, mesh, dofs_per_node, "*generate_from_IR_julia(IR.args[2], IRtypes)*", config);"
         end
         
     elseif op === :GLOBAL_SOLVE
@@ -506,7 +521,13 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         code = indent * "linear_system_solve!("* generate_from_IR_julia(IR.args[3], IRtypes) *", "* generate_from_IR_julia(IR.args[4], IRtypes) *", "* generate_from_IR_julia(IR.args[2], IRtypes) * ", config);"
         
     elseif op === :GLOBAL_DISTRIBUTE_VECTOR
-        code = indent * "distribute_solution!("*generate_from_IR_julia(IR.args[2], IRtypes) * ", "* generate_from_IR_julia(IR.args[3], IRtypes) * ", nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config, buffers);"
+        if length(IR.args) > 3 && IR.args[4] === :FV
+            # FV has elemental dofs
+            code = indent * "distribute_solution_FV!("*generate_from_IR_julia(IR.args[2], IRtypes) * ", "* generate_from_IR_julia(IR.args[3], IRtypes) * ", mesh.nel_owned, dofs_per_node, config, buffers);"
+        else
+            # FE has nodal dofs
+            code = indent * "distribute_solution!("*generate_from_IR_julia(IR.args[2], IRtypes) * ", "* generate_from_IR_julia(IR.args[3], IRtypes) * ", nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config, buffers);"
+        end
         
     elseif op === :GATHER_VARS
         # place variable arrays in global vector

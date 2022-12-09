@@ -115,7 +115,11 @@ function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
         globalvec,
         IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :fv_dofs_partition])
         ]));
-    
+    gsolvec = IR_data_node(IRtypes.float_data, :global_solution, [:fv_dofs_global], []);
+    push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
+        gsolvec,
+        IR_operation_node(IRtypes.allocate_op, [IRtypes.float_data, :fv_dofs_global])
+    ]));
     solvec = IR_data_node(IRtypes.float_data, :solution, [:fv_dofs_partition], []);
     push!(allocate_block.parts, IR_operation_node(IRtypes.assign_op, [
         solvec,
@@ -1401,7 +1405,7 @@ function generate_local_to_global_fvm(dofs_per_node, offset_ind; vec_only=false)
                     IR_operation_node(IRtypes.math_op, [:+,
                         IR_data_node(IRtypes.float_data, :source, [:dofs_per_loop], [1]),
                         IR_data_node(IRtypes.float_data, :flux, [:dofs_per_loop], [1]),
-                        IR_data_node(IRtypes.float_data, :solution, [:dofs_global], [:eid])
+                        IR_data_node(IRtypes.float_data, :solution, [:fv_dofs_global], [:eid])
                     ])
                 ])
             ])
@@ -1583,7 +1587,7 @@ function generate_local_to_global_fvm(dofs_per_node, offset_ind; vec_only=false)
                         IR_operation_node(IRtypes.math_op, [:+,
                             IR_data_node(IRtypes.float_data, :source, [:dofs_per_loop], [:i]),
                             IR_data_node(IRtypes.float_data, :flux, [:dofs_per_loop], [:i]),
-                            IR_data_node(IRtypes.float_data, :solution, [:dofs_global], [:row_index])
+                            IR_data_node(IRtypes.float_data, :solution, [:fv_dofs_global], [:row_index])
                         ])
                     ]),
                     
@@ -2057,6 +2061,18 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
         post_step_call = IR_comment_node("No post-step function specified");
     end
     
+    # For partitioned meshes
+    gsolvec = IR_data_node(IRtypes.float_data, :global_solution, [:fv_dofs_global], []);
+    solvec = IR_data_node(IRtypes.float_data, :solution, [:dofs_partition], []);
+    gather_system = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(>), :num_partitions, 1]),
+        IR_block_node([IR_operation_node(IRtypes.named_op, [:GLOBAL_GATHER_SYSTEM, :FV])]),
+        IR_block_node([IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX])])
+    );
+    distribute_solution = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(>), :num_partitions, 1]),
+        IR_block_node([IR_operation_node(IRtypes.named_op, [:GLOBAL_DISTRIBUTE_VECTOR, gsolvec, solvec, :FV])]),
+        IR_block_node([IR_operation_node(IRtypes.assign_op, [solvec, gsolvec])])
+    );
+    
     # A progress meter
     # progress = 100 * ti / time_stepper.Nsteps;
     # last_minor = 0;
@@ -2357,7 +2373,7 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
                 IR_operation_node(IRtypes.assign_op, [
                     IR_data_node(IRtypes.float_data, :tmpresult, [:fv_dofs_partition], [:k]),
                     IR_operation_node(IRtypes.math_op, [:+,
-                            IR_data_node(IRtypes.float_data, :tmpresult, [:dofs_global], [:k]),
+                            IR_data_node(IRtypes.float_data, :tmpresult, [:fv_dofs_global], [:k]),
                         IR_operation_node(IRtypes.math_op, [:*, :dt, 
                             IR_operation_node(IRtypes.member_op, [:time_stepper, 
                                 IR_data_node(IRtypes.float_data, :a, [:?], [IR_operation_node(IRtypes.math_op, [:+, :rki, 1]), :j])]),
@@ -2485,8 +2501,10 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
             ghost_exchange,
             pre_step_call,
             wrap_in_timer(:step_assembly, assembly),
-            IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
-            wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector])),
+            gather_system,
+            # IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
+            wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :global_solution, :global_matrix, :global_vector])),
+            distribute_solution,
             IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution]),
             wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, :solution])),
             post_step_call,

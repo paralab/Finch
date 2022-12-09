@@ -199,7 +199,7 @@ function divide_parent_grid(grid, order)
         nface_owned = 0; # TBD
         nface_ghost = 0; # TBD
         element_owner = fill(-1, Nchildren); # same owner as parent
-        grid2mesh = fill(-1, Nchildren); # This will now refer to the parent element in the mesh.
+        partition2global_element = fill(-1, Nchildren); # This will now refer to the parent element in the mesh.
         
         num_neighbor_partitions = grid.num_neighbor_partitions;
         neighboring_partitions = grid.neighboring_partitions;
@@ -694,7 +694,7 @@ function divide_parent_grid(grid, order)
             for j=1:nchildren
                 ei = p2c[j,i];
                 element_owner[ei] = grid.element_owner[i];
-                grid2mesh[ei] = grid.grid2mesh[i];
+                partition2global_element[ei] = grid.partition2global_element[i];
             end
         end
         
@@ -730,7 +730,7 @@ function divide_parent_grid(grid, order)
                         element2face, face2element, facenormals, faceRefelInd, facebid, 
                         true, Array(1:nel_owned), grid.nel_global*nchildren, nel_owned, nel_ghost, 
                         nface_owned, nface_ghost, 0, 0, element_owner, 
-                        zeros(Int,0), grid2mesh, zeros(Int,0), zeros(Int8, 0), 
+                        zeros(Int,0), partition2global_element, zeros(Int,0), zeros(Int8, 0), 
                         num_neighbor_partitions, neighboring_partitions, ghost_counts, ghost_index);
         
     else # not a subgrid

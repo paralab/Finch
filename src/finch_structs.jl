@@ -339,8 +339,8 @@ struct FVInfo{T<:AbstractFloat}
     cellCenters::Matrix{T}             # Coordinates of cell centers
     faceCenters::Matrix{T}             # Coordinates of face centers
     
-    cell2node::Vector{Vector{Int}}       # Neighboring cell indices for each node
-    cell2nodeWeight::Vector{Vector{T}} # Cell to node interpolation weights
+    # cell2node::Vector{Vector{Int}}       # Neighboring cell indices for each node
+    # cell2nodeWeight::Vector{Vector{T}} # Cell to node interpolation weights
     
     parentMaps::ParentMaps # For when there is a parent-child mesh
 end
@@ -458,7 +458,7 @@ struct Grid{T<:AbstractFloat}
     nnodes_borrowed::Int        # Number of nodes borrowed from another partition (for CG)
     element_owner::Vector{Int}       # The rank of each element's owner or -1 if locally owned (for FV)
     node_owner::Vector{Int}          # The rank of each node's owner (for FE)
-    grid2mesh::Vector{Int}           # Map from partition elements to global mesh element index
+    partition2global_element::Vector{Int}           # Map from partition elements to global mesh element index
     partition2global::Vector{Int}    # Global index of nodes (for CG,DG)
     global_bdry_index::Vector{Int8}   # Index in bids for every global node, or 0 for interior (Only proc 0 holds, only for FE)
     
@@ -478,11 +478,11 @@ struct Grid{T<:AbstractFloat}
     Grid(T::DataType, allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
          ispartitioned, el_order, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
-         node_owner, grid2mesh, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
+         node_owner, partition2global_element, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
      new{T}(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, 
          ispartitioned, el_order, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
-         node_owner, grid2mesh, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
+         node_owner, partition2global_element, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
          
     # An empty Grid
     Grid(T::DataType) = new{T}(
@@ -624,6 +624,7 @@ mutable struct ParallelBuffers{T<:AbstractFloat}
     full_AJ::Vector{Int}
     full_AV::Vector{T}
     full_b::Vector{T}
+    b_order::Vector{Int}
     
     vec_b::Vector{T}
 end
@@ -728,7 +729,7 @@ mutable struct FinchState{T<:AbstractFloat}
         Refel(T,1,1,0,0,[1,1]),
         GeometricFactors{T}([],zeros(0,0),[],[],[]),
         Refel(T,1,1,0,0,[1,1]),
-        FVInfo{T}(1,zeros(0,0),zeros(0,0),[],[],ParentMaps()),
+        FVInfo{T}(1,zeros(0,0),zeros(0,0),ParentMaps()),
         
         [], [], [], [], [], [], [],
         
@@ -741,7 +742,7 @@ mutable struct FinchState{T<:AbstractFloat}
         [], [], [], [[],[],[],[]], [],
         
         false,
-        ParallelBuffers{T}([],[],[],[],[]),
+        ParallelBuffers{T}([],[],[],[],[],[]),
         []
     )
 end

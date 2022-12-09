@@ -562,8 +562,8 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
                 IR_operation_node(IRtypes.assign_op, [:dt, stepper_dt]),
                 IR_comment_node("Initial loop to build matrix"),
                 wrap_in_timer(:first_assembly, assembly_loop),
-                IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
                 gather_system,
+                IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
                 IR_operation_node(IRtypes.named_op, [:GATHER_VARS, oldsolvec, :nl_var]),
                 
                 IR_comment_node("###############################################"),
@@ -580,8 +580,8 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
                 IR_operation_node(IRtypes.assign_op, [:dt, stepper_dt]),
                 IR_comment_node("Initial loop to build matrix"),
                 wrap_in_timer(:first_assembly, assembly_loop),
-                IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
                 gather_system,
+                IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
                 IR_operation_node(IRtypes.named_op, [:GATHER_VARS, solvec]),
                 
                 IR_comment_node("###############################################"),
@@ -673,8 +673,8 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
                         zero_bdry_done,
                         # compute
                         wrap_in_timer(:assembly, assembly_loop),
-                        IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
                         gather_system,
+                        IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
                         wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, gsolvec, :global_matrix, :global_vector])),
                         distribute_solution,
                         wrap_in_timer(:scatter, IR_block_node([
@@ -694,8 +694,8 @@ function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config
             compute_block = IR_block_node([
                 IR_operation_node(IRtypes.assign_op, [:t, 0.0]),
                 wrap_in_timer(:assembly, assembly_loop),
-                IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
                 gather_system,
+                IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
                 wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, gsolvec, :global_matrix, :global_vector])),
                 distribute_solution,
                 wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, solvec])),

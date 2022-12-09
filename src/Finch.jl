@@ -140,6 +140,7 @@ end
 function add_mesh(state::FinchState, mesh; partitions=0)
     state.mesh_data = mesh;
     
+    @timeit finch_state.timer_output "mesh2grid" begin
     # If no method has been specified, assume CG
     if !(state.needed_grid_types[1] || state.needed_grid_types[2] || state.needed_grid_types[3])
         set_solver(state, CG);
@@ -183,7 +184,7 @@ function add_mesh(state::FinchState, mesh; partitions=0)
             end
         end
         if state.needed_grid_types[3] # FV
-            (state.fv_refel, fv_grid) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=FV, order=1);
+            (state.fv_refel, state.fv_grid) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=FV, order=1);
             # If only FV is used, also set grid_data and refel to this. Just in case.
             if !(state.needed_grid_types[1] || state.needed_grid_types[2])
                 state.grid_data = state.fv_grid;
@@ -212,6 +213,7 @@ function add_mesh(state::FinchState, mesh; partitions=0)
             end
         end
     end
+    end#timer
     
     # regular parallel sided elements or simplexes have constant Jacobians, so only store one value per element.
     if ((state.config.geometry == SQUARE && state.config.mesh_type == UNIFORM_GRID) ||
@@ -232,11 +234,19 @@ function add_mesh(state::FinchState, mesh; partitions=0)
     end
     
     # FE version is always made?
+    @timeit finch_state.timer_output "geo factors" begin
     state.geo_factors = build_geometric_factors(state.refel, state.grid_data, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
     if state.needed_grid_types[3] # FV
-        state.fv_geo_factors = build_geometric_factors(state.fv_refel, state.fv_grid, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
+        if state.refel.Np == state.fv_refel.Np
+            state.fv_geo_factors = state.geo_factors;
+        else
+            state.fv_geo_factors = build_geometric_factors(state.fv_refel, state.fv_grid, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
+        end
+        @timeit finch_state.timer_output "fv_info" begin
         state.fv_info = build_FV_info(state.fv_grid);
+        end#timer
     end
+    end#timer
     
     log_entry("Added mesh with "*string(state.mesh_data.nx)*" vertices and "*string(state.mesh_data.nel)*" elements.", 1);
     if np > 1

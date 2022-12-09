@@ -38,8 +38,8 @@ function build_FV_info(grid, order=1, p_maps=nothing)
     
     cell_centers = zeros(float_type, dim, nel);
     face_centers = zeros(float_type, dim, nface);
-    cell2node = fill(zeros(int_type,0),nnode);
-    cell2nodeWeight = fill(zeros(float_type,0),nnode);
+    # cell2node = fill(zeros(int_type,0),nnode);
+    # cell2nodeWeight = fill(zeros(float_type,0),nnode);
     
     # Find cell centers
     center = zeros(float_type, dim);
@@ -62,34 +62,35 @@ function build_FV_info(grid, order=1, p_maps=nothing)
         face_centers[:, fi] .= center ./ nvtx;
     end
     
-    # Build cell2node map
-    # Check all elements to find ones touching this node.
-    nvtx = size(grid.loc2glb, 1);
-    for ei=1:nel
-        for ni=1:nvtx
-            push!(cell2node[grid.loc2glb[ni, ei]], ei);
-        end
-    end
+    # # Build cell2node map
+    # # Check all elements to find ones touching this node.
+    # nvtx = size(grid.loc2glb, 1);
+    # for ei=1:nel
+    #     for ni=1:nvtx
+    #         push!(cell2node[grid.loc2glb[ni, ei]], ei);
+    #     end
+    # end
     
-    # Compute cell2node interpolation weights
-    for ni=1:nnode
-        cell2nodeWeight[ni] = zeros(float_type, length(cell2node[ni]));
-        sumweight = 0;
-        for ei=1:length(cell2node[ni])
-            dist = norm(grid.allnodes[:,ni] - cell_centers[:, cell2node[ni][ei]]);
-            sumweight += 1 / dist;
-            cell2nodeWeight[ni][ei] = 1 / dist;
-        end
-        for ei=1:length(cell2node[ni])
-            cell2nodeWeight[ni][ei] /= sumweight;
-        end
-    end
+    # # Compute cell2node interpolation weights
+    # for ni=1:nnode
+    #     cell2nodeWeight[ni] = zeros(float_type, length(cell2node[ni]));
+    #     sumweight = 0;
+    #     for ei=1:length(cell2node[ni])
+    #         dist = norm(grid.allnodes[:,ni] - cell_centers[:, cell2node[ni][ei]]);
+    #         sumweight += 1 / dist;
+    #         cell2nodeWeight[ni][ei] = 1 / dist;
+    #     end
+    #     for ei=1:length(cell2node[ni])
+    #         cell2nodeWeight[ni][ei] /= sumweight;
+    #     end
+    # end
     
     if p_maps === nothing
         p_maps = ParentMaps();
     end
     
-    return FVInfo(order, cell_centers, face_centers, cell2node, cell2nodeWeight, p_maps);
+    # return FVInfo(order, cell_centers, face_centers, cell2node, cell2nodeWeight, p_maps);
+    return FVInfo(order, cell_centers, face_centers, p_maps);
 end
 
 # Interpolate nodal values for one cell.

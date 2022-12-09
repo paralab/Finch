@@ -64,9 +64,38 @@ function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=fa
         area = zeros(ftype, 0);
     end
     
+    #
+    xe = zeros(dim, nodes_per_element);
+    nvertex = size(grid.glbvertex, 1)
+    ve = zeros(dim, nvertex);
+    etype = 1;
+    if dim == 1
+        etype = 2;
+    elseif dim == 2
+        if refel.Nfaces == 3
+            etype = 3;
+        else
+            etype = 4;
+        end
+    elseif dim == 3
+        if refel.Nfaces == 4
+            etype = 5;
+        else
+            etype = 6;
+        end
+    end
     for e=1:nel
-        glb = grid.loc2glb[:,e];
-        xe = grid.allnodes[:,glb[:]];
+        # get node coords
+        for i=1:nodes_per_element
+            for j=1:dim
+                xe[j,i] = grid.allnodes[j,grid.loc2glb[i,e]];
+            end
+        end
+        for i=1:nvertex
+            for j=1:dim
+                ve[j,i] = grid.allnodes[j,grid.glbvertex[i,e]];
+            end
+        end
         
         (e_detJ, e_J) = geometric_factors(refel, xe, constantJ=constant_jacobian);
         
@@ -78,7 +107,7 @@ function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=fa
         J[e] = e_J;
         
         if do_vol_area
-            volume[e] = (2 ^ dim) * detJ[e];
+            volume[e] = element_volume(etype, ve);
         end
     end
     
@@ -138,6 +167,7 @@ function geometric_factors(refel::Refel, pts::Matrix{FT}; constantJ::Bool=false,
     # pts = element node global coords
     # detJ = determinant(J)
     # J = Jacobian
+    np = size(pts,2);
     if refel.dim == 0
         detJ = [1];
         if do_J
@@ -145,20 +175,33 @@ function geometric_factors(refel::Refel, pts::Matrix{FT}; constantJ::Bool=false,
         end
         
     elseif refel.dim == 1
-        if length(pts) == 1
+        if np == 1
             # 0D face refels can only have 1 point
             detJ = [1];
             if do_J
-                J = Jacobian([1],zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0));
+                J = Jacobian([1.0],zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0));
             end
         else
             xr  = refel.Dg*pts[:];
             if constantJ
-                detJ = xr[1];
-                rx = [1 / detJ];
+                detJ = FT(0.0);
+                for i=1:np
+                    detJ += refel.Dg[1,i] * pts[1,i];
+                end
+                if do_J
+                    rx = [FT(1 / detJ)];
+                end
+                
             else
-                detJ = xr[:];
-                rx = 1 ./ detJ;
+                detJ = zeros(FT, np);
+                for j=1:np
+                    for i=1:np
+                        detJ[j] += refel.Dg[j,i] * pts[1,i];
+                    end
+                end
+                if do_J
+                    rx = FT(1 ./ detJ);
+                end
             end
             if do_J
                 J = Jacobian(rx,zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0));
@@ -166,23 +209,47 @@ function geometric_factors(refel::Refel, pts::Matrix{FT}; constantJ::Bool=false,
         end
         
     elseif refel.dim == 2
-        if refel.Nfaces == 3 # triangle
-            xr = refel.Qr*pts[1,:];
-            xs = refel.Qs*pts[1,:];
-            yr = refel.Qr*pts[2,:];
-            ys = refel.Qs*pts[2,:];
+        # if refel.Nfaces == 3 # triangle
+            if constantJ
+                xr = 0.0; xs = 0.0; yr = 0.0; ys = 0.0;
+                for i=1:np
+                    xr += refel.Qr[1,i] * pts[1,i];
+                    xs += refel.Qs[1,i] * pts[1,i];
+                    yr += refel.Qr[1,i] * pts[2,i];
+                    ys += refel.Qs[1,i] * pts[2,i];
+                end
+            else
+                xr = zeros(FT, np);
+                xs = zeros(FT, np);
+                yr = zeros(FT, np);
+                ys = zeros(FT, np);
+                for j=1:np
+                    for i=1:np
+                        xr[j] += refel.Qr[j,i] * pts[1,i];
+                        xs[j] += refel.Qs[j,i] * pts[1,i];
+                        yr[j] += refel.Qr[j,i] * pts[2,i];
+                        ys[j] += refel.Qs[j,i] * pts[2,i];
+                    end
+                end
+            end
+            # xr = refel.Qr*pts[1,:];
+            # xs = refel.Qs*pts[1,:];
+            # yr = refel.Qr*pts[2,:];
+            # ys = refel.Qs*pts[2,:];
             
-        else # quad
-            (xr, xs) = tensor_grad2(refel.Dg, pts[1,:][:]);
-            (yr, ys) = tensor_grad2(refel.Dg, pts[2,:][:]);
-        end
+        # else # quad
+        #     (xr, xs) = tensor_grad2(refel.Dg, pts[1,:][:]);
+        #     (yr, ys) = tensor_grad2(refel.Dg, pts[2,:][:]);
+        # end
         
         if constantJ
-            detJ = -xs[1]*yr[1] + xr[1]*ys[1];
-            xr = [xr[1]];
-            xs = [xs[1]];
-            yr = [yr[1]];
-            ys = [ys[1]];
+            detJ = FT(-xs*yr + xr*ys);
+            if do_J
+                xr = [FT(xr)];
+                xs = [FT(xs)];
+                yr = [FT(yr)];
+                ys = [FT(ys)];
+            end
         else
             detJ = -xs.*yr + xr.*ys;
         end
@@ -196,34 +263,75 @@ function geometric_factors(refel::Refel, pts::Matrix{FT}; constantJ::Bool=false,
         end
         
     else
-        if refel.Nfaces == 4 # tetrahedron
-            xr = refel.Qr*pts[1,:];
-            xs = refel.Qs*pts[1,:];
-            xt = refel.Qt*pts[1,:];
-            yr = refel.Qr*pts[2,:];
-            ys = refel.Qs*pts[2,:];
-            yt = refel.Qt*pts[2,:];
-            zr = refel.Qr*pts[3,:];
-            zs = refel.Qs*pts[3,:];
-            zt = refel.Qt*pts[3,:];
+        # if refel.Nfaces == 4 # tetrahedron
+            if constantJ
+                xr = 0.0; xs = 0.0; xt = 0.0;
+                yr = 0.0; ys = 0.0; yt = 0.0;
+                zr = 0.0; zs = 0.0; zt = 0.0;
+                for i=1:np
+                    xr += refel.Qr[1,i] * pts[1,i];
+                    xs += refel.Qs[1,i] * pts[1,i];
+                    xt += refel.Qt[1,i] * pts[1,i];
+                    yr += refel.Qr[1,i] * pts[2,i];
+                    ys += refel.Qs[1,i] * pts[2,i];
+                    yt += refel.Qt[1,i] * pts[2,i];
+                    zr += refel.Qr[1,i] * pts[3,i];
+                    zs += refel.Qs[1,i] * pts[3,i];
+                    zt += refel.Qt[1,i] * pts[3,i];
+                end
+            else
+                xr = zeros(FT, np);
+                xs = zeros(FT, np);
+                xt = zeros(FT, np);
+                yr = zeros(FT, np);
+                ys = zeros(FT, np);
+                yt = zeros(FT, np);
+                zr = zeros(FT, np);
+                zs = zeros(FT, np);
+                zt = zeros(FT, np);
+                for j=1:np
+                    for i=1:np
+                        xr[j] += refel.Qr[j,i] * pts[1,i];
+                        xs[j] += refel.Qs[j,i] * pts[1,i];
+                        xt[j] += refel.Qt[j,i] * pts[1,i];
+                        yr[j] += refel.Qr[j,i] * pts[2,i];
+                        ys[j] += refel.Qs[j,i] * pts[2,i];
+                        yt[j] += refel.Qt[j,i] * pts[2,i];
+                        zr[j] += refel.Qr[j,i] * pts[3,i];
+                        zs[j] += refel.Qs[j,i] * pts[3,i];
+                        zt[j] += refel.Qt[j,i] * pts[3,i];
+                    end
+                end
+            end
+            # xr = refel.Qr*pts[1,:];
+            # xs = refel.Qs*pts[1,:];
+            # xt = refel.Qt*pts[1,:];
+            # yr = refel.Qr*pts[2,:];
+            # ys = refel.Qs*pts[2,:];
+            # yt = refel.Qt*pts[2,:];
+            # zr = refel.Qr*pts[3,:];
+            # zs = refel.Qs*pts[3,:];
+            # zt = refel.Qt*pts[3,:];
             
-        else # hexahedron
-            (xr, xs, xt) = tensor_grad3(refel.Dg, pts[1,:][:]);
-            (yr, ys, yt) = tensor_grad3(refel.Dg, pts[2,:][:]);
-            (zr, zs, zt) = tensor_grad3(refel.Dg, pts[3,:][:]);
-        end
+        # else # hexahedron
+        #     (xr, xs, xt) = tensor_grad3(refel.Dg, pts[1,:][:]);
+        #     (yr, ys, yt) = tensor_grad3(refel.Dg, pts[2,:][:]);
+        #     (zr, zs, zt) = tensor_grad3(refel.Dg, pts[3,:][:]);
+        # end
         
         if constantJ
-            detJ = xr[1]*(ys[1]*zt[1]-zs[1]*yt[1]) - yr[1]*(xs[1]*zt[1]-zs[1]*xt[1]) + zr[1]*(xs[1]*yt[1]-ys[1]*xt[1]);
-            xr = [xr[1]];
-            xs = [xs[1]];
-            xt = [xt[1]];
-            yr = [yr[1]];
-            ys = [ys[1]];
-            yt = [yt[1]];
-            zr = [zr[1]];
-            zs = [zs[1]];
-            zt = [zt[1]];
+            detJ = FT(xr*(ys*zt-zs*yt) - yr*(xs*zt-zs*xt) + zr*(xs*yt-ys*xt));
+            if do_J
+                xr = [FT(xr)];
+                xs = [FT(xs)];
+                xt = [FT(xt)];
+                yr = [FT(yr)];
+                ys = [FT(ys)];
+                yt = [FT(yt)];
+                zr = [FT(zr)];
+                zs = [FT(zs)];
+                zt = [FT(zt)];
+            end
         else
             detJ = xr.*(ys.*zt-zs.*yt) - yr.*(xs.*zt-zs.*xt) + zr.*(xs.*yt-ys.*xt);
         end
@@ -279,7 +387,7 @@ function geometric_factors_face(refel::Refel, pts::Matrix{FT}, normal::Vector{FT
         # rotate face ito x-y plane
         newpts = flatten_face(normal, pts);
         
-        if refel.Nfaces == 3 # triangle
+        # if refel.Nfaces == 3 # triangle
             np = size(pts,2);
             if constantJ
                 xr = 0.0
@@ -303,16 +411,16 @@ function geometric_factors_face(refel::Refel, pts::Matrix{FT}, normal::Vector{FT
                 detJ = -xs.*yr + xr.*ys;
             end
             
-        else # quad
-            (xr, xs) = tensor_grad2(refel.Dg, newpts[1,:][:]);
-            (yr, ys) = tensor_grad2(refel.Dg, newpts[2,:][:]);
+        # else # quad
+        #     (xr, xs) = tensor_grad2(refel.Dg, newpts[1,:][:]);
+        #     (yr, ys) = tensor_grad2(refel.Dg, newpts[2,:][:]);
             
-            if constantJ
-                detJ = [-xs[1] * yr[1] + xr[1] * ys[1]];
-            else
-                detJ = -xs.*yr + xr.*ys;
-            end
-        end
+        #     if constantJ
+        #         detJ = [-xs[1] * yr[1] + xr[1] * ys[1]];
+        #     else
+        #         detJ = -xs.*yr + xr.*ys;
+        #     end
+        # end
         
         
     end
@@ -326,7 +434,7 @@ function flatten_face(normal::Vector{FT}, pts::Matrix{FT}) where FT<:AbstractFlo
     if abs(normal[1]) + abs(normal[2]) < 1e-15
         # The face is already in the x-y plane
         if normal[3] < 0
-             newpts[1,:] .*= 1;
+             newpts[1,:] .*= -1;
         end
         
     else # need to transform
@@ -355,6 +463,78 @@ function flatten_face(normal::Vector{FT}, pts::Matrix{FT}) where FT<:AbstractFlo
     end
     
     return newpts[1:2,:];
+end
+
+# computes the volume of an element with the given vertex coords
+# etype:
+# 1=point, 2=line, 3=triangle, 4=quad, 5=tet, 6=hex, 7=prism
+function element_volume(etype::Int, pts::Matrix{FT}) where FT<:AbstractFloat
+    dim = size(pts,1);
+    if etype == 1
+        return 1.0; # this is meaningless
+    elseif etype == 2
+        if dim == 1
+            return abs(pts[1,2]-pts[1,1]);
+        else
+            d1 = (pts[1,2] - pts[1,1]);
+            d2 = (pts[2,2] - pts[2,1]);
+            v = d1*d1 + d2*d2;
+            if dim == 3
+                d1 = (pts[3,2] - pts[3,1]);
+                v += d1*d1;
+            end
+            return sqrt(v)
+        end
+        
+    elseif etype == 3 # triangle
+        if dim == 2
+            # abs(Ax(By - Cy) + Bx(Cy - Ay) + Cx(Ay - By) )/2
+            return 0.5 * abs(pts[1,1]*(pts[2,2]-pts[2,3]) + pts[1,2]*(pts[2,3]-pts[2,1] + pts[1,3]*(pts[2,1]-pts[2,2])));
+        else
+            # |v1 X v2| / 2
+            v1 = [pts[i,2]-pts[i,1] for i=1:3];
+            v2 = [pts[i,3]-pts[i,1] for i=1:3];
+            c1 = v1[2]*v2[3] - v1[3]*v2[2];
+            c2 = v1[3]*v2[1] - v1[1]*v2[3];
+            c3 = v1[1]*v2[2] - v1[2]*v2[1];
+            return 0.5 * sqrt(c1*c1 + c2*c2 + c3*c3);
+        end
+        
+    elseif etype == 4 # quad
+        # treat as two triangles. Assume points 1 and 3 are diagonally oposite
+        return element_volume(3, pts[:,1:3]) + element_volume(3, pts[:,[1,3,4]]);
+        
+    elseif etype == 5 # tet
+        # (a X b . c)/6
+        a = [pts[i,2]-pts[i,1] for i=1:3];
+        b = [pts[i,3]-pts[i,1] for i=1:3];
+        c = [pts[i,4]-pts[i,1] for i=1:3];
+        axb = [a[2]*b[3] - a[3]*b[2], a[3]*b[1] - a[1]*b[3], a[1]*b[2] - a[2]*b[1]];
+        axbdc = axb[1] * c[1] + axb[2] * c[2] + axb[3] * c[3];
+        return abs(axbdc)/6;
+        
+    elseif etype == 6 # hex
+        # [7-1, 2-1, 3-6] + [7-1, 5-1, 6-8] + [7-1, 4-1, 8-3]
+        a = [pts[i,7]-pts[i,1] for i=1:3];
+        b = [pts[i,2]-pts[i,1] for i=1:3];
+        c = [pts[i,3]-pts[i,6] for i=1:3];
+        bxc = [b[2]*c[3] - b[3]*c[2], b[3]*c[1] - b[1]*c[3], b[1]*c[2] - b[2]*c[1]];
+        v = a[1] * bxc[1] + a[2] * bxc[2] + a[3] * bxc[3];
+        
+        b = [pts[i,5]-pts[i,1] for i=1:3];
+        c = [pts[i,6]-pts[i,8] for i=1:3];
+        bxc = [b[2]*c[3] - b[3]*c[2], b[3]*c[1] - b[1]*c[3], b[1]*c[2] - b[2]*c[1]];
+        v += a[1] * bxc[1] + a[2] * bxc[2] + a[3] * bxc[3];
+        
+        b = [pts[i,4]-pts[i,1] for i=1:3];
+        c = [pts[i,8]-pts[i,3] for i=1:3];
+        bxc = [b[2]*c[3] - b[3]*c[2], b[3]*c[1] - b[1]*c[3], b[1]*c[2] - b[2]*c[1]];
+        v += a[1] * bxc[1] + a[2] * bxc[2] + a[3] * bxc[3];
+        
+        return abs(v);
+    end
+    printerr("Can't compute volume for unknown element type: "*string(etype), fatal=true);
+    return 1.0; 
 end
 
 #############################################################################################################
