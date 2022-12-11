@@ -2072,6 +2072,17 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
         IR_block_node([IR_operation_node(IRtypes.named_op, [:GLOBAL_DISTRIBUTE_VECTOR, gsolvec, solvec, :FV])]),
         IR_block_node([IR_operation_node(IRtypes.assign_op, [solvec, gsolvec])])
     );
+    gather_solve_distribute = IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(>), :num_partitions, 1]),
+        IR_block_node([
+            IR_operation_node(IRtypes.named_op, [:GLOBAL_GATHER_SYSTEM, :FV]),
+            wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :global_solution, :full_global_matrix, :full_global_vector])),
+            IR_operation_node(IRtypes.named_op, [:GLOBAL_DISTRIBUTE_VECTOR, gsolvec, solvec, :FV])
+        ]),
+        IR_block_node([
+            IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
+            wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :solution, :global_matrix, :global_vector]))
+        ])
+    );
     
     # A progress meter
     # progress = 100 * ti / time_stepper.Nsteps;
@@ -2501,10 +2512,11 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
             ghost_exchange,
             pre_step_call,
             wrap_in_timer(:step_assembly, assembly),
-            gather_system,
-            # IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
-            wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :global_solution, :global_matrix, :global_vector])),
-            distribute_solution,
+            # gather_system,
+            # # IR_operation_node(IRtypes.named_op, [:GLOBAL_FORM_MATRIX]),
+            # wrap_in_timer(:lin_solve, IR_operation_node(IRtypes.named_op, [:GLOBAL_SOLVE, :global_solution, :global_matrix, :global_vector])),
+            # distribute_solution,
+            gather_solve_distribute,
             IR_operation_node(IRtypes.named_op, [:BDRY_TO_VECTOR, :solution]),
             wrap_in_timer(:scatter, IR_operation_node(IRtypes.named_op, [:SCATTER_VARS, :solution])),
             post_step_call,

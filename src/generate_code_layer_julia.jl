@@ -500,7 +500,7 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         if length(IR.args) > 1 && IR.args[2] === :FV
             # FV has elemental dofs
             # code *= indent * "(global_matrix_I, global_matrix_J, global_matrix_V, global_vector) = gather_system_FV(global_matrix_I, global_matrix_J, global_matrix_V, global_vector, mesh.nel_owned, dofs_per_node, config, buffers);"
-            code *= indent * "(global_matrix, global_vector) = gather_system_FV(global_matrix_I, global_matrix_J, global_matrix_V, global_vector, mesh.nel_owned, dofs_per_node, config, buffers);"
+            code *= indent * "(full_global_matrix, full_global_vector) = gather_system_FV(global_matrix_I, global_matrix_J, global_matrix_V, global_vector, num_elements, dofs_per_node, config, buffers);"
         else
             # FE has nodal dofs
             # code *= indent * "(global_matrix_I, global_matrix_J, global_matrix_V, global_vector) = gather_system(global_matrix_I, global_matrix_J, global_matrix_V, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config, buffers);"

@@ -388,11 +388,11 @@ function gather_system_FV(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Ve
                     break;
                 end
                 dof = mod(AI[i]-1,dofs_per_node)+1;
-                el = Int(floor((AI[i]-dof) / dofs_per_node) + 1);
+                el = Int((AI[i]-dof) / dofs_per_node + 1);
                 AI[i] = (grid_data.partition2global_element[el] - 1) * dofs_per_node + dof;
                 
                 dof = mod(AJ[i]-1,dofs_per_node)+1;
-                el = Int(floor((AJ[i]-dof) / dofs_per_node) + 1);
+                el = Int((AJ[i]-dof) / dofs_per_node + 1);
                 AJ[i] = (grid_data.partition2global_element[el] - 1) * dofs_per_node + dof;
             end
             if nzlength < length(AI)
@@ -402,6 +402,8 @@ function gather_system_FV(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Ve
                 AV = AV[1:nzlength];
             end
             
+            # Send things to proc 0 to solve the system.
+            # I know this is not how to do it, but let's just get it working for now.
             if config.proc_rank == 0
                 # First figure out how long each proc's arrays are
                 send_buf = [nzlength];
@@ -431,11 +433,9 @@ function gather_system_FV(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Ve
                 MPI.Gatherv!(AJ, AJ_buf, 0, MPI.COMM_WORLD);
                 MPI.Gatherv!(AV, AV_buf, 0, MPI.COMM_WORLD);
                 
-                # # Assemble A
-                # full_A = sparse(buffers.full_AI, buffers.full_AJ, buffers.full_AV);
-                
                 # Next gather b
-                send_buf = [length(b)];
+                owned_dofs = dofs_per_node * nel;
+                send_buf = [owned_dofs];
                 recv_buf = zeros(Int, config.num_procs);
                 MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
                 
@@ -452,20 +452,15 @@ function gather_system_FV(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Ve
                     buffers.b_order = zeros(config.float_type, total_length);
                 end
                 b_buf = MPI.VBuffer(buffers.full_b, chunk_sizes, displacements, MPI.Datatype(config.float_type));
-                MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(b[1:owned_dofs], b_buf, 0, MPI.COMM_WORLD);
                 
                 # get the ordering for b
                 bord_buf = MPI.VBuffer(buffers.b_order, chunk_sizes, displacements, MPI.Datatype(Int));
-                MPI.Gatherv!(grid_data.partition2global_element, bord_buf, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(grid_data.partition2global_element[1:owned_dofs], bord_buf, 0, MPI.COMM_WORLD);
                 
                 # Overlapping values will be added.
-                buffers.vec_b .= 0.0;
-                for i=1:config.num_procs
-                    for j=1:chunk_sizes[i]
-                        b_ind = displacements[i] + j;
-                        g_ind = buffers.b_order[b_ind];
-                        buffers.vec_b[g_ind] += buffers.full_b[b_ind]; 
-                    end
+                for i=1:total_length
+                    buffers.vec_b[buffers.b_order[i]] = buffers.full_b[i]; 
                 end
                 
                 return (sparse(buffers.full_AI, buffers.full_AJ, buffers.full_AV), buffers.vec_b)
@@ -473,13 +468,14 @@ function gather_system_FV(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Ve
                 
             else # other procs just send their data
                 send_buf = [nzlength];
+                owned_dofs = dofs_per_node * nel;
                 MPI.Gather!(send_buf, nothing, 0, MPI.COMM_WORLD);
                 MPI.Gatherv!(AI, nothing, 0, MPI.COMM_WORLD);
                 MPI.Gatherv!(AJ, nothing, 0, MPI.COMM_WORLD);
                 MPI.Gatherv!(AV, nothing, 0, MPI.COMM_WORLD);
-                MPI.Gather!([length(b)], nothing, 0, MPI.COMM_WORLD);
-                MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
-                MPI.Gatherv!(grid_data.partition2global_element, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gather!([owned_dofs], nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(b[1:owned_dofs], nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(grid_data.partition2global_element[1:owned_dofs], nothing, 0, MPI.COMM_WORLD);
                 
                 return (sparse(AI,AJ,AV),b);
                 # return (AI,AJ,AV,b);
@@ -487,7 +483,8 @@ function gather_system_FV(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Ve
             
         else # RHS only\
             if config.proc_rank == 0
-                send_buf = [length(b)];
+                owned_dofs = dofs_per_node * nel;
+                send_buf = [owned_dofs];
                 recv_buf = zeros(Int, config.num_procs);
                 MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
                 
@@ -506,24 +503,19 @@ function gather_system_FV(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Ve
                 end
                 
                 b_buf = MPI.VBuffer(buffers.full_b, chunk_sizes, displacements, MPI.Datatype(config.float_type));
-                MPI.Gatherv!(b, b_buf, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(b[1:owned_dofs], b_buf, 0, MPI.COMM_WORLD);
                 
                 # get the ordering for b
                 bord_buf = MPI.VBuffer(buffers.b_order, chunk_sizes, displacements, MPI.Datatype(Int));
-                MPI.Gatherv!(grid_data.partition2global_element, bord_buf, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(grid_data.partition2global_element[1:owned_dofs], bord_buf, 0, MPI.COMM_WORLD);
                 
                 # Overlapping values will be added.
-                buffers.vec_b .= 0.0;
-                for i=1:config.num_procs
-                    for j=1:chunk_sizes[i]
-                        b_ind = displacements[i] + j;
-                        g_ind = buffers.b_order[b_ind];
-                        buffers.vec_b[g_ind] += buffers.full_b[b_ind]; 
-                    end
+                for i=1:total_length
+                    buffers.vec_b[buffers.b_order[i]] = buffers.full_b[i]; 
                 end
                 
                 if rescatter_b
-                    distribute_solution!(buffers.vec_b, b, nel, dofs_per_node, b_order, b_sizes, config, buffers);
+                    distribute_solution_FV!(buffers.vec_b, b, nel, dofs_per_node, config, buffers);
                 end
                 return buffers.vec_b;
                 
@@ -533,7 +525,7 @@ function gather_system_FV(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Ve
                 MPI.Gatherv!(grid_data.partition2global_element, nothing, 0, MPI.COMM_WORLD);
                 
                 if rescatter_b
-                    distribute_solution!([], b, nel, dofs_per_node, b_order, b_sizes, config, buffers);
+                    distribute_solution_FV!([], b, nel, dofs_per_node, config, buffers);
                 end
                 return b;
             end
