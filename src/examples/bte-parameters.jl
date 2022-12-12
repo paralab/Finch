@@ -470,7 +470,7 @@ function get_next_temp!(temp_next, temp_last, I_next, freq, dw; polarization="T"
     max_iters = 0;
     ave_iters = 0;
     
-    tol = 1e-7;
+    tol = 1e-5;
     maxiters = 200;
     @inbounds begin
     for i=1:n # loop over cells
@@ -505,7 +505,8 @@ function get_next_temp!(temp_next, temp_last, I_next, freq, dw; polarization="T"
             
             temp_next[i] = temp_next[i] + delta_T;
             
-            if abs(delta_T) < tol
+            rel_delta = delta_T / temp_next[i];
+            if abs(rel_delta) < tol
                 max_iters = max(max_iters, iter);
                 ave_iters += iter;
                 break;
@@ -530,92 +531,102 @@ end
 # input: temperature array to update, previous step temperature, intensity from this and the previous time step, 
 #        temperature from previous time step, frequency bands, bandwidth
 # output: temperature for next step for each cell
-function get_next_temp_par!(temp_next, temp_last, I_next, freq, dw; polarization="T", threed=false, omega=nothing)
+function get_next_temp_par!(temp_next::Array{Float64}, temp_last::Array{Float64}, I_next::Array{Float64}, 
+                            freq::Vector{Float64}, dw::Float64,
+                            uold::Vector{Float64}, unew::Vector{Float64}, gna::Vector{Float64}, gnb::Vector{Float64}, uprime::Vector{Float64},
+                            group_v::Vector{Float64}, Io_values::Array{Float64}, G_last_values::Array{Float64}, G_next_values::Array{Float64};
+                            polarization::String="T", threed::Bool=false, omega=nothing)
     debug = false;
     n = length(temp_last); # number of cells
-    m = length(freq); # number of bands
+    m = length(freq); # number of local bands
+    nband_partitions::Int = MPI.Comm_size(cell_comm);
+    timer = Finch.finch_state.timer_output;
+    Finch.@timeit timer "integrate" begin
     
     if threed
-        get_integrated_intensity_3d!(G_next.values, I_next, ndirs, nbands, omega);
+        get_integrated_intensity_3d!(G_next_values, I_next, ndirs, nbands, omega);
     else
-        get_integrated_intensity!(G_next.values, I_next, ndirs, nbands);
+        get_integrated_intensity!(G_next_values, I_next, ndirs, nbands);
     end
     # didt = dIdT(freq, dw, temp_last, polarization=polarization); # Use single version in loop instead
-    
-    idt = 1/dt;
+    end#timer
+    Finch.@timeit timer "old" begin
+    idt::Float64 = 1.0/dt;
     
     max_iters = 0;
     ave_iters = 0;
     
-    tol = 1e-5;
+    tol = 1e-5; # relative tolerance
     maxiters = 200;
     
     # First find uold and gnb from the previous step
     cell_comm_rank = MPI.Comm_rank(cell_comm);
-    offset = cell_comm_rank * n;
-    for i=1:n # loop over cells
-        uold[offset + i] = 0.0;
-        gnb[offset + i] = 0.0;
+    offset::Int = cell_comm_rank * n;
+    @inbounds for i=1:n # loop over cells
+        offset_i = offset + i;
+        uold[offset_i] = 0.0;
+        gnb[offset_i] = 0.0;
         for j=1:m # loop over local bands
-            uold[offset + i] += Io.values[j,i] * idt / group_v[j];
-            gnb[offset + i] += G_last.values[j,i] * idt / group_v[j];
-            G_last.values[j,i] = G_next.values[j,i]; # That was the only place we need G_last, so update it here.
+            uold[offset_i] += Io_values[j,i] * idt / group_v[j];
+            gnb[offset_i] += G_last_values[j,i] * idt / group_v[j];
+            G_last_values[j,i] = G_next_values[j,i]; # That was the only place we need G_last, so update it here.
         end
-        uold[offset + i] = 4*pi*uold[offset + i];
+        uold[offset_i] = 4*pi*uold[offset_i];
     end
     
     # Allgather across this mesh communicator to combine bands
-    p_data1 = MPI.UBuffer(uold, n, num_band_partitions, MPI.Datatype(Float64));
-    MPI.Allgather!(p_data1, cell_comm);
-    p_data2 = MPI.UBuffer(gnb, n, num_band_partitions, MPI.Datatype(Float64));
-    MPI.Allgather!(p_data2, cell_comm);
-    
+    MPI.Allgather!(uold_buffer, cell_comm);
+    MPI.Allgather!(gnb_buffer, cell_comm);
+    end#timer
+    Finch.@timeit timer "reduce1" begin
     # reduce
-    for i=1:n # loop over cells
-        for j=2:num_band_partitions # loop over band partitions
+    @inbounds for i=1:n # loop over cells
+        for j=2:nband_partitions # loop over band partitions
             uold[i] += uold[i + (j-1)*n];
             gnb[i] += gnb[i + (j-1)*n];
         end
     end
+    end#timer
     
+    Finch.@timeit timer "iterations" begin
     # Then iteratively refine delta_T
     converged = fill(false, n);
     num_not_converged = n;
     for iter=1:maxiters
-        for i=1:n # loop over cells
+        Finch.@timeit timer "cell loop1" begin
+        @inbounds for i=1:n # loop over cells
             if converged[i]
                 continue;
             end
-            
-            unew[offset + i] = 0.0;
-            gna[offset + i] = 0.0;
-            uprime[offset + i] = 0.0;
+            offset_i = offset + i;
+            unew[offset_i] = 0.0;
+            gna[offset_i] = 0.0;
+            uprime[offset_i] = 0.0;
             
             for j=1:m # loop over local bands
                 beta = 1 / get_time_scale(freq[j], temp_next[i], polarization=polarization);
                 didt = dIdT_single(freq[j], dw, temp_last[i], polarization=polarization);
                 
-                unew[offset + i] += equilibrium_intensity(freq[j], dw, temp_next[i], polarization=polarization) * (beta + idt) / group_v[j];
-                gna[offset + i] += G_next.values[j,i] * (beta + idt) / group_v[j];
-                uprime[offset + i] += 4*pi * didt * (beta + idt) / group_v[j];
+                unew[offset_i] += equilibrium_intensity(freq[j], dw, temp_next[i], polarization=polarization) * (beta + idt) / group_v[j];
+                gna[offset_i] += G_next_values[j,i] * (beta + idt) / group_v[j];
+                uprime[offset_i] += 4*pi * didt * (beta + idt) / group_v[j];
             end
-            unew[offset + i] = 4*pi*unew[offset + i];
+            unew[offset_i] = 4*pi*unew[offset_i];
         end
-        
+        end#timer
+        Finch.@timeit timer "gather" begin
         # Allgather across this mesh communicator to combine bands
-        p_data1 = MPI.UBuffer(unew, n, num_band_partitions, MPI.Datatype(Float64));
-        MPI.Allgather!(p_data1, cell_comm);
-        p_data2 = MPI.UBuffer(gna, n, num_band_partitions, MPI.Datatype(Float64));
-        MPI.Allgather!(p_data2, cell_comm);
-        p_data3 = MPI.UBuffer(uprime, n, num_band_partitions, MPI.Datatype(Float64));
-        MPI.Allgather!(p_data3, cell_comm);
-        
+        MPI.Allgather!(unew_buffer, cell_comm);
+        MPI.Allgather!(gna_buffer, cell_comm);
+        MPI.Allgather!(uprime_buffer, cell_comm);
+        end#timer
+        Finch.@timeit timer "reduce2" begin
         # reduce
-        for i=1:n # loop over cells
+        @inbounds for i=1:n # loop over cells
             if converged[i]
                 continue;
             end
-            for j=2:num_band_partitions # loop over band partitions
+            for j=2:nband_partitions # loop over band partitions
                 unew[i] += unew[i + (j-1)*n];
                 gna[i] += gna[i + (j-1)*n];
                 uprime[i] += uprime[i + (j-1)*n];
@@ -623,11 +634,10 @@ function get_next_temp_par!(temp_next, temp_last, I_next, freq, dw; polarization
             
             delta_T = (uold[i] + gna[i] - gnb[i] - unew[i]) / uprime[i];
             
-            if debug println("cell "*string(i)*" ("*string(uold[i])*", "*string(unew[i])*", "*string(gna[i])*", "*string(gnb[i])*", "*string(uprime[i])*") : "*string(delta_T)) end
-            
             temp_next[i] = temp_next[i] + delta_T;
             
-            if abs(delta_T) < tol
+            rel_delta = delta_T / temp_next[i];
+            if abs(rel_delta) < tol
                 max_iters = max(max_iters, iter);
                 ave_iters += iter;
                 converged[i] = true;
@@ -638,6 +648,7 @@ function get_next_temp_par!(temp_next, temp_last, I_next, freq, dw; polarization
                 end
             end
         end# cell loop
+        end#timer
         if num_not_converged == 0
             break;
         end
@@ -646,7 +657,7 @@ function get_next_temp_par!(temp_next, temp_last, I_next, freq, dw; polarization
     if debug
         println("ave iterations: "*string(ave_iters)*"  max: "*string(max_iters))
     end
-    
+    end#timer
     return ave_iters;
 end
 
@@ -660,7 +671,8 @@ function update_temperature(temp::Matrix{Float64}, temp_last::Matrix{Float64}, I
     end
     
     if band_parallel
-        iterations = get_next_temp_par!(temp, temp_last, I_next, freq, dw, threed=threed, omega=omega);
+        iterations = get_next_temp_par!(temp, temp_last, I_next, freq, dw, uold, unew, gna, gnb, uprime, 
+                                        group_v, Io.values, G_last.values, G_next.values, threed=threed, omega=omega);
     else
         iterations = get_next_temp!(temp, temp_last, I_next, freq, dw, threed=threed, omega=omega);
     end
