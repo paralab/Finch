@@ -1961,17 +1961,17 @@ function add_boundary_ID_to_grid(bid, on_bdry, grid)
             for j=1:length(grid.bdry[i])
                 nj = grid.bdry[i][j];
                 if dim == 1
-                    if on_bdry(grid.allnodes[1, nj])
+                    if Base.invokelatest(on_bdry, grid.allnodes[1, nj])
                         push!(move_nodes[i], nj);
                         node_count[i] += 1;
                     end
                 elseif dim == 2
-                    if on_bdry(grid.allnodes[1, nj], grid.allnodes[2, nj])
+                    if Base.invokelatest(on_bdry, grid.allnodes[1, nj], grid.allnodes[2, nj])
                         push!(move_nodes[i], nj);
                         node_count[i] += 1;
                     end
                 elseif dim == 3
-                    if on_bdry(grid.allnodes[1, nj], grid.allnodes[2, nj], grid.allnodes[3, nj])
+                    if Base.invokelatest(on_bdry, grid.allnodes[1, nj], grid.allnodes[2, nj], grid.allnodes[3, nj])
                         push!(move_nodes[i], nj);
                         node_count[i] += 1;
                     end
@@ -1991,11 +1991,11 @@ function add_boundary_ID_to_grid(bid, on_bdry, grid)
                 fcenter = fcenter./nfp;
                 
                 if dim == 1
-                    isbdryface = on_bdry(fcenter[1]);
+                    isbdryface = Base.invokelatest(on_bdry, fcenter[1]);
                 elseif dim == 2
-                    isbdryface = on_bdry(fcenter[1], fcenter[2]);
+                    isbdryface = Base.invokelatest(on_bdry, fcenter[1], fcenter[2]);
                 elseif dim == 3
-                    isbdryface = on_bdry(fcenter[1], fcenter[2], fcenter[3]);
+                    isbdryface = Base.invokelatest(on_bdry, fcenter[1], fcenter[2], fcenter[3]);
                 end
                 
                 if isbdryface
