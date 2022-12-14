@@ -219,7 +219,7 @@ function read_msh_v4(file)
                     # Process entity blocks
                     # The first line has entity info. 
                     vals = split(line, " ", keepempty=false);
-                    entdim = parse(Int, vals[3]);
+                    entdim = parse(Int, vals[1]);
                     enttype = parse(Int, vals[3]);
                     entnel = parse(Int, vals[4]);
                     

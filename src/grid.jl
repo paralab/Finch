@@ -428,7 +428,8 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     element_touching = fill(false, mesh.nel); # set to true if element touches this partition
     
     for ei=1:mesh.nel
-        for ni=1:size(mesh.elements,1)
+        n_vert = etypetonv[mesh.etypes[ei]];
+        for ni=1:n_vert
             vtx = mesh.elements[ni,ei];
             if vertex_labels[vtx] < 0 || vertex_labels[vtx] > epart[ei]
                 vertex_labels[vtx] = epart[ei];
@@ -439,7 +440,8 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         end
     end
     for ei=1:mesh.nel
-        for ni=1:size(mesh.elements,1)
+        n_vert = etypetonv[mesh.etypes[ei]];
+        for ni=1:n_vert
             vtx = mesh.elements[ni,ei];
             if element_high_labels[ei] < 0
                 element_high_labels[ei] = vertex_labels[vtx];
@@ -540,7 +542,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         Gness = 1;
     end
     
-    vertex_dist_scale = zeros(float_type, nel); # a scale for relative tolerance
+    vertex_dist_scale = zeros(float_type, mesh.nel); # a scale for relative tolerance
     
     Np = refel.Np;                      # number of nodes per element
     bdry = [];                          # index(in x) of boundary nodes for each BID
