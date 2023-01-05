@@ -59,14 +59,17 @@
         center_f::Float64 = center_freq[band];
         delta_f::Float64 = delta_freq;
         temp::Float64 = Float64(temp);
-        interior_intensity::Float64 = intensity[dir + (band-1)*ndirs];
-        iso_intensity::Float64 = equilibrium_intensity(center_f, delta_freq, temp);
         sdotn::Float64 = sx[dir]*normal[1] + sy[dir]*normal[2];
+        alpha = 0.612894322;
+        
         if sdotn > 0
-            result = -vg[band] * interior_intensity * sdotn;
+            interior_intensity::Float64 = intensity[dir + (band-1)*ndirs];
+            result = -vg[band] * interior_intensity * sdotn * alpha;
         else
-            result = -vg[band] * iso_intensity * sdotn;
+            iso_intensity::Float64 = equilibrium_intensity(center_f, delta_freq, temp);
+            result = -vg[band] * iso_intensity * sdotn * alpha;
         end
+        
         return result;
     end
 )

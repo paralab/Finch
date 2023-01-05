@@ -911,10 +911,20 @@ function dendrite_main_file(var)
         stepper = finch_state.time_stepper;
         # Make a function for the initial conditions
         # std::function<void(const double *, double *)> initial_condition = [](const double *x, double *var) {
+        #     pt[0] = oct_pt[0];
+        #     pt[1] = oct_pt[1];
+        #     octToPhys.convertCoordsToPhys(nonconst_pt, 1);
         #     var[0] = sin(M_PI * x[0]) * sin(M_PI * x[1]) * sin(M_PI * x[2]);
         #     var[1] = ...
         # };
-        solution_step *= "    std::function<void(const double *, double *)> initial_condition = [](const double *pt, double *var) {\n";
+        solution_step *= "    std::function<void(const double *, double *)> initial_condition = [pt,octToPhys](const double *oct_pt, double *var) {\n";
+        solution_step *= "        pt[0] = oct_pt[0];\n";
+        solution_step *= "        pt[1] = oct_pt[1];\n";
+        if config.dimension > 2
+            solution_step *= "        pt[2] = oct_pt[2];\n";
+        end
+        solution_step *= "        octToPhys.convertCoordsToPhys(pt, 1);\n";
+        
         dof_ind = 0;
         for vi=1:varcount
             for ci=1:var[vi].total_components
@@ -942,7 +952,7 @@ function dendrite_main_file(var)
         solution_step *= "    // Progress meter\n";
         solution_step *= "    int progress_step_size = 10;\n";
         solution_step *= "    int last_progress = 0;\n";
-        solution_step *= "    TALYFEMLIB::PrintStatus(\"TIme step progress (%) 0\");\n";
+        solution_step *= "    TALYFEMLIB::PrintStatus(\"Time step progress (%) 0\");\n";
         progress_update = """
         if((currentStep * 100.0 / nSteps) >= (last_progress + progress_step_size)){
             last_progress += progress_step_size;
@@ -1280,8 +1290,8 @@ int main(int argc, char* argv[]) {
     TalyMesh<$(project_name)NodeData> talyMesh(octDA->getElementOrder());
     SubDomainBoundary *subDomainBoundary = &boundary;
     
-    /// imga setup
-    imga->initIMGAComputation(octDA, dTree.getTreePartFiltered());
+    /// imga setup is not currently done. When is this needed?
+    // imga->initIMGAComputation(octDA, dTree.getTreePartFiltered());
     
     /// Equation and solver setup
     Marker *elementMarker = new Marker(octDA, dTree.getTreePartFiltered(), domainExtents, imga, MarkerType::GAUSS_POINT);
@@ -1292,7 +1302,7 @@ int main(int argc, char* argv[]) {
                                                 subDomain.domainExtents(), NUM_VARS, &timeInfo, true, subDomainBoundary,
                                                 &inputData, imga);
     
-    $(project_name)Eq->setBoundaryCondition(&$(project_name)BC);
+    $(project_name)Eq->equation()->setBoundaryCondition(&$(project_name)BC);
     
     // Setup PETSc solver
     LinearSolver *$(project_name)Solver = setLinearSolver($(project_name)Eq, octDA, NUM_VARS, mfree);
@@ -1311,6 +1321,10 @@ int main(int argc, char* argv[]) {
     
     $(project_name)Solver->setIBMDirichletNodes(dirichletNodes);
     $(project_name)Eq->assignIBMConstructs(imga, elementMarker->getMarkers().data());
+    
+    // initial condition function needs physical coordinates
+    OctToPhysical octToPhys(domainExtents);
+    double *pt = new double[DIM];
     
 $(solution_step)
 
@@ -1761,13 +1775,13 @@ function dendrite_boundary_file(var)
             var_ind = var[vi].index;
             # One line for each component
             for ci=1:var[vi].total_components
-                if prob.bc_type[var_ind] == DIRICHLET
+                if prob.bc_type[var_ind, i] == DIRICHLET
                     # Constant or genfunction values
-                    if typeof(prob.bc_func[var_ind][ci]) <: Number
-                        bc_val = string(prob.bc_func[var_ind][ci]);
-                    elseif typeof(prob.bc_func[var_ind][ci]) == GenFunction
-                        bc_val = prob.bc_func[var_ind][ci].name * "(position, t)";
-                        push!(bdry_genfunctions, prob.bc_func[var_ind][ci]);
+                    if typeof(prob.bc_func[var_ind, i][ci]) <: Number
+                        bc_val = string(prob.bc_func[var_ind, i][ci]);
+                    elseif typeof(prob.bc_func[var_ind, i][ci]) == GenFunction
+                        bc_val = prob.bc_func[var_ind, i][ci].name * "(position, t)";
+                        push!(bdry_genfunctions, prob.bc_func[var_ind, i][ci]);
                     else # uh oh
                         printerr("Boundary values that are not constant or [x,y,z,t] gen functions must be entered manually.");
                         bc_val = "0.0";
@@ -1812,6 +1826,7 @@ function dendrite_boundary_file(var)
             end
         end
         if new_gf
+            push!(finished_genfunctions, bdry_genfunctions[i].name);
             str = cpp_genfunction_to_string(bdry_genfunctions[i]);
             fun = "    return "*str*";";
             
@@ -3105,6 +3120,10 @@ public:
         }
     }
     
+    bool CheckInputData(){
+    	return true;
+    }
+    
     /**
     * Printout every item of inputdata for debug purpose.
     */
@@ -3370,9 +3389,6 @@ struct MeshDef{
       PrintWarning("refineLevel_base > refineLevel_channel_wall");
     }
 
-    PrintStatus("refineLevel_base: ", refineLevel_base);
-    PrintStatus("refineLevel_channel_wall: ", refineLevel_channel_wall);
-
     double minOfBox = minimum(min);
     double sizeOfBox = maximum(max);
 
@@ -3388,10 +3404,6 @@ struct MeshDef{
     physDomain.max[2] = max[2];
 #endif
 
-    PrintStatus("fullDADomain: ", fullDADomain.max[0], ", ", fullDADomain.max[1], ", ",
-                fullDADomain.max[2]);
-    PrintStatus("physicalDomain: ", physDomain.max[0], ", ", physDomain.max[1], ", ",
-                physDomain.max[2]);
   }
 
   void PrintMeshDef(std::ofstream &fstream){
@@ -4099,6 +4111,7 @@ struct CarvedOutGeom{
       CarvedOutGeom::BCType temp = str_to_bctype(bc_dof[i]);
       bc_type_V.push_back(temp);
     }
+    /*
     int d_iter = 0, n_iter = 0, r_iter = 0;
     for (int i = 0; i < bc_type_V.size(); i++){
       if (bc_type_V.at(i) == CarvedOutGeom::BCType::DIRICHLET or bc_type_V.at(i) == CarvedOutGeom::BCType::WEAK or bc_type_V.at(i) == CarvedOutGeom::BCType::SBM){
@@ -4124,6 +4137,7 @@ struct CarvedOutGeom{
         a_constant_V.push_back(DENDRITE_REAL(temp4[r_iter++]));
       }
     }
+    */
 
   }
 
@@ -4723,12 +4737,6 @@ namespace util_funcs{
 
   /**
    * Save the octree mesh to vtk binary file.
-   * @param da
-   * @param daScalingFactor
-   * @param ti
-   * @param ns
-   * @param ht
-   * @param prefix
    */
   PetscErrorCode save_timestep(DA *octDA,
                                const std::vector<TREENODE> &treePartition,
@@ -4760,13 +4768,13 @@ namespace util_funcs{
 
   void save_data(DA *octDA,
                  const std::vector<TREENODE> &treePartition,
-                 Vec prev_solution_ht,
+                 Vec solution,
                  const $(project_name)InputData &idata,
                  const TimeInfo &ti,
                  const SubDomain &subDomain,
-                 const char **ht_varname){
+                 const char **varname){
     
-    save_timestep(octDA, treePartition, prev_solution_ht, $(project_name)NodeData::NUM_VARS, ti, subDomain, "ht", ht_varname);
+    save_timestep(octDA, treePartition, solution, $(project_name)NodeData::NUM_VARS, ti, subDomain, "$(project_name)", varname);
   }
 
   void performRefinementSubDA(DA *&octDA, const std::vector<TREENODE> &treeNode, DomainExtents &domainExtents, DistTREE &dTree,
