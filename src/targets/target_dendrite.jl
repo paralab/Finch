@@ -1549,7 +1549,7 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
             DENDRITE_REAL gradWdotd = 0;
 
 #if (DIM == 2)
-            if (idata_->elemOrder == 2 and idata_->SecondOrderTaylorQBF){
+            if (idata_->elemOrder == 2 && idata_->SecondOrderTaylorQBF){
                 secondOrderTerm_a = (d[0] * (fe.d2N(a, 0, 0) * d[0] + fe.d2N(a, 0, 1) * d[1]) +
                                      d[1] * (fe.d2N(a, 1, 0) * d[0] + fe.d2N(a, 1, 1) * d[1])) / 2;
             }else{
@@ -1557,7 +1557,7 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
             }
 #endif
 #if (DIM == 3)
-            if (idata_->elemOrder == 2 and idata_->SecondOrderTaylorQBF){
+            if (idata_->elemOrder == 2 && idata_->SecondOrderTaylorQBF){
                 secondOrderTerm_a = (d[0] * (fe.d2N(a, 0, 0) * d[0] + fe.d2N(a, 0, 1) * d[1] + fe.d2N(a, 0, 2) * d[2]) + 
                                      d[1] * (fe.d2N(a, 1, 0) * d[0] + fe.d2N(a, 1, 1) * d[1] + fe.d2N(a, 1, 2) * d[2]) + 
                                      d[2] * (fe.d2N(a, 2, 0) * d[0] + fe.d2N(a, 2, 1) * d[1] + fe.d2N(a, 2, 2) * d[2])) / 2;
@@ -1573,7 +1573,7 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
 
             for (int b = 0; b < fe.nbf(); b++){
 #if (DIM == 2)
-                if (idata_->elemOrder == 2 and idata_->SecondOrderTaylorQBF){
+                if (idata_->elemOrder == 2 && idata_->SecondOrderTaylorQBF){
                     secondOrderTerm_b = (d[0] * (fe.d2N(b, 0, 0) * d[0] + fe.d2N(b, 0, 1) * d[1]) +
                                         d[1] * (fe.d2N(b, 1, 0) * d[0] + fe.d2N(b, 1, 1) * d[1])) / 2;
                 }else{
@@ -1581,7 +1581,7 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
                 }
 #endif
 #if (DIM == 3)
-                if (idata_->elemOrder == 2 and idata_->SecondOrderTaylorQBF){
+                if (idata_->elemOrder == 2 && idata_->SecondOrderTaylorQBF){
                     secondOrderTerm_b = (d[0] * (fe.d2N(b, 0, 0) * d[0] + fe.d2N(b, 0, 1) * d[1] + fe.d2N(b, 0, 2) * d[2]) + 
                                         d[1] * (fe.d2N(b, 1, 0) * d[0] + fe.d2N(b, 1, 1) * d[1] + fe.d2N(b, 1, 2) * d[2]) + 
                                         d[2] * (fe.d2N(b, 2, 0) * d[0] + fe.d2N(b, 2, 1) * d[1] + fe.d2N(b, 2, 2) * d[2])) / 2;
@@ -1640,7 +1640,7 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
             DENDRITE_REAL gradWdotd = 0;
 
 #if (DIM == 2)
-            if (idata_->elemOrder == 2 and idata_->SecondOrderTaylorQBF){
+            if (idata_->elemOrder == 2 && idata_->SecondOrderTaylorQBF){
                 secondOrderTerm_a = (d[0] * (fe.d2N(a, 0, 0) * d[0] + fe.d2N(a, 0, 1) * d[1]) +
                                     d[1] * (fe.d2N(a, 1, 0) * d[0] + fe.d2N(a, 1, 1) * d[1])) / 2;
             }else{
@@ -1648,7 +1648,7 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
             }
 #endif
 #if (DIM == 3)
-            if (idata_->elemOrder == 2 and idata_->SecondOrderTaylorQBF){
+            if (idata_->elemOrder == 2 && idata_->SecondOrderTaylorQBF){
                 secondOrderTerm_a = (d[0] * (fe.d2N(a, 0, 0) * d[0] + fe.d2N(a, 0, 1) * d[1] + fe.d2N(a, 0, 2) * d[2]) + 
                                     d[1] * (fe.d2N(a, 1, 0) * d[0] + fe.d2N(a, 1, 1) * d[1] + fe.d2N(a, 1, 2) * d[2]) + 
                                     d[2] * (fe.d2N(a, 2, 0) * d[0] + fe.d2N(a, 2, 1) * d[1] + fe.d2N(a, 2, 2) * d[2])) / 2;
@@ -1805,7 +1805,7 @@ function dendrite_boundary_file(var)
         dirichlet_bc_for_bids[i] = "                            " * add_dirichlet;
     end
     
-    # if (FEQUALS(x, 0.0) and (FEQUALS(y, 0.0)) and (FEQUALS(z, 0.0))) {
+    # if (FEQUALS(x, 0.0) && (FEQUALS(y, 0.0)) && (FEQUALS(z, 0.0))) {
     #     b.addDirichlet($(project_name)NodeData::U_1, 0.0);
     # }
     # TODO
@@ -2093,7 +2093,58 @@ function dendrite_refine_file(var)
     file = add_generated_file(project_name*"Refine.h", dir="include");
     
     # This will eventually contain code for driving refinement
-    refinement_criteria = "//TODO";
+    # The parameter will be input like 
+    #     refineWhere = " ... "
+    # For example: "level < (sqrt(x*x+y*y) * 8.3) && level < 9"
+    # This has access to coordinates for each node of the element as well as inputData
+    params = finch_state.target_parameters;
+    if haskey(params, :refineWhere)
+        criteria = params[:refineWhere];
+        criteria_ex = Meta.parse(criteria);
+        # Change :level -> :customCriteriaLevel, :x -> :x_min, :X -> :x_max, etc.
+        criteria_ex = cpp_swap_symbol(:level, :customCriteriaLevel, criteria_ex);
+        criteria_ex = cpp_swap_symbol(:x, :x_min, criteria_ex);
+        criteria_ex = cpp_swap_symbol(:y, :y_min, criteria_ex);
+        criteria_ex = cpp_swap_symbol(:z, :z_min, criteria_ex);
+        criteria_ex = cpp_swap_symbol(:X, :x_max, criteria_ex);
+        criteria_ex = cpp_swap_symbol(:Y, :y_max, criteria_ex);
+        criteria_ex = cpp_swap_symbol(:Z, :z_max, criteria_ex);
+        # change operators
+        criteria_ex = cpp_change_math_ops(criteria_ex);
+        criteria_ex = cpp_conditional_to_oneline_string(criteria_ex); # make conditionals like (a ? b : c)
+        
+        s = string(criteria_ex);
+        criteria_str = replace(s, r"([\d)])([(A-Za-z])" => s"\1*\2"); # explicitly multiply with "*" (2*x not 2x)
+        
+        refinement_criteria = """
+    // extreme coordinates
+    double x_min = 1e100;
+    double y_min = 1e100;
+    double z_min = 1e100;
+    double x_max = -1e100;
+    double y_max = -1e100;
+    double z_max = -1e100;
+    
+    for (const auto &p : coords){
+        x_min = std::min(x_min, p.x());
+        y_min = std::min(y_min, p.y());
+        z_min = std::min(z_min, p.z());
+        x_max = std::max(x_max, p.x());
+        y_max = std::max(y_max, p.y());
+        z_max = std::max(z_max, p.z());
+    }
+    
+    // increase level until false
+    while($(criteria_str)){
+        customCriteriaLevel++;
+    }
+    
+"""
+        
+    else
+        refinement_criteria = "// No refinement criteria specified\n";
+    end
+    
     
     content = """
 #pragma once
@@ -2176,113 +2227,115 @@ ot::OCT_FLAGS::Refine $(project_name)Refine::getRefineFlags(TALYFEMLIB::FEMElm &
     unsigned int levelForWall = inputData_->meshDef.refineLevel_base;
     const auto &refine_wall = inputData_->meshDef.refine_walls;
     if (inputData_->meshDef.refine_any_wall){
-    if (refine_wall[0]){
-        for (const auto &p : coords){
-            if (p.x() - inputData_->meshDef.physDomain.min[0] < eps and currentLevel < inputData_->meshDef.refineLevel_channel_wall){
-                levelForWall = inputData_->meshDef.refineLevel_channel_wall;
-                break;
+        if (refine_wall[0]){
+            for (const auto &p : coords){
+                if (p.x() - inputData_->meshDef.physDomain.min[0] < eps && currentLevel < inputData_->meshDef.refineLevel_channel_wall){
+                    levelForWall = inputData_->meshDef.refineLevel_channel_wall;
+                    break;
+                }
             }
         }
-    }
-    if (refine_wall[1]){
-        for (const auto &p : coords){
-            if (inputData_->meshDef.physDomain.max[0] - p.x() < eps and currentLevel < inputData_->meshDef.refineLevel_channel_wall){
-                levelForWall = inputData_->meshDef.refineLevel_channel_wall;
-                break;
+        if (refine_wall[1]){
+            for (const auto &p : coords){
+                if (inputData_->meshDef.physDomain.max[0] - p.x() < eps && currentLevel < inputData_->meshDef.refineLevel_channel_wall){
+                    levelForWall = inputData_->meshDef.refineLevel_channel_wall;
+                    break;
+                }
             }
         }
-    }
-    if (refine_wall[2]){
-        for (const auto &p : coords){
-            if (p.y() - inputData_->meshDef.physDomain.min[1] < eps and currentLevel < inputData_->meshDef.refineLevel_channel_wall){
-                levelForWall = inputData_->meshDef.refineLevel_channel_wall;
-                break;
+        if (refine_wall[2]){
+            for (const auto &p : coords){
+                if (p.y() - inputData_->meshDef.physDomain.min[1] < eps && currentLevel < inputData_->meshDef.refineLevel_channel_wall){
+                    levelForWall = inputData_->meshDef.refineLevel_channel_wall;
+                    break;
+                }
             }
         }
-    }
-    if (refine_wall[3]){
-        for (const auto &p : coords){
-            if (inputData_->meshDef.physDomain.max[1] - p.y() < eps and currentLevel < inputData_->meshDef.refineLevel_channel_wall){
-                levelForWall = inputData_->meshDef.refineLevel_channel_wall;
-                break;
+        if (refine_wall[3]){
+            for (const auto &p : coords){
+                if (inputData_->meshDef.physDomain.max[1] - p.y() < eps && currentLevel < inputData_->meshDef.refineLevel_channel_wall){
+                    levelForWall = inputData_->meshDef.refineLevel_channel_wall;
+                    break;
+                }
             }
         }
-    }
 #if (DIM == 3)
-    if (refine_wall[4]){
-        for (const auto &p : coords){
-            if (p.z() - inputData_->meshDef.physDomain.min[2] < eps and currentLevel < inputData_->meshDef.refineLevel_channel_wall){
-                levelForWall = inputData_->meshDef.refineLevel_channel_wall;
-                break;
+        if (refine_wall[4]){
+            for (const auto &p : coords){
+                if (p.z() - inputData_->meshDef.physDomain.min[2] < eps && currentLevel < inputData_->meshDef.refineLevel_channel_wall){
+                    levelForWall = inputData_->meshDef.refineLevel_channel_wall;
+                    break;
+                }
             }
         }
-    }
-    if (refine_wall[5]){
-        for (const auto &p : coords){
-            if (inputData_->meshDef.physDomain.max[2] - p.z() < eps and currentLevel < inputData_->meshDef.refineLevel_channel_wall){
-                levelForWall = inputData_->meshDef.refineLevel_channel_wall;
-                break;
+        if (refine_wall[5]){
+            for (const auto &p : coords){
+                if (inputData_->meshDef.physDomain.max[2] - p.z() < eps && currentLevel < inputData_->meshDef.refineLevel_channel_wall){
+                    levelForWall = inputData_->meshDef.refineLevel_channel_wall;
+                    break;
+                }
             }
         }
-    }
 #endif
     }
 
     /// region refine
-    auto &rf = inputData_->region_refine;
     unsigned int maxlevelForRegion = inputData_->meshDef.refineLevel_base;
-    std::vector<unsigned int> levelForRegions;
-    levelForRegions.resize(rf.size());
-    for (int i = 0; i < rf.size(); i++) {
-        auto &r = rf[i];
-        if (!r.forRetain) {
-            for (const auto &p : coords){
-                if (r.in_region(p)){
-                    levelForRegions[i] = r.refine_region_lvl;
-                    break;
-                }else{
-                    levelForRegions[i] = inputData_->meshDef.refineLevel_base;
+    if(inputData_->region_refine.size() > 0){
+        auto &rf = inputData_->region_refine;
+        std::vector<unsigned int> levelForRegions;
+        levelForRegions.resize(rf.size());
+        for (int i = 0; i < rf.size(); i++) {
+            auto &r = rf[i];
+            if (!r.forRetain) {
+                for (const auto &p : coords){
+                    if (r.in_region(p)){
+                        levelForRegions[i] = r.refine_region_lvl;
+                        break;
+                    }else{
+                        levelForRegions[i] = inputData_->meshDef.refineLevel_base;
+                    }
                 }
             }
         }
-    }
-    if (!levelForRegions.empty()) {
-        maxlevelForRegion = *max_element(levelForRegions.begin(), levelForRegions.end());
-    }
-    // for region with geometry, refine the boundries.
-    std::vector<unsigned int> levelForRegionsGeomBoundary;
-    std::vector<int> countOfInPointsEachRegionGeom;
-    levelForRegionsGeomBoundary.resize(rf.size());
-    countOfInPointsEachRegionGeom.resize(rf.size());
-    for (unsigned int i = 0; i < rf.size(); i++) {
-        auto &r = rf[i];
-        if (!r.forRetain and r.GetRefineType() == RegionalRefine::MESHOBJECT){
-            for (const auto &p : coords){
-                if (r.in_region(p)){
-                    countOfInPointsEachRegionGeom[i]++;
+        if (!levelForRegions.empty()) {
+            maxlevelForRegion = *max_element(levelForRegions.begin(), levelForRegions.end());
+        }
+        // for region with geometry, refine the boundries.
+        std::vector<unsigned int> levelForRegionsGeomBoundary;
+        std::vector<int> countOfInPointsEachRegionGeom;
+        levelForRegionsGeomBoundary.resize(rf.size());
+        countOfInPointsEachRegionGeom.resize(rf.size());
+        for (unsigned int i = 0; i < rf.size(); i++) {
+            auto &r = rf[i];
+            if (!r.forRetain && r.GetRefineType() == RegionalRefine::MESHOBJECT){
+                for (const auto &p : coords){
+                    if (r.in_region(p)){
+                        countOfInPointsEachRegionGeom[i]++;
+                    }
                 }
             }
         }
-    }
-    for (unsigned int i = 0; i < rf.size(); i++) {
-        if (not(countOfInPointsEachRegionGeom[i] == nodeNo || countOfInPointsEachRegionGeom[i] == 0)) {
-            levelForRegionsGeomBoundary[i] = (rf[i].refine_region_lvl_boundary);
-        }
-    }
-    levelForRegionsGeomBoundary.push_back(maxlevelForRegion);
-    if (!levelForRegionsGeomBoundary.empty()){
-        maxlevelForRegion = *max_element(levelForRegionsGeomBoundary.begin(), levelForRegionsGeomBoundary.end());
-    }
-    
-    /// region retain (for complete outside elements outside retain region, we don't want to refine those)
-    bool outsideRetain = false;
-    for (auto &r : rf){
-        if (r.forRetain) {
-            bool all_out = true;
-            for (const auto &p : coords){
-                all_out = all_out and (r.out_retain(p) == RegionalRefine::OUTSIDE);
+        for (unsigned int i = 0; i < rf.size(); i++) {
+            if (not(countOfInPointsEachRegionGeom[i] == nodeNo || countOfInPointsEachRegionGeom[i] == 0)) {
+                levelForRegionsGeomBoundary[i] = (rf[i].refine_region_lvl_boundary);
             }
-            outsideRetain = outsideRetain or all_out;
+        }
+        levelForRegionsGeomBoundary.push_back(maxlevelForRegion);
+        if (!levelForRegionsGeomBoundary.empty()){
+            maxlevelForRegion = *max_element(levelForRegionsGeomBoundary.begin(), levelForRegionsGeomBoundary.end());
+        }
+        
+        /// region retain (for complete outside elements outside retain region, we don't want to refine those)
+        bool outsideRetain = false;
+        for (auto &r : rf){
+            if (r.forRetain) {
+                bool all_out = true;
+                for (const auto &p : coords){
+                    all_out = all_out && (r.out_retain(p) == RegionalRefine::OUTSIDE);
+                }
+                outsideRetain = outsideRetain || all_out;
+            }
         }
     }
 
@@ -2746,8 +2799,8 @@ target_link_libraries($(project_name) dendriteKT dendroKT \${LAPACK_LIBRARIES} \
     nSteps = string(stepper.Nsteps);
     totalT = string(stepper.dt * stepper.Nsteps);
     stype = stepper.type;
-    if haskey(params, :refineLevel)
-        refine_level = params[:refineLevel];
+    if haskey(params, :baseRefineLevel)
+        refine_level = params[:baseRefineLevel];
     else
         refine_level = 4;
     end
@@ -3317,7 +3370,7 @@ double minimum(std::array<DENDRITE_REAL, DIM> &array){
 template <typename T>
 void PrintVector(std::ofstream &fstream, const std::string &name, const std::vector<T> &vec){
   int rank = TALYFEMLIB::GetMPIRank();
-  if (!rank and fstream.is_open()){
+  if (!rank && fstream.is_open()){
     fstream << name << ": [";
     for (const auto &v : vec){
       fstream << v << ", ";
@@ -3408,7 +3461,7 @@ struct MeshDef{
 
   void PrintMeshDef(std::ofstream &fstream){
     int rank = TALYFEMLIB::GetMPIRank();
-    if (!rank and fstream.is_open()){
+    if (!rank && fstream.is_open()){
       fstream << "max: [";
       for (int i = 0; i < DIM; i++){
         fstream << max[i] << ", ";
@@ -3498,7 +3551,7 @@ struct BoundaryDef{
       temperature_type = read_temperature_type(root["temperature_type"]);
     }
     
-    if ((temperature_type == Condition_Type::DIRICHLET_BC) or (temperature_type == Condition_Type::WEAK_BC) or (temperature_type == Condition_Type::SBM_BC)){
+    if ((temperature_type == Condition_Type::DIRICHLET_BC) || (temperature_type == Condition_Type::WEAK_BC) || (temperature_type == Condition_Type::SBM_BC)){
       ReadVectorRoot(root, "temperature", temperature);
     }
 
@@ -3515,7 +3568,7 @@ struct BoundaryDef{
 
   void PrintBoundaryDef(std::ofstream &fstream) const{
     int rank = TALYFEMLIB::GetMPIRank();
-    if (!rank and fstream.is_open()){
+    if (!rank && fstream.is_open()){
       if (side == Side::INVALID){
         fstream << "side: INVALID\\n";
       }else if (side == Side::X_MINUS){
@@ -3619,7 +3672,7 @@ struct InitialConditionDef{
 
   void PrintInitialConditionDef(std::ofstream &fstream) const{
     int rank = TALYFEMLIB::GetMPIRank();
-    if (!rank and fstream.is_open()){
+    if (!rank && fstream.is_open()){
       if (t_ic_type == T_IC::ZERO_T)
       {
         fstream << "t_ic_type: ZERO_T\\n";
@@ -3677,7 +3730,7 @@ struct RegionalRefine{
     }
     refine_type = read_type(root["type"]);
     if (forRetain){
-      if (refine_type != CUBE and refine_type != MESHOBJECT){
+      if (refine_type != CUBE && refine_type != MESHOBJECT){
         throw TALYException() << "Not supported retain type!";
       }
     }else{
@@ -3803,7 +3856,7 @@ public:
     
     case SPHERE:{
       double distance = (p - center_sphere).norm();
-      return (distance < radius_sphere and distance > radius_sphere_in);
+      return (distance < radius_sphere && distance > radius_sphere_in);
     }
     break;
     
@@ -3813,7 +3866,7 @@ public:
       ZEROPTV AP = p - max_corner;
       ZEROPTV proj_point = max_corner + temp * AP.innerProduct(AB);
       double distance_s = (proj_point - p).innerProduct(proj_point - p);
-      if (distance_s < radius_cylinder * radius_cylinder and (distance_s - radius_cylinder_in * radius_cylinder_in) > -1e-6){
+      if (distance_s < radius_cylinder * radius_cylinder && (distance_s - radius_cylinder_in * radius_cylinder_in) > -1e-6){
         double max_x = std::max(max_corner.x(), min_corner.x());
         double max_y = std::max(max_corner.y(), min_corner.y());
         double max_z = std::max(max_corner.z(), min_corner.z());
@@ -3854,7 +3907,7 @@ public:
 
   void PrintRegionRefineDef(std::ofstream &fstream) const{
     int rank = TALYFEMLIB::GetMPIRank();
-    if (!rank and fstream.is_open()){
+    if (!rank && fstream.is_open()){
       if (refine_type == Type::INVALID){
         fstream << "refine_type: INVALID\\n";
       }else if (refine_type == Type::CUBE){
@@ -4046,10 +4099,10 @@ struct CarvedOutGeom{
   ZEROPTV translation_speed = {0.0, 0.0, 0.0};
 
   std::vector<DENDRITE_REAL> getBC(int dof) const{
-    if (bc_type_V[dof] == CarvedOutGeom::BCType::DIRICHLET or bc_type_V[dof] == CarvedOutGeom::BCType::WEAK or bc_type_V[dof] == CarvedOutGeom::BCType::SBM){
+    if (bc_type_V[dof] == CarvedOutGeom::BCType::DIRICHLET || bc_type_V[dof] == CarvedOutGeom::BCType::WEAK || bc_type_V[dof] == CarvedOutGeom::BCType::SBM){
       return std::vector<DENDRITE_REAL>{dirichlet_V.at(dof)};
     }
-    if (bc_type_V[dof] == CarvedOutGeom::BCType::NEUMANN or bc_type_V[dof] == CarvedOutGeom::BCType::NEUMANN_SBM){
+    if (bc_type_V[dof] == CarvedOutGeom::BCType::NEUMANN || bc_type_V[dof] == CarvedOutGeom::BCType::NEUMANN_SBM){
       return std::vector<DENDRITE_REAL>{flux_V.at(dof)};
     }
     if (bc_type_V[dof] == CarvedOutGeom::BCType::ROBIN){
@@ -4059,8 +4112,8 @@ struct CarvedOutGeom{
 
   void read_from_config(const libconfig::Setting &root){
     type = str_to_type(root["type"]);
-    if (type != Type::CIRCLE_2D_VOXEL and type != Type::SPHERE_3D_VOXEL and
-        type != Type::BOX_2D_VOXEL and type != Type::CUBE_3D_VOXEL){
+    if (type != Type::CIRCLE_2D_VOXEL && type != Type::SPHERE_3D_VOXEL and
+        type != Type::BOX_2D_VOXEL && type != Type::CUBE_3D_VOXEL){
       mesh_path = (const char *)root["mesh_path"];
       if (root.exists("name")){
         name = (const char *)root["name"];
@@ -4081,8 +4134,8 @@ struct CarvedOutGeom{
       gp_level = (int)root["gp_level"];
     }
 
-    if (type != Type::CIRCLE_2D_VOXEL and type != Type::SPHERE_3D_VOXEL and
-        type != Type::BOX_2D_VOXEL and type != Type::CUBE_3D_VOXEL){
+    if (type != Type::CIRCLE_2D_VOXEL && type != Type::SPHERE_3D_VOXEL and
+        type != Type::BOX_2D_VOXEL && type != Type::CUBE_3D_VOXEL){
       ReadZEROPTV(root, "position", InitialDisplacement);
     }
     
@@ -4114,14 +4167,14 @@ struct CarvedOutGeom{
     /*
     int d_iter = 0, n_iter = 0, r_iter = 0;
     for (int i = 0; i < bc_type_V.size(); i++){
-      if (bc_type_V.at(i) == CarvedOutGeom::BCType::DIRICHLET or bc_type_V.at(i) == CarvedOutGeom::BCType::WEAK or bc_type_V.at(i) == CarvedOutGeom::BCType::SBM){
+      if (bc_type_V.at(i) == CarvedOutGeom::BCType::DIRICHLET || bc_type_V.at(i) == CarvedOutGeom::BCType::WEAK || bc_type_V.at(i) == CarvedOutGeom::BCType::SBM){
         const libconfig::Setting &temp1 = root["dirichlet_V"];
         dirichlet_V.push_back(DENDRITE_REAL(temp1[d_iter++]));
         flux_V.push_back(-100.0);
         G_constant_V.push_back(-100.0);
         a_constant_V.push_back(-100.0);
       }
-      if (bc_type_V.at(i) == CarvedOutGeom::BCType::NEUMANN or bc_type_V.at(i) == CarvedOutGeom::BCType::NEUMANN_SBM){
+      if (bc_type_V.at(i) == CarvedOutGeom::BCType::NEUMANN || bc_type_V.at(i) == CarvedOutGeom::BCType::NEUMANN_SBM){
         dirichlet_V.push_back(-100.0);
         const libconfig::Setting &temp2 = root["flux_V"];
         flux_V.push_back(DENDRITE_REAL(temp2[n_iter++]));
@@ -4187,7 +4240,7 @@ protected:
   }
 
   InoutTYPE type_to_iotype(const Type &type) const{
-    if (type == Type::MESHOBJECT or type == Type::MESHOBJECT_2D){
+    if (type == Type::MESHOBJECT || type == Type::MESHOBJECT_2D){
       return RT;
     } else{
       return PRIMITIVE;
@@ -5199,7 +5252,7 @@ void SBMCalc::Dist2Geo(double (&d)[DIM]){
       {
         std::vector<GEOMETRY::Triangles> m_triangles = imga_->getGeometries()[geoID]->getSTL()[0].getTriangles();
 
-        assert(idata_->PBoxEnd(0) > x and idata_->PBoxEnd(1) > y and idata_->PBoxEnd(2) > z and idata_->PBoxStart(0) < x and idata_->PBoxStart(1) < y and idata_->PBoxStart(2) < z);
+        assert(idata_->PBoxEnd(0) > x && idata_->PBoxEnd(1) > y && idata_->PBoxEnd(2) > z && idata_->PBoxStart(0) < x && idata_->PBoxStart(1) < y && idata_->PBoxStart(2) < z);
         int it = 0;
         for (auto point : idata_->DistributePoints[geoID])
         {
