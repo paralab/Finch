@@ -27,7 +27,9 @@ function init_finch(T::DataType, name="unnamedProject")
     
     # check for MPI and initialize
     if @isdefined(MPI)
-        MPI.Init();
+        if !MPI.Initialized()
+            MPI.Init();
+        end
         state.config.num_procs = MPI.Comm_size(MPI.COMM_WORLD);
         if state.config.num_procs < 2
             # If only one process, ignore MPI.

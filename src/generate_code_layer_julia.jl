@@ -504,7 +504,10 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         else
             # FE has nodal dofs
             # code *= indent * "(global_matrix_I, global_matrix_J, global_matrix_V, global_vector) = gather_system(global_matrix_I, global_matrix_J, global_matrix_V, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config, buffers);"
-            code *= indent * "(global_matrix, global_vector) = gather_system(global_matrix_I, global_matrix_J, global_matrix_V, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config, buffers);"
+            code *= indent * "(global_matrix, global_vector) = gather_system(global_matrix_I, global_matrix_J, global_matrix_V, global_vector, nnodes_partition, dofs_per_node, partitioned_order, partitioned_sizes, config, buffers);\n"
+            code *= indent * "if length(global_vector) > length(global_solution)\n"
+            code *= indent * "    global_solution = zeros(length(global_vector));\n"
+            code *= indent * "end"
         end
         
     elseif op === :GHOST_EXCHANGE_FV

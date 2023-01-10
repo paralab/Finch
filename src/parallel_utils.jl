@@ -231,7 +231,7 @@ end
 # Note: rescatter_b only applies when rhs_only
 function gather_system(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Vector{Int}}, AV::Union{Nothing, Vector}, 
                         b::Vector, nnodes::Int, dofs_per_node::Int, b_order::Vector{Int}, b_sizes::Vector{Int}, 
-                        config::FinchConfig, buffers::ParallelBuffers; rescatter_b::Bool=false)
+                        config::FinchConfig, buffers::ParallelBuffers; rescatter_b::Bool=false, return_assembled::Bool=true)
     rhs_only = (AI===nothing);
     if config.num_procs > 1
         if !isbitstype(config.float_type)
@@ -305,7 +305,11 @@ function gather_system(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Vecto
                     buffers.vec_b[b_order[i]] += buffers.full_b[i];
                 end
                 
-                return (buffers.full_AI, buffers.full_AJ, buffers.full_AV, buffers.vec_b);
+                if return_assembled
+                    return (sparse(buffers.full_AI, buffers.full_AJ, buffers.full_AV), buffers.vec_b);
+                else
+                    return (buffers.full_AI, buffers.full_AJ, buffers.full_AV, buffers.vec_b);
+                end
                 
             else # other procs just send their data
                 send_buf = [length(AI)];
@@ -315,7 +319,12 @@ function gather_system(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Vecto
                 MPI.Gatherv!(AV, nothing, 0, MPI.COMM_WORLD);
                 MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
                 
-                return (AI, AJ, AV, b);
+                if return_assembled
+                    return (sparse(AI, AJ, AV), b);
+                else
+                    return (AI, AJ, AV, b);
+                end
+                
             end
             
         else # RHS only\
@@ -361,7 +370,11 @@ function gather_system(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Vecto
         if rhs_only
             return b;
         else
-            return (AI, AJ, AV, b);
+            if return_assembled
+                return (sparse(AI, AJ, AV), b);
+            else
+                return (AI, AJ, AV, b);
+            end
         end
     end
 end
