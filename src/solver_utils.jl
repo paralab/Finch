@@ -19,7 +19,7 @@ function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x
         if config.linalg_matrixfree # Matrix free should use the matrix_free_solve below, not this
             # How should we handle preconditioners for matrix-free?
             if preconditioner === nothing
-                preconditioner = makePreconditioner(A, config);
+                preconditioner = make_preconditioner(A, config);
             end
             
             if config.linalg_iterative_method == "GMRES"
@@ -46,13 +46,16 @@ function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x
             
         elseif config.linalg_iterative
             if preconditioner === nothing
-                preconditioner = makePreconditioner(A, config);
+                preconditioner = make_preconditioner(A, config);
             end
             if config.linalg_iterative_maxiter == 0
                 config.linalg_iterative_maxiter = size(A,2);
             end
             
             if config.linalg_iterative_method == "GMRES"
+                if config.linalg_iterative_gmresRestart == 0
+                    config.linalg_iterative_gmresRestart = min(20,size(A,2));
+                end
                 IterativeSolvers.gmres!(x, A, b, abstol=abs_tol, reltol=rel_tol,
                             maxiter=config.linalg_iterative_maxiter, restart=config.linalg_iterative_gmresRestart, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
@@ -122,7 +125,7 @@ function linear_system_solve(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, co
         if config.linalg_matrixfree
             # How should we handle preconditioners for matrix-free?
             if preconditioner === nothing
-                preconditioner = makePreconditioner(A, config);
+                preconditioner = make_preconditioner(A, config);
             end
             if config.linalg_iterative_maxiter == 0
                 config.linalg_iterative_maxiter = 500;
@@ -149,7 +152,7 @@ function linear_system_solve(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, co
             
         elseif config.linalg_iterative
             if preconditioner === nothing
-                preconditioner = makePreconditioner(A, config);
+                preconditioner = make_preconditioner(A, config);
             end
             if config.linalg_iterative_maxiter == 0
                 config.linalg_iterative_maxiter = size(A,2);
@@ -352,13 +355,6 @@ function semi_matrix_free_solve!(AI::Vector{Int}, AJ::Vector{Int}, AV::Vector{Fl
     else #FE
         #TODO
     end
-end
-
-# A function that performs Ax=y and mutates y.
-function matvec_linear_operator_function(y::Vector{Float64}, x::Vector{Float64})
-    
-    
-    return nothing;
 end
 
 function make_preconditioner(A::Union{SparseMatrixCSC, LinearMap}, config::FinchConfig)
