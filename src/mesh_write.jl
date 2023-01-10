@@ -86,6 +86,51 @@ function write_mesh_MSHv4(file, mesh::MeshData)
     println(file, "\$EndElements");
 end
 
+function write_mesh_medit(file, mesh)
+    dim = 1;
+    if mesh.etypes[1] > 1
+        dim = 2;
+    end
+    if mesh.etypes[1] > 3
+        dim = 3;
+    end
+    
+    println(file, "MeshVersionFormatted 1");
+    println(file, "# Created by Finch.jl");
+    println(file, "");
+    println(file, "Dimension");
+    println(file, string(dim));
+    
+    println(file, "Vertices");
+    println(file, string(mesh.nx));
+    for i=1:mesh.nx
+        for j=1:dim
+            print(file, string(mesh.nodes[j,i]) * "    ");
+        end
+        println(file, string(mesh.indices[i]));
+    end
+    
+    # Assume all elements are same type
+    if mesh.etypes[1] == 1 # line
+    elseif mesh.etypes[1] == 2 # tri
+        println(file, "Triangles");
+    elseif mesh.etypes[1] == 3 # quad
+        println(file, "Quadrilaterals");
+    elseif mesh.etypes[1] == 4 # tet
+        println(file, "Tetrahedra");
+    elseif mesh.etypes[1] == 5 # hex
+        println(file, "Hexahedra");
+    end
+    println(file, string(mesh.nel));
+    for i=1:mesh.nel
+        for j=1:mesh.nv[1]
+            print(file, string(mesh.elements[j,i]) * "    ");
+        end
+        println(file, "0");
+    end
+    println(file, "End");
+end
+
 function write_mesh(file, format, mesh::MeshData)
     # don't proceed unless the mesh contains things
     if mesh.nx == 0 || mesh.nel == 0
@@ -97,5 +142,7 @@ function write_mesh(file, format, mesh::MeshData)
         write_mesh_MSHv2(file, mesh);
     elseif format == MSH_V4
         write_mesh_MSHv4(file, mesh);
+    elseif format == "medit"
+        write_mesh_medit(file, mesh);
     end
 end

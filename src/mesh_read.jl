@@ -286,6 +286,7 @@ function read_medit(file)
     elements = [];
     etypes = [];
     nv = [];
+    dim = 1;
     while((!nodes_done || !elements_done) && !eof(file))
         line = readline(file);
         if occursin("Dimension", line)
@@ -297,10 +298,31 @@ function read_medit(file)
                 dim = parse(Int, line);
             end
             if finch_state.config.dimension != dim
-                # Maybe someone forgot to set dimension?
-                printerr("Dimension in mesh file doesn't match config. Updating config.")
-                finch_state.config.dimension = dim;
+                # Maybe someone forgot to set dimension.
+                # Maybe the mesh file was poorly created.
+                # Let's find the highest dmension elements.
+                bookmark = position(file);
+                highest_dim = 1;
+                while !eof(file)
+                    line = readline(file);
+                    if (occursin("Triangles", line) || occursin("Quadrilaterals", line))
+                        highest_dim = max(highest_dim,2);
+                    end
+                    if (occursin("Tetrahedra", line) || occursin("Hexahedra", line))
+                        highest_dim = max(highest_dim,3);
+                    end
+                end
+                seek(file, bookmark); # rewind
+                
+                if finch_state.config.dimension != highest_dim
+                    printerr("Dimension in mesh file doesn't match config. Updating config to dimension = " * string(highest_dim));
+                    finch_state.config.dimension = highest_dim;
+                else
+                    # It was a poorly made file.
+                end
+                dim = highest_dim;
             end
+            
         elseif occursin("Vertices", line)
             println(line)
             tokens = split(line, " ", keepempty=false);
@@ -317,17 +339,37 @@ function read_medit(file)
             for i=1:nx
                 line = readline(file);
                 vals = split(line, " ", keepempty=false);
-                nodes[1,i] = parse(Float64, vals[1]);
-                nodes[2,i] = parse(Float64, vals[2]);
-                nodes[3,i] = parse(Float64, vals[3]);
-                flags[i] = parse(Float64, vals[4]);
+                for j=1:dim
+                    nodes[j,i] = parse(Float64, vals[j]);
+                end
+                flags[i] = parse(Int, vals[end]);
             end
             
             nodes_done = true;
             
-        elseif finch_state.config.dimension == 1 && (occursin("Lines", line))
-            # Is this even an option for medit?
-        elseif finch_state.config.dimension == 2 && (occursin("Triangles", line) || occursin("Quadrilaterals", line))
+        elseif dim == 1 && (occursin("Edges", line))
+            tokens = split(line, " ", keepempty=false);
+            if length(tokens) > 1
+                nel = parse(Int, tokens[2]);
+            else
+                line = readline(file);
+                nel = parse(Int, line);
+            end
+            
+            nv = fill(2, nel);
+            etypes = fill(1, nel);
+            elements = zeros(Int, 8, nel);
+            eflags = zeros(Int, nel);
+            for i=1:nel
+                line = readline(file);
+                vals = split(line, " ", keepempty=false);
+                elements[1,i] = parse(Int, vals[1]);
+                elements[2,i] = parse(Int, vals[2]);
+                eflags[i] = parse(Int, vals[4]);
+            end
+            elements_done = true;
+            
+        elseif dim == 2 && (occursin("Triangles", line) || occursin("Quadrilaterals", line))
             tokens = split(line, " ", keepempty=false);
             if length(tokens) > 1
                 nel = parse(Int, tokens[2]);
@@ -343,10 +385,10 @@ function read_medit(file)
                 for i=1:nel
                     line = readline(file);
                     vals = split(line, " ", keepempty=false);
-                    elements[1,i] = parse(Float64, vals[1]);
-                    elements[2,i] = parse(Float64, vals[2]);
-                    elements[3,i] = parse(Float64, vals[3]);
-                    eflags[i] = parse(Float64, vals[4]);
+                    elements[1,i] = parse(Int, vals[1]);
+                    elements[2,i] = parse(Int, vals[2]);
+                    elements[3,i] = parse(Int, vals[3]);
+                    eflags[i] = parse(Int, vals[4]);
                 end
                 
             elseif tokens[1] == "Quadrilaterals"
@@ -357,16 +399,16 @@ function read_medit(file)
                 for i=1:nel
                     line = readline(file);
                     vals = split(line, " ", keepempty=false);
-                    elements[1,i] = parse(Float64, vals[1]);
-                    elements[2,i] = parse(Float64, vals[2]);
-                    elements[3,i] = parse(Float64, vals[3]);
-                    elements[4,i] = parse(Float64, vals[4]);
-                    eflags[i] = parse(Float64, vals[5]);
+                    elements[1,i] = parse(Int, vals[1]);
+                    elements[2,i] = parse(Int, vals[2]);
+                    elements[3,i] = parse(Int, vals[3]);
+                    elements[4,i] = parse(Int, vals[4]);
+                    eflags[i] = parse(Int, vals[5]);
                 end
             end
             elements_done = true;
             
-        elseif finch_state.config.dimension == 3 && (occursin("Tetrahedra", line) || occursin("Hexahedra", line))
+        elseif dim == 3 && (occursin("Tetrahedra", line) || occursin("Hexahedra", line))
             println(line)
             tokens = split(line, " ", keepempty=false);
             if length(tokens) > 1
@@ -384,11 +426,11 @@ function read_medit(file)
                 for i=1:nel
                     line = readline(file);
                     vals = split(line, " ", keepempty=false);
-                    elements[1,i] = parse(Float64, vals[1]);
-                    elements[2,i] = parse(Float64, vals[2]);
-                    elements[3,i] = parse(Float64, vals[3]);
-                    elements[4,i] = parse(Float64, vals[4]);
-                    eflags[i] = parse(Float64, vals[5]);
+                    elements[1,i] = parse(Int, vals[1]);
+                    elements[2,i] = parse(Int, vals[2]);
+                    elements[3,i] = parse(Int, vals[3]);
+                    elements[4,i] = parse(Int, vals[4]);
+                    eflags[i] = parse(Int, vals[5]);
                 end
                 
             elseif tokens[1] == "Hexahedra"
@@ -399,15 +441,15 @@ function read_medit(file)
                 for i=1:nel
                     line = readline(file);
                     vals = split(line, " ", keepempty=false);
-                    elements[1,i] = parse(Float64, vals[1]);
-                    elements[2,i] = parse(Float64, vals[2]);
-                    elements[3,i] = parse(Float64, vals[3]);
-                    elements[4,i] = parse(Float64, vals[4]);
-                    elements[5,i] = parse(Float64, vals[5]);
-                    elements[6,i] = parse(Float64, vals[6]);
-                    elements[7,i] = parse(Float64, vals[7]);
-                    elements[8,i] = parse(Float64, vals[8]);
-                    eflags[i] = parse(Float64, vals[9]);
+                    elements[1,i] = parse(Int, vals[1]);
+                    elements[2,i] = parse(Int, vals[2]);
+                    elements[3,i] = parse(Int, vals[3]);
+                    elements[4,i] = parse(Int, vals[4]);
+                    elements[5,i] = parse(Int, vals[5]);
+                    elements[6,i] = parse(Int, vals[6]);
+                    elements[7,i] = parse(Int, vals[7]);
+                    elements[8,i] = parse(Int, vals[8]);
+                    eflags[i] = parse(Int, vals[9]);
                 end
             end
             elements_done = true;

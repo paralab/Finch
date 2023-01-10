@@ -1252,7 +1252,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         return (refel, Grid(finch_state.config.float_type, allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, 
             face2element, facenormals, faceRefelInd, facebid, 
             true, Array(1:nel_owned), nel_global, nel_owned, 0, owned_faces, 0, nnodes_global, nnodes_borrowed, zeros(int_type,0), node_owner_index, partition2global_element, partition2global, 
-            global_bdry_flag, num_neighbors, neighbor_ids, zeros(int_type,0), [zeros(int_type,0)]));
+            global_bdry_flag, num_neighbors, neighbor_ids, zeros(int_type,0), [zeros(int_type,0,0)]));
     end
 end
 

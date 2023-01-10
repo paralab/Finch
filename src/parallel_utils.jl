@@ -376,7 +376,7 @@ function gather_system_FV(AI::Union{Nothing, Vector{Int}}, AJ::Union{Nothing, Ve
         if !isbitstype(config.float_type)
             printerr("MPI can only work with types for which isbitstype == true.\nCurrent type is float="*string(config.float_type), fatal=true);
         end
-        grid_data = finch_state.grid_data;
+        grid_data::Grid = finch_state.grid_data;
         if !rhs_only
             # For now just gather all of A in proc 0 to assemble.
             # The row and column indices have to be changed according to partition2global.

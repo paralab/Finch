@@ -179,6 +179,7 @@ There are some other options for specific targets, so see their documentation.
 If no CFL number is provided, one will be chosen based on the mesh and stepper type.
 """
 function timeStepper(type; cfl=0)
+    finch_state.prob.time_dependent = true;
     set_stepper(finch_state, type, cfl);
 end
 
@@ -214,7 +215,7 @@ end
 
 Set options for solving the linear system.
 Matrix-free must use an iterative method.
-Iterative methods include GMRES or CG provided by IterativeSolvers.jl
+Iterative methods include GMRES, CG, or BiCGStable provided by IterativeSolvers.jl
 Available preconditioners are AMG and ILU provided by
 AlgebraicMultigrid.jl and IncompleteLU.jl.
 Defaults maxiter=0, abstol=0, and gmresRestart=0 will use the 
@@ -223,7 +224,7 @@ corresponding defaults from IterativeSolvers.jl
 **Keywords**
 * `matrixFree=false`
 * `iterative=false`
-* `method="GMRES"` or `"CG"`
+* `method="GMRES"` or `"CG"` or `"BCGS"`
 * `pc="ILU"` or `"AMG"` or `"NONE"`
 * `maxiter::Int=0` 0 will result in `size(A, 2)`
 * `abstol=0`

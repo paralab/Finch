@@ -16,10 +16,10 @@ function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x
     abs_tol = ft(config.linalg_iterative_abstol);
     
     if config.linalg_usePetsc == false
-        if config.linalg_matrixfree
+        if config.linalg_matrixfree # Matrix free should use the matrix_free_solve below, not this
             # How should we handle preconditioners for matrix-free?
             if preconditioner === nothing
-                preconditioner = IterativeSolvers.Identity();
+                preconditioner = makePreconditioner(A, config);
             end
             
             if config.linalg_iterative_method == "GMRES"
@@ -33,43 +33,38 @@ function linear_system_solve!(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, x
                             maxiter=config.linalg_iterative_maxiter, restart=config.linalg_iterative_gmresRestart, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
                             
-            else # "CG"
-                if config.linalg_iterative_maxiter == 0
-                    config.linalg_iterative_maxiter = 500;
-                end
+            elseif config.linalg_iterative_method == "CG"
                 IterativeSolvers.cg!(x, A, b, abstol=abs_tol, reltol=rel_tol,
                             maxiter=config.linalg_iterative_maxiter, 
+                            Pl=preconditioner, verbose=config.linalg_iterative_verbose);
+                            
+            else # "BCGS"
+                IterativeSolvers.bicgstabl!(x, A, b, abstol=abs_tol, reltol=rel_tol,
+                            max_mv_products=config.linalg_iterative_maxiter, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
             end
             
         elseif config.linalg_iterative
             if preconditioner === nothing
-                if config.linalg_iterative_pc == "ILU"
-                    preconditioner = IncompleteLU.ilu(A);
-                elseif config.linalg_iterative_pc == "AMG"
-                    preconditioner = AlgebraicMultigrid.aspreconditioner(ruge_stuben(A));
-                else
-                    preconditioner = IterativeSolvers.Identity();
-                end
+                preconditioner = makePreconditioner(A, config);
+            end
+            if config.linalg_iterative_maxiter == 0
+                config.linalg_iterative_maxiter = size(A,2);
             end
             
             if config.linalg_iterative_method == "GMRES"
-                if config.linalg_iterative_maxiter == 0
-                    config.linalg_iterative_maxiter = size(A,2);
-                end
-                if config.linalg_iterative_gmresRestart == 0
-                    config.linalg_iterative_gmresRestart = min(20,size(A,2));
-                end
                 IterativeSolvers.gmres!(x, A, b, abstol=abs_tol, reltol=rel_tol,
                             maxiter=config.linalg_iterative_maxiter, restart=config.linalg_iterative_gmresRestart, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
                             
-            else # "CG"
-                if config.linalg_iterative_maxiter == 0
-                    config.linalg_iterative_maxiter = size(A,2);
-                end
+            elseif config.linalg_iterative_method == "CG"
                 IterativeSolvers.cg!(x, A, b, abstol=abs_tol, reltol=rel_tol,
                             maxiter=config.linalg_iterative_maxiter, 
+                            Pl=preconditioner, verbose=config.linalg_iterative_verbose);
+                            
+            else # "BCGS"
+                IterativeSolvers.bicgstabl!(x, A, b, abstol=abs_tol, reltol=rel_tol,
+                            max_mv_products=config.linalg_iterative_maxiter, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
             end
             
@@ -126,12 +121,14 @@ function linear_system_solve(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, co
     if config.linalg_usePetsc == false
         if config.linalg_matrixfree
             # How should we handle preconditioners for matrix-free?
-            preconditioner = IterativeSolvers.Identity();
+            if preconditioner === nothing
+                preconditioner = makePreconditioner(A, config);
+            end
+            if config.linalg_iterative_maxiter == 0
+                config.linalg_iterative_maxiter = 500;
+            end
             
             if config.linalg_iterative_method == "GMRES"
-                if config.linalg_iterative_maxiter == 0
-                    config.linalg_iterative_maxiter = 500;
-                end
                 if config.linalg_iterative_gmresRestart == 0
                     config.linalg_iterative_gmresRestart = 20;
                 end
@@ -139,28 +136,26 @@ function linear_system_solve(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, co
                             maxiter=config.linalg_iterative_maxiter, restart=config.linalg_iterative_gmresRestart, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
                             
-            else # "CG"
-                if config.linalg_iterative_maxiter == 0
-                    config.linalg_iterative_maxiter = 500;
-                end
+            elseif config.linalg_iterative_method == "CG"
                 return IterativeSolvers.cg(A, b, abstol=abs_tol, reltol=rel_tol,
                             maxiter=config.linalg_iterative_maxiter, 
+                            Pl=preconditioner, verbose=config.linalg_iterative_verbose);
+                            
+            else # "BCGS"
+                return IterativeSolvers.bicgstabl(A, b, abstol=abs_tol, reltol=rel_tol,
+                            max_mv_products=config.linalg_iterative_maxiter, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
             end
             
         elseif config.linalg_iterative
-            if config.linalg_iterative_pc == "ILU"
-                preconditioner = IncompleteLU.ilu(A);
-            elseif config.linalg_iterative_pc == "AMG"
-                preconditioner = AlgebraicMultigrid.aspreconditioner(ruge_stuben(A));
-            else
-                preconditioner = IterativeSolvers.Identity();
+            if preconditioner === nothing
+                preconditioner = makePreconditioner(A, config);
+            end
+            if config.linalg_iterative_maxiter == 0
+                config.linalg_iterative_maxiter = size(A,2);
             end
             
             if config.linalg_iterative_method == "GMRES"
-                if config.linalg_iterative_maxiter == 0
-                    config.linalg_iterative_maxiter = size(A,2);
-                end
                 if config.linalg_iterative_gmresRestart == 0
                     config.linalg_iterative_gmresRestart = min(20,size(A,2));
                 end
@@ -168,12 +163,14 @@ function linear_system_solve(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, co
                             maxiter=config.linalg_iterative_maxiter, restart=config.linalg_iterative_gmresRestart, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
                             
-            else # "CG"
-                if config.linalg_iterative_maxiter == 0
-                    config.linalg_iterative_maxiter = size(A,2);
-                end
+            elseif config.linalg_iterative_method == "CG"
                 return IterativeSolvers.cg(A, b, abstol=abs_tol, reltol=rel_tol,
                             maxiter=config.linalg_iterative_maxiter, 
+                            Pl=preconditioner, verbose=config.linalg_iterative_verbose);
+                            
+            else # "BCGS"
+                return IterativeSolvers.bicgstabl(A, b, abstol=abs_tol, reltol=rel_tol,
+                            max_mv_products=config.linalg_iterative_maxiter, 
                             Pl=preconditioner, verbose=config.linalg_iterative_verbose);
             end
             
@@ -215,6 +212,153 @@ function linear_system_solve(A::Union{SparseMatrixCSC, LinearMap}, b::Vector, co
         
         return ksp\b;
     end
+end
+
+# Uses this proc's matrix and vector in a partially matrix-free solve
+function semi_matrix_free_solve!(AI::Vector{Int}, AJ::Vector{Int}, AV::Vector{Float64}, b::Vector{Float64}, solution::Vector{Float64},
+                                num_nonzeros::Int, dofs_per_node::Int, mesh::Grid, config::FinchConfig, buffers::ParallelBuffers)
+    # nodal and elemental dofs must be handled differently
+    if config.solver_type == FV
+        if config.num_partitions > 1
+            # The vector will be assembled on one proc.
+            # The matvec will be done piecewise on each proc, then combined on one.
+            if config.proc_rank == 0
+                # assemble the RHS vector
+                nel = mesh.nel_owned;
+                owned_dofs = dofs_per_node * nel;
+                # gather number of dofs owned by each proc.
+                send_buf = [owned_dofs];
+                recv_buf = zeros(Int, config.num_procs);
+                MPI.Gather!(send_buf, recv_buf, 0, MPI.COMM_WORLD);
+                
+                # gather b
+                chunk_sizes = recv_buf;
+                displacements = zeros(Int, config.num_procs); # for the irregular gatherv
+                total_length = chunk_sizes[1];
+                for proc_i=2:config.num_procs
+                    displacements[proc_i] = displacements[proc_i-1] + chunk_sizes[proc_i-1];
+                    total_length += chunk_sizes[proc_i];
+                end
+                if length(buffers.full_b) == 0
+                    buffers.full_b = zeros(config.float_type, total_length);
+                    buffers.vec_b = zeros(config.float_type, grid_data.nel_global * dofs_per_node);
+                    buffers.b_order = zeros(config.float_type, total_length);
+                end
+                
+                b_buf = MPI.VBuffer(buffers.full_b, chunk_sizes, displacements, MPI.Datatype(config.float_type));
+                MPI.Gatherv!(b[1:owned_dofs], b_buf, 0, MPI.COMM_WORLD);
+                
+                # get the ordering for b
+                bord_buf = MPI.VBuffer(buffers.b_order, chunk_sizes, displacements, MPI.Datatype(Int));
+                MPI.Gatherv!(grid_data.partition2global_element[1:owned_dofs], bord_buf, 0, MPI.COMM_WORLD);
+                
+                # Overlapping values will be added.
+                for i=1:total_length
+                    buffers.vec_b[buffers.b_order[i]] = buffers.full_b[i]; 
+                end
+                # Now buffers.vec_b holds the global RHS vector
+                
+                # Make a linear operator to send to iterative solvers
+                A = sparse(view(AI,1:num_nonzeros), view(AJ,1:num_nonzeros), view(AV,1:num_nonzeros));
+                matvec_linear_operator_function = (y::Vector{Float64}, x::Vector{Float64})->(
+                    # send 1
+                    MPI.Bcast!([1], MPI.COMM_WORLD);
+                    # send x
+                    MPI.Scatterv!(MPI.VBuffer(x, chunk_sizes, displacements, MPI.Datatype(Float64)), MPI.IN_PLACE, MPI.COMM_WORLD);
+                    # do local matvec
+                    mul!(b, A, view(x,1:owned_dofs));
+                    # send 2
+                    MPI.Bcast!([2], MPI.COMM_WORLD);
+                    # recieve results
+                    MPI.Gatherv!(b, MPI.VBuffer(y, chunk_sizes, displacements, MPI.Datatype(Float64)), 0, MPI.COMM_WORLD);
+                    nothing;
+                )
+                linear_op = LinearMap(matvec_linear_operator_function, length(buffers.vec_b), ismutating=true);
+                full_solution = zeros(length(buffers.vec_b));
+                
+                # Start the solve process.
+                if config.linalg_iterative_maxiter == 0
+                    config.linalg_iterative_maxiter = 500;
+                end
+                if config.linalg_iterative_method == "GMRES"
+                    if config.linalg_iterative_gmresRestart == 0
+                        config.linalg_iterative_gmresRestart = 20;
+                    end
+                    IterativeSolvers.gmres!(full_solution, linear_op, buffers.vec_b, abstol=abs_tol, reltol=rel_tol,
+                                maxiter=config.linalg_iterative_maxiter, restart=config.linalg_iterative_gmresRestart, 
+                                verbose=config.linalg_iterative_verbose);
+                                
+                elseif config.linalg_iterative_method == "CG"
+                    IterativeSolvers.cg!(full_solution, linear_op, buffers.vec_b, abstol=abs_tol, reltol=rel_tol,
+                                maxiter=config.linalg_iterative_maxiter, 
+                                Pl=preconditioner, verbose=config.linalg_iterative_verbose);
+                                
+                else # "BCGS"
+                    IterativeSolvers.bicgstabl!(full_solution, linear_op, buffers.vec_b, abstol=abs_tol, reltol=rel_tol,
+                                max_mv_products=config.linalg_iterative_maxiter, 
+                                Pl=preconditioner, verbose=config.linalg_iterative_verbose);
+                end
+                
+                # scatter the solution
+                # send 1
+                MPI.Bcast!([1], MPI.COMM_WORLD);
+                # send solution
+                MPI.Scatterv!(MPI.VBuffer(full_solution, chunk_sizes, displacements, MPI.Datatype(Float64)), MPI.IN_PLACE, MPI.COMM_WORLD);
+                # Send the finished command
+                MPI.Bcast!([3], MPI.COMM_WORLD);
+                
+                for i=1:owned_dofs
+                    solution[i] = full_solution[i];
+                end
+                
+            else # other procs
+                # Send b to root
+                MPI.Gather!([length(b)], nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(b, nothing, 0, MPI.COMM_WORLD);
+                MPI.Gatherv!(grid_data.partition2global_element, nothing, 0, MPI.COMM_WORLD);
+                
+                # Construct the matrix
+                A = sparse(view(AI,1:num_nonzeros), view(AJ,1:num_nonzeros), view(AV,1:num_nonzeros));
+                if length(buffers.vec_b) == 0
+                    buffers.vec_b = zeros(length(b));
+                end
+                last_command = [0];
+                while last_command < 3
+                    # get command
+                    MPI.Bcast!(last_command, MPI.COMM_WORLD);
+                    if last_command == 1 # receive vector from root
+                        MPI.Scatterv!(nothing, b, MPI.COMM_WORLD);
+                        # b now holds the incoming vector.
+                        
+                    elseif last_command == 2 # send matvec to root
+                        # perform the matvec A*b
+                        mul!(buffers.vec_b, A, b);
+                        # send the result to root
+                        MPI.Gatherv!(buffers.vec_b, nothing, 0, MPI.COMM_WORLD);
+                        
+                    elseif last_command == 3 # done
+                        # the solution was placed in b
+                        for i=1:length(b)
+                            solution[i] = b[i];
+                        end
+                    end
+                end
+            end
+            
+        else # 1 partition
+            
+        end
+        
+    else #FE
+        #TODO
+    end
+end
+
+# A function that performs Ax=y and mutates y.
+function matvec_linear_operator_function(y::Vector{Float64}, x::Vector{Float64})
+    
+    
+    return nothing;
 end
 
 function make_preconditioner(A::Union{SparseMatrixCSC, LinearMap}, config::FinchConfig)
