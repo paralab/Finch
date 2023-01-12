@@ -14,7 +14,11 @@ time stepper
     solve+place (if implicit)
 
 =#
-function build_IR_fvm(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config, prob, time_stepper, fv_info)
+function build_IR_fvm(input_exprs, var, indices, config, prob, time_stepper, fv_info)
+    lhs_vol = input_exprs[1];
+    rhs_vol = input_exprs[2];
+    lhs_surf = input_exprs[3];
+    rhs_surf = input_exprs[4];
     dimension = config.dimension;
     # Count variables, dofs, and store offsets
     varcount = 1;

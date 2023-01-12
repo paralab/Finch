@@ -215,21 +215,17 @@ function symexpression_to_latex(ex)
 end
 
 # Builds all of them one at a time.
-function build_symexpressions(var, lhsvol, rhsvol, lhssurf=nothing, rhssurf=nothing; remove_zeros=false)
-    lhsvolsym = build_symexpression(var, lhsvol, "L", "V", remove_zero_in_array=remove_zeros);
-    rhsvolsym = build_symexpression(var, rhsvol, "R", "V", remove_zero_in_array=remove_zeros);
-    lhssurfsym = build_symexpression(var, lhssurf, "L", "S", remove_zero_in_array=remove_zeros);
-    rhssurfsym = build_symexpression(var, rhssurf, "R", "S", remove_zero_in_array=remove_zeros);
-    
-    if lhssurf === nothing && rhssurf === nothing
-        return (lhsvolsym, rhsvolsym);
-    else
-        return (lhsvolsym, rhsvolsym, lhssurfsym, rhssurfsym);
+function build_symexpressions(var, expressions; remove_zeros=false)
+    symexpressions = [];
+    for e in expressions
+        push!(symexpressions, build_symexpression(var, e, remove_zero_in_array=remove_zeros));
     end
+    
+    return symexpressions;
 end
 
 # Builds one symexpression from a SymEngine object or an Expr
-function build_symexpression(var, ex, lorr, vors; remove_zero_in_array=false)
+function build_symexpression(var, ex; remove_zero_in_array=false)
     if ex === nothing
         return nothing
     end
@@ -238,7 +234,7 @@ function build_symexpression(var, ex, lorr, vors; remove_zero_in_array=false)
         exarray = [];
         for i=1:length(ex)
             if !(remove_zero_in_array && ex[i] == 0)
-                push!(exarray, build_symexpression(var, ex[i], lorr, vors, remove_zero_in_array=remove_zero_in_array));
+                push!(exarray, build_symexpression(var, ex[i], remove_zero_in_array=remove_zero_in_array));
             end
         end
         return exarray;

@@ -874,41 +874,51 @@ function weakForm(var, wf)
     
     # This is the parsing step. It goes from an Expr to arrays of Basic
     result_exprs = sp_parse(wfex, wfvars);
-    if length(result_exprs) == 4 # has surface terms
-        (lhs_symexpr, rhs_symexpr, lhs_surf_symexpr, rhs_surf_symexpr) = result_exprs;
-    else
-        (lhs_symexpr, rhs_symexpr) = result_exprs;
-        lhs_surf_symexpr = nothing;
-        rhs_surf_symexpr = nothing;
-    end
     
     # Here we set a SymExpression for each of the pieces. 
     # This is an Expr tree that is passed to the code generator.
-    if length(result_exprs) == 4 # has surface terms
-        set_symexpressions(finch_state, var, lhs_symexpr, LHS, "volume");
-        set_symexpressions(finch_state, var, lhs_surf_symexpr, LHS, "surface");
-        set_symexpressions(finch_state, var, rhs_symexpr, RHS, "volume");
-        set_symexpressions(finch_state, var, rhs_surf_symexpr, RHS, "surface");
-        
-        log_entry("lhs volume symexpression:\n\t"*string(lhs_symexpr));
-        log_entry("lhs surface symexpression:\n\t"*string(lhs_surf_symexpr));
-        log_entry("rhs volume symexpression:\n\t"*string(rhs_symexpr));
-        log_entry("rhs surface symexpression:\n\t"*string(rhs_surf_symexpr));
-        
-        log_entry("Latex equation:\n\t\t \\int_{K}"*symexpression_to_latex(lhs_symexpr)*
-                    " dx + \\int_{\\partial K}"*symexpression_to_latex(lhs_surf_symexpr)*
-                    " ds = \\int_{K}"*symexpression_to_latex(rhs_symexpr)*
-                    " dx + \\int_{\\partial K}"*symexpression_to_latex(rhs_surf_symexpr)*" ds", 3);
-    else
-        set_symexpressions(finch_state, var, lhs_symexpr, LHS, "volume");
-        set_symexpressions(finch_state, var, rhs_symexpr, RHS, "volume");
-        
-        log_entry("lhs symexpression:\n\t"*string(lhs_symexpr));
-        log_entry("rhs symexpression:\n\t"*string(rhs_symexpr));
-        
-        log_entry("Latex equation:\n\t\t\$ \\int_{K}"*symexpression_to_latex(lhs_symexpr)*
-                    " dx = \\int_{K}"*symexpression_to_latex(rhs_symexpr)*" dx");
+    for i = 1:10
+        set_symexpressions(finch_state, var, result_exprs[i], i);
     end
+    
+    log_entry("lhs symexpression:\n\t"*string(result_exprs[1]));
+    log_entry("rhs symexpression:\n\t"*string(result_exprs[2]));
+    latex_lhs = "Latex equation:\n\t\t\$ \\int_{K}"*symexpression_to_latex(result_exprs[1])*" dx";
+    latex_rhs = " = \\int_{K}"*symexpression_to_latex(result_exprs[2])*" dx";
+    if !(result_exprs[3] === nothing)
+        log_entry("lhs surface symexpression:\n\t"*string(result_exprs[3]));
+        latex_lhs *= " + \\int_{\\partial K}"*symexpression_to_latex(result_exprs[3])*" ds"
+    end
+    if !(result_exprs[4] === nothing)
+        log_entry("rhs surface symexpression:\n\t"*string(result_exprs[4]));
+        latex_rhs *= " + \\int_{\\partial K}"*symexpression_to_latex(result_exprs[4])*" ds"
+    end
+    if !(result_exprs[5] === nothing)
+        log_entry("lhs boundary symexpression:\n\t"*string(result_exprs[5]));
+        latex_lhs *= " + \\int_{\\Gamma}"*symexpression_to_latex(result_exprs[5])*" ds"
+    end
+    if !(result_exprs[6] === nothing)
+        log_entry("rhs boundary symexpression:\n\t"*string(result_exprs[6]));
+        latex_rhs *= " + \\int_{\\Gamma}"*symexpression_to_latex(result_exprs[6])*" ds"
+    end
+    if !(result_exprs[7] === nothing)
+        log_entry("lhs Dirichlet boundary symexpression:\n\t"*string(result_exprs[7]));
+        latex_lhs *= " + \\int_{\\Gamma_D}"*symexpression_to_latex(result_exprs[7])*" ds"
+    end
+    if !(result_exprs[8] === nothing)
+        log_entry("rhs Dirichlet boundary symexpression:\n\t"*string(result_exprs[8]));
+        latex_rhs *= " + \\int_{\\Gamma_D}"*symexpression_to_latex(result_exprs[8])*" ds"
+    end
+    if !(result_exprs[9] === nothing)
+        log_entry("lhs Neumann boundary symexpression:\n\t"*string(result_exprs[9]));
+        latex_lhs *= " + \\int_{\\Gamma_N}"*symexpression_to_latex(result_exprs[9])*" ds"
+    end
+    if !(result_exprs[10] === nothing)
+        log_entry("rhs Neumann boundary symexpression:\n\t"*string(result_exprs[10]));
+        latex_rhs *= " + \\int_{\\Gamma_N}"*symexpression_to_latex(result_exprs[10])*" ds"
+    end
+    
+    log_entry("Latex equation:\n\t\t" * latex_lhs * latex_rhs, 3);
     
     # Init stepper here so it can be used in generation
     if finch_state.prob.time_dependent
@@ -933,8 +943,7 @@ function weakForm(var, wf)
     end
     
     # change symbolic layer into IR
-    full_IR = build_IR_fem(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, 
-                            var, finch_state.ordered_indexers, finch_state.config, finch_state.prob, finch_state.time_stepper);
+    full_IR = build_IR_fem(result_exprs, var, finch_state.ordered_indexers, finch_state.config, finch_state.prob, finch_state.time_stepper);
     log_entry("Weak form IR: \n"*repr_IR(full_IR),3);
     
     # Generate code from IR
@@ -982,39 +991,50 @@ function conservationForm(var, cf)
     
     # This is the parsing step. It goes from an Expr to arrays of Basic
     result_exprs = sp_parse(cfex, cfvars, is_FV=true);
-    if length(result_exprs) == 4 # has surface terms
-        (lhs_symexpr, rhs_symexpr, lhs_surf_symexpr, rhs_surf_symexpr) = result_exprs;
-    else
-        (lhs_symexpr, rhs_symexpr) = result_exprs;
-    end
-    
     # Here we set a SymExpression for each of the pieces. 
     # This is an Expr tree that is passed to the code generator.
-    if length(result_exprs) == 4 # has surface terms
-        set_symexpressions(finch_state, var, lhs_symexpr, LHS, "volume");
-        set_symexpressions(finch_state, var, lhs_surf_symexpr, LHS, "surface");
-        set_symexpressions(finch_state, var, rhs_symexpr, RHS, "volume");
-        set_symexpressions(finch_state, var, rhs_surf_symexpr, RHS, "surface");
-        
-        log_entry("lhs volume symexpression:\n\t"*string(lhs_symexpr));
-        log_entry("lhs surface symexpression:\n\t"*string(lhs_surf_symexpr));
-        log_entry("rhs volume symexpression:\n\t"*string(rhs_symexpr));
-        log_entry("rhs surface symexpression:\n\t"*string(rhs_surf_symexpr));
-        
-        log_entry("Latex equation:\n\t\t \\int_{K} -"*symexpression_to_latex(lhs_symexpr)*
-                    " dx + \\int_{K}"*symexpression_to_latex(rhs_symexpr)*" dx"*
-                    "\\int_{\\partial K}"*symexpression_to_latex(lhs_surf_symexpr)*
-                    " ds - \\int_{\\partial K}"*symexpression_to_latex(rhs_surf_symexpr)*" ds", 3);
-    else
-        set_symexpressions(finch_state, var, lhs_symexpr, LHS, "volume");
-        set_symexpressions(finch_state, var, rhs_symexpr, RHS, "volume");
-        
-        log_entry("lhs symexpression:\n\t"*string(lhs_symexpr));
-        log_entry("rhs symexpression:\n\t"*string(rhs_symexpr));
-        
-        log_entry("Latex equation:\n\t\t\$ \\int_{K}"*symexpression_to_latex(lhs_symexpr)*
-                    " dx = \\int_{K}"*symexpression_to_latex(rhs_symexpr)*" dx", 3);
+    for i = 1:10
+        set_symexpressions(finch_state, var, result_exprs[i], i);
     end
+    
+    log_entry("lhs symexpression:\n\t"*string(result_exprs[1]));
+    log_entry("rhs symexpression:\n\t"*string(result_exprs[2]));
+    latex_lhs = "Latex equation:\n\t\t\$ \\int_{K}"*symexpression_to_latex(result_exprs[1])*" dx";
+    latex_rhs = " = \\int_{K}"*symexpression_to_latex(result_exprs[2])*" dx";
+    if !(result_exprs[3] === nothing)
+        log_entry("lhs surface symexpression:\n\t"*string(result_exprs[3]));
+        latex_lhs *= " + \\int_{\\partial K}"*symexpression_to_latex(result_exprs[3])*" ds"
+    end
+    if !(result_exprs[4] === nothing)
+        log_entry("rhs surface symexpression:\n\t"*string(result_exprs[4]));
+        latex_rhs *= " + \\int_{\\partial K}"*symexpression_to_latex(result_exprs[4])*" ds"
+    end
+    if !(result_exprs[5] === nothing)
+        log_entry("lhs boundary symexpression:\n\t"*string(result_exprs[5]));
+        latex_lhs *= " + \\int_{\\Gamma}"*symexpression_to_latex(result_exprs[5])*" ds"
+    end
+    if !(result_exprs[6] === nothing)
+        log_entry("rhs boundary symexpression:\n\t"*string(result_exprs[6]));
+        latex_rhs *= " + \\int_{\\Gamma}"*symexpression_to_latex(result_exprs[6])*" ds"
+    end
+    if !(result_exprs[7] === nothing)
+        log_entry("lhs Dirichlet boundary symexpression:\n\t"*string(result_exprs[7]));
+        latex_lhs *= " + \\int_{\\Gamma_D}"*symexpression_to_latex(result_exprs[7])*" ds"
+    end
+    if !(result_exprs[8] === nothing)
+        log_entry("rhs Dirichlet boundary symexpression:\n\t"*string(result_exprs[8]));
+        latex_rhs *= " + \\int_{\\Gamma_D}"*symexpression_to_latex(result_exprs[8])*" ds"
+    end
+    if !(result_exprs[9] === nothing)
+        log_entry("lhs Neumann boundary symexpression:\n\t"*string(result_exprs[9]));
+        latex_lhs *= " + \\int_{\\Gamma_N}"*symexpression_to_latex(result_exprs[9])*" ds"
+    end
+    if !(result_exprs[10] === nothing)
+        log_entry("rhs Neumann boundary symexpression:\n\t"*string(result_exprs[10]));
+        latex_rhs *= " + \\int_{\\Gamma_N}"*symexpression_to_latex(result_exprs[10])*" ds"
+    end
+    
+    log_entry("Latex equation:\n\t\t" * latex_lhs * latex_rhs, 3);
     
     # Init stepper here so it can be used in generation
     if finch_state.prob.time_dependent
@@ -1039,11 +1059,7 @@ function conservationForm(var, cf)
     end
     
     # change symbolic layer into IR
-    if length(result_exprs) == 4
-        full_IR = build_IR_fvm(lhs_symexpr, lhs_surf_symexpr, rhs_symexpr, rhs_surf_symexpr, var, finch_state.ordered_indexers, finch_state.config, finch_state.prob, finch_state.time_stepper, finch_state.fv_info);
-    else
-        full_IR = build_IR_fvm(lhs_symexpr, nothing, rhs_symexpr, nothing, var, finch_state.ordered_indexers, finch_state.config, finch_state.prob, finch_state.time_stepper, finch_state.fv_info);
-    end
+    full_IR = build_IR_fvm(result_exprs, var, finch_state.ordered_indexers, finch_state.config, finch_state.prob, finch_state.time_stepper, finch_state.fv_info);
     log_entry("Conservation form IR: "*repr_IR(full_IR),3);
     
     # Generate code from IR
@@ -1214,20 +1230,20 @@ function printLatex(var)
         if !(symexpressions[1][var.index] === nothing)
             result *= " + \\int_{K}"*symexpression_to_latex(symexpressions[1][var.index])*" dx";
         end
-        if !(symexpressions[2][var.index] === nothing)
-            result *= " + \\int_{\\partial K}"*symexpression_to_latex(symexpressions[2][var.index])*" ds";
+        if !(symexpressions[3][var.index] === nothing)
+            result *= " + \\int_{\\partial K}"*symexpression_to_latex(symexpressions[3][var.index])*" ds";
         end
         result *= " = ";
-        if !(symexpressions[3][var.index] === nothing)
-            result *= "\\int_{K}"*symexpression_to_latex(symexpressions[3][var.index])*" dx";
+        if !(symexpressions[2][var.index] === nothing)
+            result *= "\\int_{K}"*symexpression_to_latex(symexpressions[2][var.index])*" dx";
         end
         if !(symexpressions[4][var.index] === nothing)
-            if !(symexpressions[3][var.index] === nothing)
+            if !(symexpressions[2][var.index] === nothing)
                 result *= " + ";
             end
             result *= "\\int_{\\partial K}"*symexpression_to_latex(symexpressions[4][var.index])*" ds";
         end
-        if symexpressions[3][var.index] === nothing && symexpressions[4][var.index] === nothing
+        if symexpressions[2][var.index] === nothing && symexpressions[4][var.index] === nothing
             result *= "0";
         end
         result *= raw"$";
@@ -1238,26 +1254,26 @@ function printLatex(var)
             if !(symexpressions[1][var.index] === nothing)
                 result *= "\\int_{K}"*symexpression_to_latex(symexpressions[1][var.index])*" dx";
             end
-            if !(symexpressions[2][var.index] === nothing)
+            if !(symexpressions[3][var.index] === nothing)
                 if !(symexpressions[1][var.index] === nothing)
                     result *= " + ";
                 end
-                result *= "\\int_{\\partial K}"*symexpression_to_latex(symexpressions[2][var.index])*" ds";
+                result *= "\\int_{\\partial K}"*symexpression_to_latex(symexpressions[3][var.index])*" ds";
             end
-            if symexpressions[1][var.index] === nothing && symexpressions[2][var.index] === nothing
+            if symexpressions[1][var.index] === nothing && symexpressions[3][var.index] === nothing
                 result *= "0";
             end
             result *= "\\right]_{t+dt} = \\left[";
-            if !(symexpressions[3][var.index] === nothing)
-                result *= "\\int_{K}"*symexpression_to_latex(symexpressions[3][var.index])*" dx";
+            if !(symexpressions[2][var.index] === nothing)
+                result *= "\\int_{K}"*symexpression_to_latex(symexpressions[2][var.index])*" dx";
             end
             if !(symexpressions[4][var.index] === nothing)
-                if !(symexpressions[3][var.index] === nothing)
+                if !(symexpressions[2][var.index] === nothing)
                     result *= " + ";
                 end
                 result *= "\\int_{\\partial K}"*symexpression_to_latex(symexpressions[4][var.index])*" ds";
             end
-            if symexpressions[3][var.index] === nothing && symexpressions[4][var.index] === nothing
+            if symexpressions[2][var.index] === nothing && symexpressions[4][var.index] === nothing
                 result *= "0";
             end
             result *= raw"\right]_{t} $";
@@ -1267,26 +1283,26 @@ function printLatex(var)
             if !(symexpressions[1][var.index] === nothing)
                 result *= "\\int_{K}"*symexpression_to_latex(symexpressions[1][var.index])*" dx";
             end
-            if !(symexpressions[2][var.index] === nothing)
+            if !(symexpressions[3][var.index] === nothing)
                 if !(symexpressions[1][var.index] === nothing)
                     result *= " + ";
                 end
-                result *= "\\int_{\\partial K}"*symexpression_to_latex(symexpressions[2][var.index])*" ds";
+                result *= "\\int_{\\partial K}"*symexpression_to_latex(symexpressions[3][var.index])*" ds";
             end
-            if symexpressions[1][var.index] === nothing && symexpressions[2][var.index] === nothing
+            if symexpressions[1][var.index] === nothing && symexpressions[3][var.index] === nothing
                 result *= "0";
             end
             result *= " = ";
-            if !(symexpressions[3][var.index] === nothing)
-                result *= "\\int_{K}"*symexpression_to_latex(symexpressions[3][var.index])*" dx";
+            if !(symexpressions[2][var.index] === nothing)
+                result *= "\\int_{K}"*symexpression_to_latex(symexpressions[2][var.index])*" dx";
             end
             if !(symexpressions[4][var.index] === nothing)
-                if !(symexpressions[3][var.index] === nothing)
+                if !(symexpressions[2][var.index] === nothing)
                     result *= " + ";
                 end
                 result *= "\\int_{\\partial K}"*symexpression_to_latex(symexpressions[4][var.index])*" ds";
             end
-            if symexpressions[3][var.index] === nothing && symexpressions[4][var.index] === nothing
+            if symexpressions[2][var.index] === nothing && symexpressions[4][var.index] === nothing
                 result *= "0";
             end
             result *= raw"$";

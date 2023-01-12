@@ -814,31 +814,17 @@ function set_code(state::FinchState, var, code, IR)
     end
 end
 
-function set_symexpressions(state::FinchState, var, ex, lorr, vors)
+function set_symexpressions(state::FinchState, var, ex, ind)
     # If the ex is empty, don't set anything
-    if ex == [] || ex == [[]]
+    if ex === nothing || ex == [] || ex == [[]]
         return;
     end
     
     if typeof(var) <:Array
         for i=1:length(var)
-            set_symexpressions(state, var[i], ex, lorr, vors);
+            set_symexpressions(state, var[i], ex, ind);
         end
-        
     else
-        if lorr == LHS
-            if vors == "volume"
-                ind = 1;
-            else
-                ind = 2;
-            end
-        else # rhs
-            if vors == "volume"
-                ind = 3;
-            else
-                ind = 4;
-            end
-        end
         state.symexpressions[ind][var.index] = ex;
     end
 end

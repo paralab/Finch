@@ -1,5 +1,10 @@
 #= 
-# A set of tools for parsing the variational forms into symEngine expressions.
+# A set of tools for parsing Finch input expressions into symEngine expressions.
+# The terms are assumed to be integrated over element volume unless wrapped by one of these:
+# surface(...) : integral over all element surfaces
+# boundary(...) : integral over all boundary surfaces
+# dirichletBoundary(...) : integral over dirichlet boundary surfaces
+# neumannBoundary(...) : integral over neumann boundary surfaces
 =#
 module SymbolicParser
 export sp_parse, add_custom_op, add_custom_op_file, sym_var
@@ -137,13 +142,26 @@ end
 # Parses a variational or integral form expression into a SymEngine Basic expression 
 # Takes an Expr and variable symbols
 # The symbols are only for determining lhs vs. rhs
-# Returns a tuple of SymEngine expressions (lhs, rhs) for the equation lhs = rhs
-# or (lhs, surf_lhs, rhs, surf_rhs) when there are surface integral terms
+# Returns an array of SymEngine expressions:
+# [lhs, rhs, surflhs, surfrhs, bdrylhs, bdryrhs, dirichletlhs, dirichletrhs, neumannlhs, neumannrhs]
+# If these pieces are not present, they are nothing
 # lhs contains terms including the unknown variable
 # rhs contains terms without it
 function sp_parse(ex, var; is_FV::Bool=false, is_flux::Bool=false)
+    resultExpressions = [];
+    append!(resultExpressions, fill(nothing,10));
+    # These will hold the relevant expressions if they are present
     lhs = nothing;
     rhs = nothing;
+    surflhs = nothing;
+    surfrhs = nothing;
+    bdrylhs = nothing;
+    bdryrhs = nothing;
+    dbdrylhs = nothing;
+    dbdryrhs = nothing;
+    nbdrylhs = nothing;
+    nbdryrhs = nothing;
+    
     varcount = 1;
     timederiv = false;
     placeholders = [];
@@ -217,10 +235,13 @@ function sp_parse(ex, var; is_FV::Bool=false, is_flux::Bool=false)
     log_entry("SP sterms = "*string(sterms), 3);
     
     # Check for time derivatives
-    timederiv = check_for_dt(sterms);
+    timederiv = check_for_symbol(sterms, "TIMEDERIV");
     
     # Check for surface integrals
-    has_surface = check_for_surface(sterms);
+    has_surface = check_for_symbol(sterms, "SURFACEINTEGRAL");
+    has_bdry = check_for_symbol(sterms, "BOUNDARYINTEGRAL");
+    has_Dbdry = check_for_symbol(sterms, "DIRICHLETINTEGRAL");
+    has_Nbdry = check_for_symbol(sterms, "NEUMANNINTEGRAL");
     
     # Each element has an lhs and rhs
     # Also isolate terms that are nonlinear in the unknown
@@ -258,13 +279,13 @@ function sp_parse(ex, var; is_FV::Bool=false, is_flux::Bool=false)
         if typeof(var) <: Array
             for i=1:length(symex)
                 sz = size(symex[i]);
-                (dtlhs[i],lhs[i]) = split_dt(lhs[i],sz);
-                (dtrhs[i],rhs[i]) = split_dt(rhs[i],sz);
+                (dtlhs[i],lhs[i]) = split_on_symbol("TIMEDERIV", lhs[i], sz);
+                (dtrhs[i],rhs[i]) = split_on_symbol("TIMEDERIV", rhs[i], sz);
             end
         else
             sz = size(symex);
-            (dtlhs,lhs) = split_dt(lhs,sz);
-            (dtrhs,rhs) = split_dt(rhs,sz);
+            (dtlhs,lhs) = split_on_symbol("TIMEDERIV", lhs,sz);
+            (dtrhs,rhs) = split_on_symbol("TIMEDERIV", rhs,sz);
         end
     end
     
@@ -275,13 +296,64 @@ function sp_parse(ex, var; is_FV::Bool=false, is_flux::Bool=false)
         if typeof(var) <: Array
             for i=1:length(symex)
                 sz = size(symex[i]);
-                (surflhs[i],lhs[i]) = split_surf(lhs[i],sz);
-                (surfrhs[i],rhs[i]) = split_surf(rhs[i],sz);
+                (surflhs[i],lhs[i]) = split_on_symbol("SURFACEINTEGRAL", lhs[i],sz);
+                (surfrhs[i],rhs[i]) = split_on_symbol("SURFACEINTEGRAL", rhs[i],sz);
             end
         else
             sz = size(symex);
-            (surflhs,lhs) = split_surf(lhs,sz);
-            (surfrhs,rhs) = split_surf(rhs,sz);
+            (surflhs,lhs) = split_on_symbol("SURFACEINTEGRAL", lhs,sz);
+            (surfrhs,rhs) = split_on_symbol("SURFACEINTEGRAL", rhs,sz);
+        end
+    end
+    
+    # If there was a boundary integral, separate those terms as well
+    if has_bdry
+        bdrylhs = copy(lhs);
+        bdryrhs = copy(rhs);
+        if typeof(var) <: Array
+            for i=1:length(symex)
+                sz = size(symex[i]);
+                (bdrylhs[i],lhs[i]) = split_on_symbol("BOUNDARYINTEGRAL", lhs[i],sz);
+                (bdryrhs[i],rhs[i]) = split_on_symbol("BOUNDARYINTEGRAL", rhs[i],sz);
+            end
+        else
+            sz = size(symex);
+            (bdrylhs,lhs) = split_on_symbol("BOUNDARYINTEGRAL", lhs,sz);
+            (bdryrhs,rhs) = split_on_symbol("BOUNDARYINTEGRAL", rhs,sz);
+        end
+    end
+    
+    # If there was a dirichletBoundary integral, separate those terms as well
+    if has_Dbdry
+        dbdrylhs = copy(lhs);
+        dbdryrhs = copy(rhs);
+        if typeof(var) <: Array
+            for i=1:length(symex)
+                sz = size(symex[i]);
+                (dbdrylhs[i],lhs[i]) = split_on_symbol("DIRICHLETINTEGRAL", lhs[i],sz);
+                (dbdryrhs[i],rhs[i]) = split_on_symbol("DIRICHLETINTEGRAL", rhs[i],sz);
+            end
+        else
+            sz = size(symex);
+            (dbdrylhs,lhs) = split_on_symbol("DIRICHLETINTEGRAL", lhs,sz);
+            (dbdryrhs,rhs) = split_on_symbol("DIRICHLETINTEGRAL", rhs,sz);
+        end
+    end
+    
+    # If there was a neumannBoundary integral, separate those terms as well
+    if has_Nbdry
+        nbdrylhs = copy(lhs);
+        nbdryrhs = copy(rhs);
+        if typeof(var) <: Array
+            for i=1:length(symex)
+                sz = size(symex[i]);
+                (nbdrylhs[i],lhs[i]) = split_on_symbol("NEUMANNINTEGRAL", lhs[i],sz);
+                (nbdryrhs[i],rhs[i]) = split_on_symbol("NEUMANNINTEGRAL", rhs[i],sz);
+            end
+        else
+            sz = size(symex);
+            (nbdrylhs,lhs) = split_on_symbol("NEUMANNINTEGRAL", lhs,sz);
+            (nbdryrhs,rhs) = split_on_symbol("NEUMANNINTEGRAL", rhs,sz);
         end
     end
     
@@ -290,16 +362,22 @@ function sp_parse(ex, var; is_FV::Bool=false, is_flux::Bool=false)
     if timederiv
         log_entry("SP dtLHS = "*string(dtlhs), 3);
         log_entry("SP dtRHS = "*string(dtrhs), 3);
-        if has_surface
-            log_entry("SP surfLHS = "*string(surflhs), 3);
-            log_entry("SP surfRHS = "*string(surfrhs), 3);
-        end
-        
-    else
-        if has_surface
-            log_entry("SP surfLHS = "*string(surflhs), 3);
-            log_entry("SP surfRHS = "*string(surfrhs), 3);
-        end
+    end
+    if has_surface
+        log_entry("SP surfLHS = "*string(surflhs), 3);
+        log_entry("SP surfRHS = "*string(surfrhs), 3);
+    end
+    if has_bdry
+        log_entry("SP bdryLHS = "*string(bdrylhs), 3);
+        log_entry("SP bdryRHS = "*string(bdryrhs), 3);
+    end
+    if has_Dbdry
+        log_entry("SP dirichletLHS = "*string(dbdrylhs), 3);
+        log_entry("SP dirichletRHS = "*string(dbdryrhs), 3);
+    end
+    if has_Nbdry
+        log_entry("SP neumannLHS = "*string(nbdrylhs), 3);
+        log_entry("SP neumannRHS = "*string(nbdryrhs), 3);
     end
     
     # Linearize any nonlinear terms and generate derivative functions
@@ -369,16 +447,45 @@ function sp_parse(ex, var; is_FV::Bool=false, is_flux::Bool=false)
             if stepper_type == MIXED_STEPPER && typeof(finch_state.time_stepper) <: Array
                 stepper_type = finch_state.time_stepper[1].type;
             end
+            before_modify_stringL = "Weak form, before modifying for time: Dt("*string(dtlhs)*") + "*string(lhs);
+            before_modify_stringR = " = "*string(rhs);
+            
             if has_surface
-                log_entry("Weak form, before modifying for time: Dt("*string(dtlhs)*") + "*string(lhs)*" + surface("*string(surflhs)*") = "*string(rhs)*" + surface("*string(surfrhs)*")");
+                before_modify_stringL *= " + surface("*string(surflhs)*")";
+                before_modify_stringR *= " + surface("*string(surfrhs)*")";
                 (newlhs, newrhs, newsurflhs, newsurfrhs, newnlt) = reformat_for_stepper(stepper_type, (dtlhs, lhs), rhs, surflhs, surfrhs, nlt);
-                log_entry("Weak form, modified for time stepping: "*string(newlhs)*" + surface("*string(newsurflhs)*") = "*string(newrhs)*" + surface("*string(newsurfrhs)*")");
+                after_modify_stringL = "Weak form, modified for time stepping: "*string(newlhs)*" + surface("*string(newsurflhs)*")";
+                after_modify_stringR = " = "*string(newrhs)*" + surface("*string(newsurfrhs)*")";
                 
             else # no surface
-                log_entry("Weak form, before modifying for time: Dt("*string(dtlhs)*") + "*string(lhs)*" = "*string(rhs));
                 (newlhs, newrhs, newnlt) = reformat_for_stepper(stepper_type, (dtlhs, lhs), rhs, nothing, nothing, nlt);
-                log_entry("Weak form, modified for time stepping: "*string(newlhs)*" = "*string(newrhs));
+                after_modify_stringL = "Weak form, modified for time stepping: "*string(newlhs);
+                after_modify_stringR = " = "*string(newrhs);
             end
+            
+            # boundary integrals are not modified.
+            if has_bdry
+                before_modify_stringL *= " + boundary("*string(bdrylhs)*")";
+                before_modify_stringR *= " + boundary("*string(bdryrhs)*")";
+                after_modify_stringL *= " + boundary("*string(bdrylhs)*")";
+                after_modify_stringR *= " + boundary("*string(bdryrhs)*")";
+            end
+            if has_Dbdry
+                before_modify_stringL *= " + dirichletBoundary("*string(dbdrylhs)*")";
+                before_modify_stringR *= " + dirichletBoundary("*string(dbdryrhs)*")";
+                after_modify_stringL *= " + dirichletBoundary("*string(dbdrylhs)*")";
+                after_modify_stringR *= " + dirichletBoundary("*string(dbdryrhs)*")";
+            end
+            if has_Nbdry
+                before_modify_stringL *= " + neumannBoundary("*string(nbdrylhs)*")";
+                before_modify_stringR *= " + neumannBoundary("*string(nbdryrhs)*")";
+                after_modify_stringL *= " + neumannBoundary("*string(nbdrylhs)*")";
+                after_modify_stringR *= " + neumannBoundary("*string(nbdryrhs)*")";
+            end
+            
+            # this was all just to print to the log?
+            log_entry(before_modify_stringL * before_modify_stringR);
+            log_entry(after_modify_stringL * after_modify_stringR);
         end
         
     else # no time stepper
@@ -389,6 +496,13 @@ function sp_parse(ex, var; is_FV::Bool=false, is_flux::Bool=false)
             newsurflhs = surflhs;
             newsurfrhs = surfrhs;
         end
+    end
+    
+    lhs = newlhs;
+    rhs = newrhs;
+    if has_surface
+        surflhs = newsurflhs;
+        surfrhs = newsurfrhs;
     end
     
     # # Linearize any nonlinear terms and generate derivative functions
@@ -487,33 +601,20 @@ function sp_parse(ex, var; is_FV::Bool=false, is_flux::Bool=false)
     # end
     
     # Parse Basic->Expr and insert placeholders
-    if is_FV || has_surface
-        newlhs = basic_to_expr_and_place(newlhs, placeholders)
-        newrhs = basic_to_expr_and_place(newrhs, placeholders)
-        newsurflhs = basic_to_expr_and_place(newsurflhs, placeholders)
-        newsurfrhs = basic_to_expr_and_place(newsurfrhs, placeholders)
-        # Build a SymExpression for each of the pieces. 
-        (lhs_symexpr, rhs_symexpr, lhs_surf_symexpr, rhs_surf_symexpr) = build_symexpressions(var, newlhs, newrhs, newsurflhs, newsurfrhs, remove_zeros=true);
-        lhs = lhs_symexpr;
-        rhs = rhs_symexpr;
-        surflhs = lhs_surf_symexpr;
-        surfrhs = rhs_surf_symexpr;
-        
-    else #FE with no surface
-        lhs = basic_to_expr_and_place(newlhs, placeholders)
-        rhs = basic_to_expr_and_place(newrhs, placeholders)
-        # Build a SymExpression for each of the pieces. 
-        (lhs_symexpr, rhs_symexpr) = build_symexpressions(var, lhs, rhs, remove_zeros=true);
-        lhs = lhs_symexpr;
-        rhs = rhs_symexpr;
-    end
+    lhs = basic_to_expr_and_place(lhs, placeholders)
+    rhs = basic_to_expr_and_place(rhs, placeholders)
+    surflhs = basic_to_expr_and_place(surflhs, placeholders)
+    surfrhs = basic_to_expr_and_place(surfrhs, placeholders)
+    bdrylhs = basic_to_expr_and_place(bdrylhs, placeholders)
+    bdryrhs = basic_to_expr_and_place(bdryrhs, placeholders)
+    dbdrylhs = basic_to_expr_and_place(dbdrylhs, placeholders)
+    dbdryrhs = basic_to_expr_and_place(dbdryrhs, placeholders)
+    nbdrylhs = basic_to_expr_and_place(nbdrylhs, placeholders)
+    nbdryrhs = basic_to_expr_and_place(nbdryrhs, placeholders)
     
-    # Returns
-    if has_surface
-        return (lhs, rhs, surflhs, surfrhs);
-    else
-        return (lhs, rhs);
-    end
+    resultExpressions = build_symexpressions(var, [lhs, rhs, surflhs, surfrhs, bdrylhs, bdryrhs, dbdrylhs, dbdryrhs, nbdrylhs, nbdryrhs], remove_zeros=true);
+    
+    return resultExpressions;
 end
 
 # Replaces parameter symbols with their values
@@ -593,7 +694,7 @@ function replace_symbols(ex)
                 return cname;
             end
         end
-        # none of them?
+        # none of them? just return as is
         return ex;
     elseif typeof(ex) == Expr && length(ex.args) > 0
         for i=1:length(ex.args)
@@ -910,26 +1011,14 @@ function get_all_terms(ex)
     return terms;
 end
 
-function check_for_dt(terms)
+function check_for_symbol(terms, symb)
     result = false;
     if typeof(terms) <: Array
         for i=1:length(terms)
-            result = result || check_for_dt(terms[i]);
+            result = result || check_for_symbol(terms[i], symb);
         end
     else
-        result = occursin("TIMEDERIV", string(terms));
-    end
-    return result;
-end
-
-function check_for_surface(terms)
-    result = false;
-    if typeof(terms) <: Array
-        for i=1:length(terms)
-            result = result || check_for_surface(terms[i]);
-        end
-    else
-        result = occursin("SURFACEINTEGRAL", string(terms));
+        result = occursin(string(symb), string(terms));
     end
     return result;
 end
@@ -1076,38 +1165,34 @@ function split_left_right_nonlinear(sterms,sz,var)
     return (lhs, rhs, nl, nlv);
 end
 
-function split_dt(terms, sz)
-    hasdt = copy(terms); # set up the container right
-    nodt = copy(terms);
-    TIMEDERIV = symbols("TIMEDERIV"); # will be removed from terms
+function split_on_symbol(sym, terms, sz)
+    hassymbol = copy(terms); # set up the container right
+    nosymbol = copy(terms);
+    specialSymbol = symbols(sym); # will be removed from terms
     if length(sz) == 1 # vector or scalar
         for i=1:sz[1]
-            hasdt[i] = Array{Basic,1}(undef,0);
-            nodt[i] = Array{Basic,1}(undef,0);
+            hassymbol[i] = Array{Basic,1}(undef,0);
+            nosymbol[i] = Array{Basic,1}(undef,0);
             for ti=1:length(terms[i])
-                if check_for_dt(terms[i][ti])
-                    #println("hasdt: "*string(terms[i][ti]));
-                    terms[i][ti] = subs(terms[i][ti], TIMEDERIV=>1);
-                    push!(hasdt[i], terms[i][ti]);
+                if check_for_symbol(terms[i][ti], sym)
+                    terms[i][ti] = subs(terms[i][ti], specialSymbol=>1);
+                    push!(hassymbol[i], terms[i][ti]);
                 else
-                    #println("nodt: "*string(terms[i][ti]));
-                    push!(nodt[i], terms[i][ti]);
+                    push!(nosymbol[i], terms[i][ti]);
                 end
             end
         end
     elseif length(sz) == 2 # matrix
         for j=1:sz[2]
             for i=1:sz[1]
-                hasdt[i,j] = Array{Basic,1}(undef,0);
-                nodt[i,j] = Array{Basic,1}(undef,0);
+                hassymbol[i,j] = Array{Basic,1}(undef,0);
+                nosymbol[i,j] = Array{Basic,1}(undef,0);
                 for ti=1:length(terms[i,j])
-                    if check_for_dt(terms[i,j][ti])
-                        #println("hasdt: "*string(terms[i,j][ti]));
-                        terms[i,j][ti] = subs(terms[i,j][ti], TIMEDERIV=>1);
-                        push!(hasdt[i,j], terms[i,j][ti]);
+                    if check_for_symbol(terms[i,j][ti], sym)
+                        terms[i,j][ti] = subs(terms[i,j][ti], specialSymbol=>1);
+                        push!(hassymbol[i,j], terms[i,j][ti]);
                     else
-                        #println("nodt: "*string(terms[i,j][ti]));
-                        push!(nodt[i,j], terms[i,j][ti]);
+                        push!(nosymbol[i,j], terms[i,j][ti]);
                     end
                 end
             end
@@ -1116,16 +1201,14 @@ function split_dt(terms, sz)
         for k=1:sz[3]
             for j=1:sz[2]
                 for i=1:sz[1]
-                    hasdt[i,j,k] = Array{Basic,1}(undef,0);
-                    nodt[i,j,k] = Array{Basic,1}(undef,0);
+                    hassymbol[i,j,k] = Array{Basic,1}(undef,0);
+                    nosymbol[i,j,k] = Array{Basic,1}(undef,0);
                     for ti=1:length(terms[i,j,k])
-                        if check_for_dt(terms[i,j,k][ti])
-                            #println("hasdt: "*string(terms[i,j,k][ti]));
-                            terms[i,j,k][ti] = subs(terms[i,j,k][ti], TIMEDERIV=>1);
-                            push!(hasdt[i,j,k], terms[i,j,k][ti]);
+                        if check_for_symbol(terms[i,j,k][ti], sym)
+                            terms[i,j,k][ti] = subs(terms[i,j,k][ti], specialSymbol=>1);
+                            push!(hassymbol[i,j,k], terms[i,j,k][ti]);
                         else
-                            #println("nodt: "*string(terms[i,j,k][ti]));
-                            push!(nodt[i,j,k], terms[i,j,k][ti]);
+                            push!(nosymbol[i,j,k], terms[i,j,k][ti]);
                         end
                     end
                 end
@@ -1133,61 +1216,7 @@ function split_dt(terms, sz)
         end
     end
     
-    return (hasdt, nodt);
-end
-
-function split_surf(terms, sz)
-    hassurf = copy(terms); # set up the container right
-    nosurf = copy(terms);
-    SURFACEINTEGRAL = symbols("SURFACEINTEGRAL"); # will be removed from terms
-    if length(sz) == 1 # vector or scalar
-        for i=1:sz[1]
-            hassurf[i] = Array{Basic,1}(undef,0);
-            nosurf[i] = Array{Basic,1}(undef,0);
-            for ti=1:length(terms[i])
-                if check_for_surface(terms[i][ti])
-                    terms[i][ti] = subs(terms[i][ti], SURFACEINTEGRAL=>1);
-                    push!(hassurf[i], terms[i][ti]);
-                else
-                    push!(nosurf[i], terms[i][ti]);
-                end
-            end
-        end
-    elseif length(sz) == 2 # matrix
-        for j=1:sz[2]
-            for i=1:sz[1]
-                hassurf[i,j] = Array{Basic,1}(undef,0);
-                nosurf[i,j] = Array{Basic,1}(undef,0);
-                for ti=1:length(terms[i,j])
-                    if check_for_surface(terms[i,j][ti])
-                        terms[i,j][ti] = subs(terms[i,j][ti], SURFACEINTEGRAL=>1);
-                        push!(hassurf[i,j], terms[i,j][ti]);
-                    else
-                        push!(nosurf[i,j], terms[i,j][ti]);
-                    end
-                end
-            end
-        end
-    elseif length(sz) == 3 # rank 3
-        for k=1:sz[3]
-            for j=1:sz[2]
-                for i=1:sz[1]
-                    hassurf[i,j,k] = Array{Basic,1}(undef,0);
-                    nosurf[i,j,k] = Array{Basic,1}(undef,0);
-                    for ti=1:length(terms[i,j,k])
-                        if check_for_surface(terms[i,j,k][ti])
-                            terms[i,j,k][ti] = subs(terms[i,j,k][ti], SURFACEINTEGRAL=>1);
-                            push!(hassurf[i,j,k], terms[i,j,k][ti]);
-                        else
-                            push!(nosurf[i,j,k], terms[i,j,k][ti]);
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    return (hassurf, nosurf);
+    return (hassymbol, nosymbol);
 end
 
 # Parse Basic into Expr and insert placeholders
@@ -1237,7 +1266,7 @@ function basic_to_expr_and_place(ex, placeholders)
         
         return ex;
         
-    else # could be a number or string or something
+    else # could be a number or string or something or nothing
         return ex;
     end
 end

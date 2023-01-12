@@ -49,7 +49,7 @@ function sym_transpose_op(a)
 end
 
 #########################################################################
-# Special ops for DG
+# Special ops for other integrals
 
 # Surface integral
 function sym_surface_op(ex)
@@ -67,6 +67,59 @@ function sym_surface_op(ex)
     
     return newex;
 end
+
+# Boundary surface integral
+function sym_boundary_op(ex)
+    newex = copy(ex);
+    BOUNDARYINTEGRAL = symbols("BOUNDARYINTEGRAL");
+    if typeof(ex) <: Array
+        for i=1:length(ex)
+            newex[i] = sym_boundary_op(newex[i]);
+        end
+    elseif typeof(ex) == Basic
+        return BOUNDARYINTEGRAL*ex;
+    elseif typeof(ex) <: Number
+        return BOUNDARYINTEGRAL*ex;
+    end
+    
+    return newex;
+end
+
+# Dirichlet Boundary surface integral
+function sym_dirichletBoundary_op(ex)
+    newex = copy(ex);
+    DIRICHLETINTEGRAL = symbols("DIRICHLETINTEGRAL");
+    if typeof(ex) <: Array
+        for i=1:length(ex)
+            newex[i] = sym_dirichletBoundary_op(newex[i]);
+        end
+    elseif typeof(ex) == Basic
+        return DIRICHLETINTEGRAL*ex;
+    elseif typeof(ex) <: Number
+        return DIRICHLETINTEGRAL*ex;
+    end
+    
+    return newex;
+end
+
+# Neumann Boundary surface integral
+function sym_neumannBoundary_op(ex)
+    newex = copy(ex);
+    NEUMANNINTEGRAL = symbols("NEUMANNINTEGRAL");
+    if typeof(ex) <: Array
+        for i=1:length(ex)
+            newex[i] = sym_neumannBoundary_op(newex[i]);
+        end
+    elseif typeof(ex) == Basic
+        return NEUMANNINTEGRAL*ex;
+    elseif typeof(ex) <: Number
+        return NEUMANNINTEGRAL*ex;
+    end
+    
+    return newex;
+end
+
+# Special ops for DG
 
 function sym_ave_op(var)
     #prefix = "DGAVERAGE_";
@@ -169,6 +222,22 @@ function sym_normal_op(side)
         return [_FACENORMAL_1, _FACENORMAL_2];
     elseif d==3
         return [_FACENORMAL_1, _FACENORMAL_2, _FACENORMAL_3];
+    end
+end
+
+#############################
+# Specific to shifted boundary method
+function sym_trueNormal_op()
+    _TRUENORMAL_1 = symbols("_TRUENORMAL_1");
+    _TRUENORMAL_2 = symbols("_TRUENORMAL_2");
+    _TRUENORMAL_3 = symbols("_TRUENORMAL_3");
+    d = finch_state.config.dimension;
+    if d==1
+        return [_TRUENORMAL_1];
+    elseif d==2
+        return [_TRUENORMAL_1, _TRUENORMAL_2];
+    elseif d==3
+        return [_TRUENORMAL_1, _TRUENORMAL_2, _TRUENORMAL_3];
     end
 end
 
@@ -667,12 +736,15 @@ end
 
 # Load them into the global arrays
 function load_basic_ops()
-    op_names = [:dot, :inner, :cross, :transpose, :surface, :ave, :jump, :normal, 
+    op_names = [:dot, :inner, :cross, :transpose, :surface, :boundary, :dirichletBoundary, :neumannBoundary, :ave, :jump, 
+                :normal, :trueNormal,
                 :Dt, :deriv, :grad, :div, :curl, :laplacian,
                 :left, :right, :central, :neighborhood, :upwind, :upwindA, :burgerGodunov,
                 :exp, :sin, :cos, :tan, :abs, :sinh, :cosh, :tanh];
-    _handles = [sym_dot_op, sym_inner_op, sym_cross_op, sym_transpose_op, sym_surface_op, sym_ave_op, sym_jump_op, 
-                sym_normal_op, sym_Dt_op, sym_deriv_op, sym_grad_op, 
+    _handles = [sym_dot_op, sym_inner_op, sym_cross_op, sym_transpose_op, sym_surface_op, sym_boundary_op, sym_dirichletBoundary_op,
+                sym_neumannBoundary_op, sym_ave_op, sym_jump_op, 
+                sym_normal_op, sym_trueNormal_op,
+                sym_Dt_op, sym_deriv_op, sym_grad_op, 
                 sym_div_op, sym_curl_op, sym_laplacian_op,
                 sym_left_op, sym_right_op, sym_central_op, sym_neighborhood_op, sym_upwind_op, sym_upwindA_op, sym_burgerGodunov_op,
                 sym_exp_op, sym_sin_op, sym_cos_op, sym_tan_op, sym_abs_op, sym_sinh_op, sym_cosh_op, sym_tanh_op];

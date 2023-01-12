@@ -18,10 +18,15 @@ build mat
     solve+place
 )
 =#
-function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config, prob, time_stepper)
+# function build_IR_fem(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config, prob, time_stepper)
+function build_IR_fem(input_exprs, var, indices, config, prob, time_stepper)
+    lhs_vol = input_exprs[1];
+    rhs_vol = input_exprs[2];
+    lhs_surf = input_exprs[3];
+    rhs_surf = input_exprs[4];
     # Some targets need a different kind of IR
     if finch_state.target_framework == "Dendrite"
-        return build_IR_fem_dendrite(lhs_vol, lhs_surf, rhs_vol, rhs_surf, var, indices, config, prob, time_stepper);
+        return build_IR_fem_dendrite(input_exprs, var, indices, config, prob, time_stepper);
     end
     #
     
