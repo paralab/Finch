@@ -241,6 +241,33 @@ function sym_trueNormal_op()
     end
 end
 
+function sym_distanceToBoundary_op()
+    _DIST2BDRY_1 = symbols("_DIST2BDRY_1");
+    _DIST2BDRY_2 = symbols("_DIST2BDRY_2");
+    _DIST2BDRY_3 = symbols("_DIST2BDRY_3");
+    d = finch_state.config.dimension;
+    if d==1
+        return [_DIST2BDRY_1];
+    elseif d==2
+        return [_DIST2BDRY_1, _DIST2BDRY_2];
+    elseif d==3
+        return [_DIST2BDRY_1, _DIST2BDRY_2, _DIST2BDRY_3];
+    end
+end
+
+function sym_dirichletValue_op()
+    return [symbols("BOUNDARYVALUE")];
+end
+function sym_neumannValue_op()
+    return [symbols("BOUNDARYVALUE")];
+end
+function sym_elementDiameter_op()
+    return [symbols("ELEMENTDIAMETER")];
+end
+function sym_elementVolume_op()
+    return [symbols("ELEMENTVOLUME")];
+end
+
 #########################################################################
 # derivative ops
 #########################################################################
@@ -737,13 +764,14 @@ end
 # Load them into the global arrays
 function load_basic_ops()
     op_names = [:dot, :inner, :cross, :transpose, :surface, :boundary, :dirichletBoundary, :neumannBoundary, :ave, :jump, 
-                :normal, :trueNormal,
+                :normal, :trueNormal, :distanceToBoundary, :dirichletValue, :neumannValue, :elementDiameter, :elementVolume,
                 :Dt, :deriv, :grad, :div, :curl, :laplacian,
                 :left, :right, :central, :neighborhood, :upwind, :upwindA, :burgerGodunov,
                 :exp, :sin, :cos, :tan, :abs, :sinh, :cosh, :tanh];
     _handles = [sym_dot_op, sym_inner_op, sym_cross_op, sym_transpose_op, sym_surface_op, sym_boundary_op, sym_dirichletBoundary_op,
                 sym_neumannBoundary_op, sym_ave_op, sym_jump_op, 
-                sym_normal_op, sym_trueNormal_op,
+                sym_normal_op, sym_trueNormal_op, sym_distanceToBoundary_op, sym_dirichletValue_op, sym_neumannValue_op,
+                sym_elementDiameter_op, sym_elementVolume_op,
                 sym_Dt_op, sym_deriv_op, sym_grad_op, 
                 sym_div_op, sym_curl_op, sym_laplacian_op,
                 sym_left_op, sym_right_op, sym_central_op, sym_neighborhood_op, sym_upwind_op, sym_upwindA_op, sym_burgerGodunov_op,

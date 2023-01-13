@@ -10,6 +10,13 @@ function build_IR_fem_dendrite(input_exprs, var, indices, config, prob, time_ste
     rhs_vol = input_exprs[2];
     lhs_surf = input_exprs[3];
     rhs_surf = input_exprs[4];
+    lhs_bdry = input_exprs[5];
+    rhs_bdry = input_exprs[6];
+    lhs_dbdry = input_exprs[7];
+    rhs_dbdry = input_exprs[8];
+    lhs_nbdry = input_exprs[9];
+    rhs_nbdry = input_exprs[10];
+    
     dimension = config.dimension;
     refel = finch_state.refel;
     # Count variables, dofs, and store offsets
@@ -33,15 +40,6 @@ function build_IR_fem_dendrite(input_exprs, var, indices, config, prob, time_ste
         dofsper = var[1].total_components;
         dofsper_loop = length(var[1].symvar);
     end
-    # Is jacobian constant?
-    if ((config.geometry == SQUARE && config.mesh_type == UNIFORM_GRID) ||
-        config.dimension == 1 ||
-        (config.dimension == 2 && refel.Nfaces == 3) ||
-        (config.dimension == 3 && refel.Nfaces == 4) )
-        constantJ = true;
-    else
-        constantJ = false;
-    end
     
     IRtypes = IR_entry_types();
     
@@ -53,67 +51,82 @@ function build_IR_fem_dendrite(input_exprs, var, indices, config, prob, time_ste
     mat_coefficient_block = IR_block_node([],"prepare matrix");
     vec_face_coefficient_block = IR_block_node([],"prepare vector face");
     mat_face_coefficient_block = IR_block_node([],"prepare matrix face");
+    vec_bdry_coefficient_block = IR_block_node([],"prepare vector boundary");
+    mat_bdry_coefficient_block = IR_block_node([],"prepare matrix boundary");
+    vec_dbdry_coefficient_block = IR_block_node([],"prepare vector Dirichlet");
+    mat_dbdry_coefficient_block = IR_block_node([],"prepare matrix Dirichlet");
+    vec_nbdry_coefficient_block = IR_block_node([],"prepare vector Neumann");
+    mat_nbdry_coefficient_block = IR_block_node([],"prepare matrix Neumann");
     
     # elemental computation
     matrix_block = IR_block_node([],"elemental matrix");
     vector_block = IR_block_node([],"elemental vector");
     matrix_face_block = IR_block_node([],"face matrix");
     vector_face_block = IR_block_node([],"face vector");
-    
+    matrix_bdry_block = IR_block_node([],"boundary matrix");
+    vector_bdry_block = IR_block_node([],"boundary vector");
+    matrix_dbdry_block = IR_block_node([],"Dirichlet matrix");
+    vector_dbdry_block = IR_block_node([],"Dirichlet vector");
+    matrix_nbdry_block = IR_block_node([],"Neumann matrix");
+    vector_nbdry_block = IR_block_node([],"Neumann vector");
     
     # coefficient prep
     # a list of all entities and rhs only ones
-    lhs_entities = [];
-    rhs_entities = [];
-    separate_entities = [[],[],[],[]];
-    counts = zeros(Int,4); # how many entities for each piece 
+    separate_entities = [[],[],[],[],[],[],[],[],[],[]];
     
-    # LHS volume
-    if !(lhs_vol === nothing)
-        separate_entities[1] = extract_entities(lhs_vol);
-        append!(lhs_entities, separate_entities[1]);
-        counts[1] = length(separate_entities[1]);
-    end
-    
-    # RHS volume
-    if !(rhs_vol === nothing)
-        separate_entities[2] = extract_entities(rhs_vol);
-        append!(rhs_entities, separate_entities[2]);
-        counts[2] = length(separate_entities[2]);
-    end
-    
-    # LHS surface
-    if !(lhs_surf === nothing)
-        separate_entities[3] = extract_entities(lhs_surf);
-        append!(lhs_entities, separate_entities[3]);
-        counts[3] = length(separate_entities[3]);
-    end
-    
-    # RHS surface
-    if !(rhs_surf === nothing)
-        separate_entities[4] = extract_entities(rhs_surf);
-        append!(rhs_entities, separate_entities[4]);
-        counts[4] = length(separate_entities[4]);
+    # extract entities for each piece
+    for i=1:10
+        if !(input_exprs[i] === nothing)
+            separate_entities[i] = extract_entities(input_exprs[i]);
+        end
     end
     
     # coefficient perparation
     coef = prepare_coefficient_values_fem_dendrite(separate_entities[1], var, dimension, 1); # LHS volume
-    push!(mat_coefficient_block.parts, IR_comment_node("Evaluate coefficients for matrix."));
+    push!(mat_coefficient_block.parts, IR_comment_node("Evaluate coefficients for volume matrix."));
     append!(mat_coefficient_block.parts, coef);
     
     coef = prepare_coefficient_values_fem_dendrite(separate_entities[2], var, dimension, 2); # RHS volume
-    push!(vec_coefficient_block.parts, IR_comment_node("Evaluate coefficients for vector."));
+    push!(vec_coefficient_block.parts, IR_comment_node("Evaluate coefficients for volume vector."));
     append!(vec_coefficient_block.parts, coef);
     
     # surface coefficients
     coef = prepare_coefficient_values_fem_dendrite(separate_entities[3], var, dimension, 3); # LHS surface
-    push!(mat_face_coefficient_block.parts, IR_comment_node("For face"));
+    push!(mat_face_coefficient_block.parts, IR_comment_node("Evaluate coefficients for surface matrix."));
     append!(mat_face_coefficient_block.parts, coef);
     
     coef = prepare_coefficient_values_fem_dendrite(separate_entities[4], var, dimension, 4); # RHS surface
-    push!(vec_face_coefficient_block.parts, IR_comment_node("For face"));
+    push!(vec_face_coefficient_block.parts, IR_comment_node("Evaluate coefficients for surface vector."));
     append!(vec_face_coefficient_block.parts, coef);
-        
+    
+    # bdry coefficients
+    coef = prepare_coefficient_values_fem_dendrite(separate_entities[5], var, dimension, 5); # LHS bdry
+    push!(mat_bdry_coefficient_block.parts, IR_comment_node("Evaluate coefficients for boundary matrix."));
+    append!(mat_bdry_coefficient_block.parts, coef);
+    
+    coef = prepare_coefficient_values_fem_dendrite(separate_entities[6], var, dimension, 6); # RHS bdry
+    push!(vec_bdry_coefficient_block.parts, IR_comment_node("Evaluate coefficients for boundary vector."));
+    append!(vec_bdry_coefficient_block.parts, coef);
+    
+    # dirichlet bdry coefficients
+    coef = prepare_coefficient_values_fem_dendrite(separate_entities[7], var, dimension, 7); # LHS bdry
+    push!(mat_dbdry_coefficient_block.parts, IR_comment_node("Evaluate coefficients for Dirichlet boundary matrix."));
+    append!(mat_dbdry_coefficient_block.parts, coef);
+    
+    coef = prepare_coefficient_values_fem_dendrite(separate_entities[8], var, dimension, 8); # RHS bdry
+    push!(vec_dbdry_coefficient_block.parts, IR_comment_node("Evaluate coefficients for Dirichlet boundary vector."));
+    append!(vec_dbdry_coefficient_block.parts, coef);
+    
+    # neumann bdry coefficients
+    coef = prepare_coefficient_values_fem_dendrite(separate_entities[9], var, dimension, 9); # LHS bdry
+    push!(mat_nbdry_coefficient_block.parts, IR_comment_node("Evaluate coefficients for Neumann boundary matrix."));
+    append!(mat_nbdry_coefficient_block.parts, coef);
+    
+    coef = prepare_coefficient_values_fem_dendrite(separate_entities[10], var, dimension, 10); # RHS bdry
+    push!(vec_nbdry_coefficient_block.parts, IR_comment_node("Evaluate coefficients for Neumann boundary vector."));
+    append!(vec_nbdry_coefficient_block.parts, coef);
+    
+    
     # computation
     if !(lhs_vol === nothing)
         lhsvol_terms = process_terms(lhs_vol);
@@ -131,46 +144,58 @@ function build_IR_fem_dendrite(input_exprs, var, indices, config, prob, time_ste
         rhssurf_terms = process_terms(rhs_surf);
         push!(vector_face_block.parts, make_elemental_computation_fem_dendrite(rhssurf_terms, var, dofsper, offset_ind, RHS, "surface"));
     end
-    
-    #############################################################################################################
-    ## The face loop is only included when needed
-    need_face_loop =  (!(rhs_surf === nothing) && !is_empty_expression(rhs_surf)) || 
-                      (!(lhs_surf === nothing)  && !is_empty_expression(lhs_surf));
-    if need_face_loop
-        
-    else
-        
+    if !(lhs_bdry === nothing) 
+        lhs_bdry_terms = process_terms(lhs_bdry);
+        push!(matrix_bdry_block.parts, make_elemental_computation_fem_dendrite(lhs_bdry_terms, var, dofsper, offset_ind, LHS, "boundary"));
     end
-    ## end face loop block
-    ##########################################################################################################################
-    
-    # Package it all in one piece to add to master
-    if prob.time_dependent
-        if prob.nonlinear
-            
-        else # linear
-            
-        end
-        
-    else # stationary
-        if prob.nonlinear
-            
-        else # linear
-            
-        end
+    if !(rhs_bdry === nothing)
+        rhs_bdry_terms = process_terms(rhs_bdry);
+        push!(vector_bdry_block.parts, make_elemental_computation_fem_dendrite(rhs_bdry_terms, var, dofsper, offset_ind, RHS, "boundary"));
+    end
+    if !(lhs_dbdry === nothing) 
+        lhs_dbdry_terms = process_terms(lhs_dbdry);
+        push!(matrix_dbdry_block.parts, make_elemental_computation_fem_dendrite(lhs_dbdry_terms, var, dofsper, offset_ind, LHS, "dirichlet"));
+    end
+    if !(rhs_dbdry === nothing)
+        rhs_dbdry_terms = process_terms(rhs_dbdry);
+        push!(vector_dbdry_block.parts, make_elemental_computation_fem_dendrite(rhs_dbdry_terms, var, dofsper, offset_ind, RHS, "dirichlet"));
+    end
+    if !(lhs_nbdry === nothing) 
+        lhs_nbdry_terms = process_terms(lhs_nbdry);
+        push!(matrix_nbdry_block.parts, make_elemental_computation_fem_dendrite(lhs_nbdry_terms, var, dofsper, offset_ind, LHS, "neumann"));
+    end
+    if !(rhs_nbdry === nothing)
+        rhs_nbdry_terms = process_terms(rhs_nbdry);
+        push!(vector_nbdry_block.parts, make_elemental_computation_fem_dendrite(rhs_nbdry_terms, var, dofsper, offset_ind, RHS, "neumann"));
     end
     
     # Put them all together in a master block
+    # For this target they can just be put in directly like this
+    # because the code generator will just insert these pieces where needed.
     master_block = IR_block_node([
         allocate_block,
+        
         mat_coefficient_block,
         vec_coefficient_block,
         mat_face_coefficient_block,
         vec_face_coefficient_block,
+        mat_bdry_coefficient_block,
+        vec_bdry_coefficient_block,
+        mat_dbdry_coefficient_block,
+        vec_dbdry_coefficient_block,
+        mat_nbdry_coefficient_block,
+        vec_nbdry_coefficient_block,
+        
         matrix_block,
         vector_block,
         matrix_face_block,
-        vector_face_block
+        vector_face_block,
+        matrix_bdry_block,
+        vector_bdry_block,
+        matrix_dbdry_block,
+        vector_dbdry_block,
+        matrix_nbdry_block,
+        vector_nbdry_block,
     ],"master");
     
     return master_block;
@@ -190,35 +215,36 @@ function prepare_coefficient_values_fem_dendrite(entities, var, dimension, group
     coef_part = Vector{IR_part}(undef,0); # Coefficient evaluation/preparation inside elemental loop
     
     # Check to see if derivative matrices are needed
-    needed_derivative_matrices = fill(false, 8); # 1,2,3 = x,y,z quadrature points, 5,6,7 = nodes
+    # needed_derivative_matrices = fill(false, 8); # 1,2,3 = x,y,z quadrature points, 5,6,7 = nodes
     need_normals = false;
     
     unique_entity_names = []; # avoid duplicate names
     
-    # This loop evaluates coefficient functions INSIDE THE ELEMENTAL LOOP
-    # If these are to be precomputed, this must change.
-    if group < 3 # volume integrals
-        # node coordinates are already available
-        
-    else # surface integrals
-        # node coordinates are available, but what about normals and area?
+    # Is it LHS or RHS
+    if group in [1,3,5,7,9]
+        leftOrRight = LHS;
+    else
+        leftOrRight = RHS;
     end
     
-    if group == 1 
-        lorr = LHS; vors = "volume";
-    elseif group == 2
-        lorr = RHS; vors = "volume";
-    elseif group == 3
-        lorr = LHS; vors = "surface";
+    # What kind of integral is it?
+    if group < 3
+        integral = "volume";
+    elseif group < 5
+        integral = "surface";
+    elseif group < 7
+        integral = "boundary";
+    elseif group < 9
+        integral = "dirichlet";
     else 
-        lorr = RHS; vors = "surface";
+        integral = "neumann";
     end
     
     # Loop over entities to perpare for each one
     for i=1:length(entities)
         if is_test_function(entities[i])
             # Do nothing
-        elseif is_unknown_var(entities[i], var) && lorr == LHS
+        elseif is_unknown_var(entities[i], var) && leftOrRight == LHS
             # Do nothing
         else  # It is a coefficient(number or function) or known variable(array)
             cname = make_entity_name(entities[i]);
@@ -237,7 +263,7 @@ function prepare_coefficient_values_fem_dendrite(entities, var, dimension, group
             
             (ctype, cval) = get_coef_val(entities[i]);
             if ctype == -1
-                # It was a special symbol like dt or normal
+                # It was a special symbol like dt or normal or something
                 if entities[i].name == "FACENORMAL1" || entities[i].name == "FACENORMAL2"
                     need_normals = true;
                 end
@@ -278,7 +304,7 @@ function prepare_coefficient_values_fem_dendrite(entities, var, dimension, group
                     index_IR = entities[i].index;
                 end
                 # Assign the value
-                if vors == "volume"
+                if integral in ["volume","surface","boundary","dirichlet","neumann"]
                     coef_index = get_coef_index(entities[i]);
                     
                     push!(coef_part, IR_operation_node(IRtypes.assign_op,[
@@ -286,8 +312,9 @@ function prepare_coefficient_values_fem_dendrite(entities, var, dimension, group
                         IR_operation_node(IRtypes.named_op, [:COEF_EVAL, coef_index, index_IR, :x, :y, :z, :t, :nodeID, 0, :index_values])
                     ]));
                     
-                else # surface
-                    # TODO
+                else # other integral types
+                    # 
+                    println("unexpected integral type: "*integral);
                 end
                 
             elseif ctype == 3 # a known variable value
@@ -319,7 +346,7 @@ function prepare_coefficient_values_fem_dendrite(entities, var, dimension, group
                     index_IR = entities[i].index;
                 end
                 
-                if vors == "volume"
+                if integral in ["volume","surface","boundary","dirichlet","neumann"]
                     # This should only happen when refering to the value from a previous time step
                     # in which case it should be in prev_solution.
                     # Need to figure out the dofind
@@ -353,8 +380,9 @@ function prepare_coefficient_values_fem_dendrite(entities, var, dimension, group
                         ]));
                     end
                     
-                else # surface
-                    # TODO
+                else # If another integral type is different
+                    #
+                    println("unexpected integral type: "*integral);
                 end
             end
         end # if coefficient
@@ -383,7 +411,7 @@ for row=...
     b[row] += N;
 end
 =#
-function make_elemental_computation_fem_dendrite(terms, var, dofsper, offset_ind, lorr, vors)
+function make_elemental_computation_fem_dendrite(terms, var, dofsper, offset_ind, leftOrRight, integral)
     # Here is where I make some assumption about the form of the expression.
     # Since it was expanded by the parser it should look like a series of terms: t1 + t2 + t3...
     # Where each term is multiplied by one test function component, and if LHS, involves one unknown component.
@@ -405,7 +433,7 @@ function make_elemental_computation_fem_dendrite(terms, var, dofsper, offset_ind
     # Separate the factors of each term into test, trial, coef and form the calculation
     if dofsper > 1
         # # Submatrices or subvectors for each component
-        # if lorr == LHS
+        # if leftOrRight == LHS
         #     submatrices = Array{Vector{IR_part}, 2}(undef, dofsper, dofsper);
         #     for i=1:dofsper
         #         for j=1:dofsper
@@ -424,11 +452,11 @@ function make_elemental_computation_fem_dendrite(terms, var, dofsper, offset_ind
         #         # Process the terms for this variable
         #         for ci=1:length(terms[vi]) # components
         #             for i=1:length(terms[vi][ci])
-        #                 (test_part, trial_part, coef_part, test_ind, trial_ind) = generate_term_calculation_fem_dendrite(terms[vi][ci][i], var, lorr, vors, finch_state.config, finch_state.refel);
+        #                 (test_part, trial_part, coef_part, test_ind, trial_ind) = generate_term_calculation_fem_dendrite(terms[vi][ci][i], var, leftOrRight, integral, finch_state.config, finch_state.refel);
                         
         #                 # Turn these three parts into an expression like A'DB or A'Dv = A'd
         #                 # Where D is a diagonal matrix specified by a vector in the IR
-        #                 if lorr == LHS
+        #                 if leftOrRight == LHS
         #                     term_IR = IR_operation_node(IRtypes.named_op, [:LINALG_TDM, test_part, coef_part, trial_part]);
         #                 else
         #                     term_IR = IR_operation_node(IRtypes.named_op, [:LINALG_Tv, test_part, coef_part]);
@@ -437,7 +465,7 @@ function make_elemental_computation_fem_dendrite(terms, var, dofsper, offset_ind
         #                 # Find the appropriate submatrix for this term
         #                 submati = offset_ind[vi] + test_ind;
         #                 submatj = trial_ind;
-        #                 if lorr == LHS
+        #                 if leftOrRight == LHS
         #                     submat_ind = submati + dofsper * (submatj-1);
         #                 else
         #                     submat_ind = submati;
@@ -453,18 +481,18 @@ function make_elemental_computation_fem_dendrite(terms, var, dofsper, offset_ind
         #     # Process the terms for this variable
         #     for ci=1:length(terms) # components
         #         for i=1:length(terms[ci])
-        #             (test_part, trial_part, coef_part, test_ind, trial_ind) = generate_term_calculation_fem_dendrite(terms[ci][i], var, lorr, vors, finch_state.config, finch_state.refel);
+        #             (test_part, trial_part, coef_part, test_ind, trial_ind) = generate_term_calculation_fem_dendrite(terms[ci][i], var, leftOrRight, integral, finch_state.config, finch_state.refel);
                     
         #             # Turn these three parts into an expression like A'DB or A'Dv = A'd
         #             # Where D is a diagonal matrix specified by a vector in the IR
-        #             if lorr == LHS
+        #             if leftOrRight == LHS
         #                 term_IR = IR_operation_node(IRtypes.named_op, [:LINALG_TDM, test_part, coef_part, trial_part]);
         #             else
         #                 term_IR = IR_operation_node(IRtypes.named_op, [:LINALG_Tv, test_part, coef_part]);
         #             end
                     
         #             # Find the appropriate submatrix for this term
-        #             if lorr == LHS
+        #             if leftOrRight == LHS
         #                 submat_ind = test_ind + dofsper * (trial_ind-1);
         #             else
         #                 submat_ind = test_ind;
@@ -479,7 +507,7 @@ function make_elemental_computation_fem_dendrite(terms, var, dofsper, offset_ind
         # # Put the submatrices together into element_matrix or element_vector
         # num_nonzero_blocks = 0;
         
-        # if lorr == LHS
+        # if leftOrRight == LHS
         #     linalg_matrix_block_args = [];
         #     push!(linalg_matrix_block_args, :LINALG_MATMAT_BLOCKS);
         #     push!(linalg_matrix_block_args, 0);
@@ -552,12 +580,12 @@ function make_elemental_computation_fem_dendrite(terms, var, dofsper, offset_ind
         
         #process each term
         for i=1:length(terms)
-            (test_part, trial_part, coef_part, test_ind, trial_ind) = generate_term_calculation_fem_dendrite(terms[i], var, lorr, vors, finch_state.config, finch_state.refel);
+            (test_part, trial_part, coef_part, test_ind, trial_ind) = generate_term_calculation_fem_dendrite(terms[i], var, leftOrRight, integral, finch_state.config, finch_state.refel);
             
             # Turn these three parts into an expression like A'DB or A'Dv = A'd
             # Where D is a diagonal matrix specified by a vector in the IR
             # Note T=transpose matrix, D=diagonal matrix, M=matrix, v=vector, t=transpose vector
-            if lorr == LHS
+            if leftOrRight == LHS
                 # N += fe.XX(row...) * wdetj * coef_part * fe.YY(col...)
                 term_IR = IR_operation_node(IRtypes.math_op, [:*, test_part, coef_part, trial_part]);
             else
@@ -575,7 +603,7 @@ function make_elemental_computation_fem_dendrite(terms, var, dofsper, offset_ind
                 IR_data_node(IRtypes.float_data, :N), term_vec[i]]));
         end
         
-        if lorr == LHS
+        if leftOrRight == LHS
             # Ae(row,col) += N
             push!(compute_block.parts, IR_operation_node(IRtypes.math_assign_op,[:+,
                 #IR_data_node(IRtypes.float_data, :Ae, [:?,:?], [:row, :col]),
@@ -598,10 +626,10 @@ end
 # This takes a term expression that should have a form like test_part * (coef_parts) * trial_part
 # The parts are separated, test and trial parts are translated into quadrature matrices (refel.Q or RQn)
 # and they are returned as IR_parts
-function generate_term_calculation_fem_dendrite(term, var, lorr, vors, config, refel)
+function generate_term_calculation_fem_dendrite(term, var, leftOrRight, integral, config, refel)
     IRtypes = IR_entry_types();
     
-    if lorr == LHS
+    if leftOrRight == LHS
         (test_ex, trial_ex, coef_ex, test_ind, trial_ind) = separate_factors(term, var);
     else
         (test_ex, trial_ex, coef_ex, test_ind, trial_ind) = separate_factors(term);
@@ -624,9 +652,14 @@ function generate_term_calculation_fem_dendrite(term, var, lorr, vors, config, r
     
     # Determine the matrix corresponding to test and trial
     if typeof(test_ex) == SymEntity
-        if vors == "volume"
+        if integral in ["volume","surface","boundary","dirichlet","neumann"]
             if length(test_ex.derivs) == 2
-                # fe.d2N() TODO
+                # fe.d2N(row, d1, d2)
+                deriv_index1 = test_ex.derivs[1];
+                deriv_index2 = test_ex.derivs[2];
+                test_part = IR_operation_node(IRtypes.member_op, [:fe,
+                    IR_operation_node(IRtypes.function_op, [:d2N, :row, deriv_index1-1, deriv_index2-1])
+                ])
             elseif length(test_ex.derivs) == 1
                 # fe.dN(row, d)
                 deriv_index = test_ex.derivs[1];
@@ -639,8 +672,9 @@ function generate_term_calculation_fem_dendrite(term, var, lorr, vors, config, r
                     IR_operation_node(IRtypes.function_op, [:N, :row])
                 ])
             end
-        else # surface
-            # TODO
+        else # other integral types?
+            #
+            println("unexpected integral type: "*integral);
         end
         
     else
@@ -648,7 +682,7 @@ function generate_term_calculation_fem_dendrite(term, var, lorr, vors, config, r
     end
     
     if typeof(trial_ex) == SymEntity
-        if vors == "volume"
+        if integral in ["volume","surface","boundary","dirichlet","neumann"]
             if length(trial_ex.derivs) == 2
                 # fe.d2N() TODO
             elseif length(trial_ex.derivs) == 1
@@ -663,8 +697,9 @@ function generate_term_calculation_fem_dendrite(term, var, lorr, vors, config, r
                     IR_operation_node(IRtypes.function_op, [:N, :col])
                 ])
             end
-        else # surface
-            # TODO
+        else # other integral types
+            #
+            println("unexpected integral type: "*integral);
         end
     else
         trial_part = nothing;

@@ -412,10 +412,9 @@ function add_variable(state::FinchState, var)
     push!(state.variables, var);
     
     push!(state.solve_functions, nothing);
-    push!(state.symexpressions[1], nothing);
-    push!(state.symexpressions[2], nothing);
-    push!(state.symexpressions[3], nothing);
-    push!(state.symexpressions[4], nothing);
+    for i=1:10
+        push!(state.symexpressions[i], nothing);
+    end
     push!(state.code_strings, "");
 
     log_entry("Added variable: "*string(var.symbol)*" of type: "*var.type*", location: "*var.location, 2);

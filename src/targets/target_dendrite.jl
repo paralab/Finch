@@ -1121,10 +1121,10 @@ $(progress_update)
     if prob.time_dependent
         #output_part *= "    petscVectopvtu(octDA, prev_solution, \"$(project_name)\", varname, physDomain, false, false, $(project_name)NodeData::NUM_VARS);\n";
         #            PETSc::petscVectopvtu(octDA, treePartition, vec, folder, fname, varName, subDomain.domainExtents(), false, false, ndof);
-        output_part *= "    util_funcs::save_data(octDA, dTree.getTreePartFiltered(), prev_solution, inputData, timeInfo, subDomain, varname);"  
+        output_part *= "    util_funcs::save_data(octDA, dTree.getTreePartFiltered(), prev_solution, inputData, timeInfo, subDomain, varname);\n"  
     else
         # output_part *= "    petscVectopvtu(octDA, $(project_name)Solver->getCurrentSolution(), \"$(project_name)\", varname, physDomain, false, false, $(project_name)NodeData::NUM_VARS);\n";
-        output_part *= "    util_funcs::save_data(octDA, dTree.getTreePartFiltered(), $(project_name)Solver->getCurrentSolution(), inputData, timeInfo, subDomain, varname);" 
+        output_part *= "    util_funcs::save_data(octDA, dTree.getTreePartFiltered(), $(project_name)Solver->getCurrentSolution(), inputData, timeInfo, subDomain, varname);\n" 
     end
     output_part *= "    timers.Stop(timer_tags[\"FileIO\"]);\n"
     
@@ -1357,11 +1357,27 @@ function dendrite_equation_file(var, IR)
         dofs_per_node += var[i].total_components;
     end
     
-    # Generate the elemental matrix and vector calculation
-    matrix_part = "// Matrix computation not found in IR";
-    vector_part = "// Vector computation not found in IR";
+    # Generate the elemental matrix and vector calculations
+    matrix_part = "// Volume matrix computation not found in IR";
+    vector_part = "// Volume Vector computation not found in IR";
     matrix_coef_part = "// No coefficients to compute";
     vector_coef_part = "// No coefficients to compute";
+    surf_matrix_part = "// Surface matrix computation not found in IR";
+    surf_vector_part = "// Surface Vector computation not found in IR";
+    surf_matrix_coef_part = "// No coefficients to compute";
+    surf_vector_coef_part = "// No coefficients to compute";
+    bdry_matrix_part = "// Boundary matrix computation not found in IR";
+    bdry_vector_part = "// Boundary Vector computation not found in IR";
+    bdry_matrix_coef_part = "// No coefficients to compute";
+    bdry_vector_coef_part = "// No coefficients to compute";
+    dbdry_matrix_part = "// Dirichlet matrix computation not found in IR";
+    dbdry_vector_part = "// Dirichlet Vector computation not found in IR";
+    dbdry_matrix_coef_part = "// No coefficients to compute";
+    dbdry_vector_coef_part = "// No coefficients to compute";
+    nbdry_matrix_part = "// Neumann matrix computation not found in IR";
+    nbdry_vector_part = "// Neumann Vector computation not found in IR";
+    nbdry_matrix_coef_part = "// No coefficients to compute";
+    nbdry_vector_coef_part = "// No coefficients to compute";
     # Find the right blocks in the IR
     if typeof(IR) == IR_block_node
         for i=1:length(IR.parts)
@@ -1374,6 +1390,42 @@ function dendrite_equation_file(var, IR)
                     matrix_coef_part = generate_from_IR_external(IR.parts[i], indent="        ");
                 elseif IR.parts[i].label == "prepare vector"
                     vector_coef_part = generate_from_IR_external(IR.parts[i], indent="        ");
+                    
+                elseif IR.parts[i].label == "face matrix"
+                    surf_matrix_part = generate_from_IR_external(IR.parts[i], indent="                ");
+                elseif IR.parts[i].label == "face vector"
+                    surf_vector_part = generate_from_IR_external(IR.parts[i], indent="            ");
+                elseif IR.parts[i].label == "prepare matrix face"
+                    surf_matrix_coef_part = generate_from_IR_external(IR.parts[i], indent="        ");
+                elseif IR.parts[i].label == "prepare vector face"
+                    surf_vector_coef_part = generate_from_IR_external(IR.parts[i], indent="        ");
+                    
+                elseif IR.parts[i].label == "boundary matrix"
+                    bdry_matrix_part = generate_from_IR_external(IR.parts[i], indent="                ");
+                elseif IR.parts[i].label == "boundary vector"
+                    bdry_vector_part = generate_from_IR_external(IR.parts[i], indent="            ");
+                elseif IR.parts[i].label == "prepare matrix boundary"
+                    bdry_matrix_coef_part = generate_from_IR_external(IR.parts[i], indent="        ");
+                elseif IR.parts[i].label == "prepare vector boundary"
+                    bdry_vector_coef_part = generate_from_IR_external(IR.parts[i], indent="        ");
+                    
+                elseif IR.parts[i].label == "Dirichlet matrix"
+                    dbdry_matrix_part = generate_from_IR_external(IR.parts[i], indent="                    ");
+                elseif IR.parts[i].label == "Dirichlet vector"
+                    dbdry_vector_part = generate_from_IR_external(IR.parts[i], indent="                ");
+                elseif IR.parts[i].label == "prepare matrix Dirichlet"
+                    dbdry_matrix_coef_part = generate_from_IR_external(IR.parts[i], indent="            ");
+                elseif IR.parts[i].label == "prepare vector Dirichlet"
+                    dbdry_vector_coef_part = generate_from_IR_external(IR.parts[i], indent="            ");
+                    
+                elseif IR.parts[i].label == "Neumann matrix"
+                    nbdry_matrix_part = generate_from_IR_external(IR.parts[i], indent="                    ");
+                elseif IR.parts[i].label == "Neumann vector"
+                    nbdry_vector_part = generate_from_IR_external(IR.parts[i], indent="                ");
+                elseif IR.parts[i].label == "prepare matrix Neumann"
+                    nbdry_matrix_coef_part = generate_from_IR_external(IR.parts[i], indent="            ");
+                elseif IR.parts[i].label == "prepare vector Neumann"
+                    nbdry_vector_coef_part = generate_from_IR_external(IR.parts[i], indent="            ");
                 end
             end
         end
@@ -1527,6 +1579,15 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
     void Integrands4side_Ae(const TALYFEMLIB::FEMElm &fe, int side_idx, int id, TALYFEMLIB::ZeroMatrix<double> &Ae){
         
         GPpos_.push_back(fe.position());
+        if (side_idx < BoundaryTypes::MAX_WALL_TYPE_BOUNDARY){
+            // this is for 2 * DIM domain boundaries
+            const auto &domain_def = idata_->boundary_def.at(side_idx);
+            const auto &bcType = domain_def.bc_type;
+        }else{
+            // this is for carved out boundaries
+            const auto &carved_out_def = idata_->carved_out_geoms_def.at(id);
+            const auto &bcType = carved_out_def.bc_type_V[0];
+        }
         
         /// from integral by parts, there is no Ae for the boundary term,
         /// because -[w\\dot \\alpha \\grad T] are all known variable, and they go into the be
@@ -1542,77 +1603,43 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
         SBMCalc sbmCalc(fe, idata_, imga_);
         sbmCalc.Dist2Geo(d);
         
-        DENDRITE_REAL secondOrderTerm_a(0), secondOrderTerm_b(0);
-
-        for (int a = 0; a < fe.nbf(); a++){
-            DENDRITE_REAL gradWdotn = 0;
-            DENDRITE_REAL gradWdotd = 0;
-
-#if (DIM == 2)
-            if (idata_->elemOrder == 2 && idata_->SecondOrderTaylorQBF){
-                secondOrderTerm_a = (d[0] * (fe.d2N(a, 0, 0) * d[0] + fe.d2N(a, 0, 1) * d[1]) +
-                                     d[1] * (fe.d2N(a, 1, 0) * d[0] + fe.d2N(a, 1, 1) * d[1])) / 2;
-            }else{
-                secondOrderTerm_a = 0;
+        if(bcType == CarvedOutGeom::BCType::SBM){
+$(dbdry_matrix_coef_part)
+            for (int a = 0; a < fe.nbf(); a++){
+                for (int b = 0; b < fe.nbf(); b++){
+                    ////////////////////////////////////////////////////////////////////////
+                    // This is generated from the input expressions
+$(dbdry_matrix_part)
+                    ////////////////////////////////////////////////////////////////////////
+                }
             }
-#endif
-#if (DIM == 3)
-            if (idata_->elemOrder == 2 && idata_->SecondOrderTaylorQBF){
-                secondOrderTerm_a = (d[0] * (fe.d2N(a, 0, 0) * d[0] + fe.d2N(a, 0, 1) * d[1] + fe.d2N(a, 0, 2) * d[2]) + 
-                                     d[1] * (fe.d2N(a, 1, 0) * d[0] + fe.d2N(a, 1, 1) * d[1] + fe.d2N(a, 1, 2) * d[2]) + 
-                                     d[2] * (fe.d2N(a, 2, 0) * d[0] + fe.d2N(a, 2, 1) * d[1] + fe.d2N(a, 2, 2) * d[2])) / 2;
-            }else{
-                secondOrderTerm_a = 0;
-            }
-#endif
-
-            for (int k = 0; k < DIM; k++){
-                gradWdotn += fe.dN(a, k) * (fe.surface()->normal().data()[k]);
-                gradWdotd += fe.dN(a, k) * d[k];
-            }
-
-            for (int b = 0; b < fe.nbf(); b++){
-#if (DIM == 2)
-                if (idata_->elemOrder == 2 && idata_->SecondOrderTaylorQBF){
-                    secondOrderTerm_b = (d[0] * (fe.d2N(b, 0, 0) * d[0] + fe.d2N(b, 0, 1) * d[1]) +
-                                        d[1] * (fe.d2N(b, 1, 0) * d[0] + fe.d2N(b, 1, 1) * d[1])) / 2;
-                }else{
-                    secondOrderTerm_b = 0;
+            
+        }else if(bcType == CarvedOutGeom::BCType::NEUMANN_SBM){
+$(nbdry_matrix_coef_part)
+            for (int a = 0; a < fe.nbf(); a++){
+                for (int b = 0; b < fe.nbf(); b++){
+                    ////////////////////////////////////////////////////////////////////////
+                    // This is generated from the input expressions
+$(nbdry_matrix_part)
+                    ////////////////////////////////////////////////////////////////////////
                 }
-#endif
-#if (DIM == 3)
-                if (idata_->elemOrder == 2 && idata_->SecondOrderTaylorQBF){
-                    secondOrderTerm_b = (d[0] * (fe.d2N(b, 0, 0) * d[0] + fe.d2N(b, 0, 1) * d[1] + fe.d2N(b, 0, 2) * d[2]) + 
-                                        d[1] * (fe.d2N(b, 1, 0) * d[0] + fe.d2N(b, 1, 1) * d[1] + fe.d2N(b, 1, 2) * d[2]) + 
-                                        d[2] * (fe.d2N(b, 2, 0) * d[0] + fe.d2N(b, 2, 1) * d[1] + fe.d2N(b, 2, 2) * d[2])) / 2;
-                }else{
-                    secondOrderTerm_b = 0;
-                }
-#endif
-
-                DENDRITE_REAL gradUdotd = 0;
-                DENDRITE_REAL gradUdotn = 0;
-
-                for (int k = 0; k < DIM; k++){
-                    gradUdotn += fe.dN(b, k) * (fe.surface()->normal().data()[k]);
-                    gradUdotd += fe.dN(b, k) * d[k];
-                }
-
-                Ae(a, b) += -fe.N(a) * gradUdotn * fe.detJxW();
-
-                if (idata_->IfAdjointConsistency){
-                    Ae(a, b) += -gradWdotn * (fe.N(b) + gradUdotd + secondOrderTerm_b) * fe.detJxW();
-                }
-
-                Ae(a, b) += alpha / h * (fe.N(a) + gradWdotd + secondOrderTerm_a) *
-                            (fe.N(b) + gradUdotd + secondOrderTerm_b) * fe.detJxW();
             }
         }
     }
     
     void Integrands4side_be(const TALYFEMLIB::FEMElm &fe, int side_idx, int id, TALYFEMLIB::ZEROARRAY<double> &be){
-        
         using namespace TALYFEMLIB;
+        
+        if (side_idx < BoundaryTypes::MAX_WALL_TYPE_BOUNDARY){
+            // this is for 2 * DIM domain boundaries
+            const auto &domain_def = idata_->boundary_def.at(side_idx);
+            const auto &bcType = domain_def.bc_type;
+        }else{
+            // this is for carved out boundaries
+            const auto &carved_out_def = idata_->carved_out_geoms_def.at(id);
+            const auto &bcType = carved_out_def.bc_type_V[0];
+        }
+        
         const int nsd = DIM;
         const double detSideJxW = fe.detJxW();
         const double Cb_e = idata_->Cb_e;
@@ -1633,40 +1660,24 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
         double y_true = pt.y() + d[1];
         boundaryConditions->getBoundaryValue(ZEROPTV(x_true,y_true), &boundary_value);
         
-        DENDRITE_REAL secondOrderTerm_a(0);
-
-        for (int a = 0; a < fe.nbf(); a++){
-            DENDRITE_REAL gradWdotn = 0;
-            DENDRITE_REAL gradWdotd = 0;
-
-#if (DIM == 2)
-            if (idata_->elemOrder == 2 && idata_->SecondOrderTaylorQBF){
-                secondOrderTerm_a = (d[0] * (fe.d2N(a, 0, 0) * d[0] + fe.d2N(a, 0, 1) * d[1]) +
-                                    d[1] * (fe.d2N(a, 1, 0) * d[0] + fe.d2N(a, 1, 1) * d[1])) / 2;
-            }else{
-                secondOrderTerm_a = 0;
+        
+        if(bcType == CarvedOutGeom::BCType::SBM){
+$(dbdry_vector_coef_part)
+            for (int a = 0; a < fe.nbf(); a++){
+                ////////////////////////////////////////////////////////////////////////
+                // This is generated from the input expressions
+$(dbdry_vector_part)
+                ////////////////////////////////////////////////////////////////////////
             }
-#endif
-#if (DIM == 3)
-            if (idata_->elemOrder == 2 && idata_->SecondOrderTaylorQBF){
-                secondOrderTerm_a = (d[0] * (fe.d2N(a, 0, 0) * d[0] + fe.d2N(a, 0, 1) * d[1] + fe.d2N(a, 0, 2) * d[2]) + 
-                                    d[1] * (fe.d2N(a, 1, 0) * d[0] + fe.d2N(a, 1, 1) * d[1] + fe.d2N(a, 1, 2) * d[2]) + 
-                                    d[2] * (fe.d2N(a, 2, 0) * d[0] + fe.d2N(a, 2, 1) * d[1] + fe.d2N(a, 2, 2) * d[2])) / 2;
-            }else{
-                secondOrderTerm_a = 0;
+            
+        }else if(bcType == CarvedOutGeom::BCType::NEUMANN_SBM){
+$(nbdry_vector_coef_part)
+            for (int a = 0; a < fe.nbf(); a++){
+                ////////////////////////////////////////////////////////////////////////
+                // This is generated from the input expressions
+$(nbdry_vector_part)
+                ////////////////////////////////////////////////////////////////////////
             }
-#endif
-
-            for (int k = 0; k < DIM; k++){
-                gradWdotn += fe.dN(a, k) * (fe.surface()->normal().data()[k]);
-                gradWdotd += fe.dN(a, k) * d[k];
-            }
-
-            if (idata_->IfAdjointConsistency){
-                be(a) += -gradWdotn * boundary_value * fe.detJxW();
-            }
-
-            be(a) += alpha / h * (fe.N(a) + gradWdotd + secondOrderTerm_a) * boundary_value * fe.detJxW();
         }
     }
     
@@ -3528,9 +3539,9 @@ struct BoundaryDef{
   };
 
   Side side = INVALID;
-  Condition_Type temperature_type = DIRICHLET_BC;
+  Condition_Type bc_type = DIRICHLET_BC;
   /// for Dirichlet BC
-  std::vector<DENDRITE_REAL> temperature;
+  std::vector<DENDRITE_REAL> dirichlet_val;
   /// for Neumann BC
   std::vector<DENDRITE_REAL> flux;
   /// for robin BC
@@ -3547,19 +3558,19 @@ struct BoundaryDef{
     if (root.exists("ifRefine")){
       ifRefine = (bool)root["ifRefine"];
     }
-    if (root.exists("temperature_type")){
-      temperature_type = read_temperature_type(root["temperature_type"]);
+    if (root.exists("bc_type")){
+      bc_type = read_bc_type(root["bc_type"]);
     }
     
-    if ((temperature_type == Condition_Type::DIRICHLET_BC) || (temperature_type == Condition_Type::WEAK_BC) || (temperature_type == Condition_Type::SBM_BC)){
-      ReadVectorRoot(root, "temperature", temperature);
+    if ((bc_type == Condition_Type::DIRICHLET_BC) || (bc_type == Condition_Type::WEAK_BC) || (bc_type == Condition_Type::SBM_BC)){
+      ReadVectorRoot(root, "dirichlet_val", dirichlet_val);
     }
 
-    if (temperature_type == Condition_Type::NEUMANN_BC){
+    if (bc_type == Condition_Type::NEUMANN_BC){
       ReadVectorRoot(root, "flux", flux);
     }
 
-    if (temperature_type == Condition_Type::ROBIN_BC){
+    if (bc_type == Condition_Type::ROBIN_BC){
       /// b * \\frac{\\partial u}{\\partial n} = g - a * u
       ReadVectorRoot(root, "G_constant", G_vec);
       ReadVectorRoot(root, "a_constant", a_vec);
@@ -3585,19 +3596,19 @@ struct BoundaryDef{
         fstream << "side: Z_PLUS\\n";
       }
       
-      if (temperature_type == Condition_Type::NO_GRADIENT_BC){
-        fstream << "temperature_type: NO_GRADIENT_T\\n";
-      }else if (temperature_type == Condition_Type::DIRICHLET_BC){
-        fstream << "temperature_type: DIRICHLET_T\\n";
-      }else if (temperature_type == Condition_Type::NEUMANN_BC){
-        fstream << "temperature_type: NEUMANN_T\\n";
-      }else if (temperature_type == Condition_Type::ROBIN_BC){
-        fstream << "temperature_type: ROBIN_T\\n";
-      }else if (temperature_type == Condition_Type::WEAK_BC){
-        fstream << "temperature_type: WEAK_T\\n";
+      if (bc_type == Condition_Type::NO_GRADIENT_BC){
+        fstream << "bc_type: NO_GRADIENT_T\\n";
+      }else if (bc_type == Condition_Type::DIRICHLET_BC){
+        fstream << "bc_type: DIRICHLET_T\\n";
+      }else if (bc_type == Condition_Type::NEUMANN_BC){
+        fstream << "bc_type: NEUMANN_T\\n";
+      }else if (bc_type == Condition_Type::ROBIN_BC){
+        fstream << "bc_type: ROBIN_T\\n";
+      }else if (bc_type == Condition_Type::WEAK_BC){
+        fstream << "bc_type: WEAK_T\\n";
       }
 
-      PrintVector(fstream, "temperature", temperature);
+      PrintVector(fstream, "dirichlet_val", dirichlet_val);
       PrintVector(fstream, "flux", flux);
       PrintVector(fstream, "G_vec", G_vec);
       PrintVector(fstream, "a_vec", a_vec);
@@ -3624,7 +3635,7 @@ private:
     }
   }
 
-  static Condition_Type read_temperature_type(const std::string &str){
+  static Condition_Type read_bc_type(const std::string &str){
     if (str == "no_gradient"){
       return Condition_Type::NO_GRADIENT_BC;
     }else if (str == "dirichlet"){
@@ -3644,7 +3655,7 @@ private:
     }else if (str == "neumann_sbm"){
         return Condition_Type::NEUMANN_SBM_BC;
     }else{
-      throw TALYFEMLIB::TALYException() << "Invalid BC type for temperature";
+      throw TALYFEMLIB::TALYException() << "Invalid BC type for dirichlet_val";
     }
   }
 };
@@ -3663,7 +3674,7 @@ struct InitialConditionDef{
 
   void read_from_config(const libconfig::Setting &root){
     if (root.exists("t_ic_type")){
-      t_ic_type = read_temperature_ic(root["t_ic_type"]);
+      t_ic_type = read_dirichlet_val_ic(root["t_ic_type"]);
     }
     if (t_ic_type == T_IC::USER_DEFINED_T){
       t_ic = (double)root["t_ic"];
@@ -3686,13 +3697,13 @@ struct InitialConditionDef{
   }
 
 protected:
-  static T_IC read_temperature_ic(const std::string &str){
+  static T_IC read_dirichlet_val_ic(const std::string &str){
     if (str == "zero"){
       return T_IC::ZERO_T;
     }else if (str == "user_defined"){
       return T_IC::USER_DEFINED_T;
     }else{
-      throw TALYFEMLIB::TALYException() << "Invalid IC type for temperature";
+      throw TALYFEMLIB::TALYException() << "Invalid IC type for dirichlet_val";
     }
   }
 };
@@ -4791,18 +4802,14 @@ namespace util_funcs{
   /**
    * Save the octree mesh to vtk binary file.
    */
-  PetscErrorCode save_timestep(DA *octDA,
+  void save_timestep(DA *octDA,
                                const std::vector<TREENODE> &treePartition,
                                Vec vec,
                                unsigned int ndof,
                                const TimeInfo &ti,
                                const SubDomain &subDomain,
                                const std::string &prefix = "timestep",
-                               const char **varName = nullptr /*,
-                                bool saveGeometry = true,
-                                bool writeData = true,
-                                const std::vector<int> &dataIndex = {},
-                                const std::function<double(double v_in, bool in_geom, unsigned int dof)> &f = nullptr*/
+                               const char **varName = nullptr
   ){
     // create directory for this timestep (if it doesnt already exist)
     char folder[PATH_MAX];
@@ -4810,7 +4817,7 @@ namespace util_funcs{
     int ierr = mkdir(folder, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
     if (ierr != 0 && errno != EEXIST){
       PrintError("Could not create folder for storing results (", strerror(errno), ").");
-      return 1;
+      return;
     }
 
     char fname[PATH_MAX];
@@ -4932,7 +4939,7 @@ namespace util_funcs{
   //   {
   //     /// HT only has 1 dof and should be accessed as var[0]
   //     if (inputData.dump_vec &&
-  //         inputData.boundary_def[1].temperature_type == BoundaryDef::Temperature_Type::ROBIN_T)
+  //         inputData.boundary_def[1].bc_type == BoundaryDef::Temperature_Type::ROBIN_T)
   //     {
   //       var[0] = 100 * (1.0 - x[0] / 3);
   //     }

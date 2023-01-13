@@ -739,7 +739,9 @@ mutable struct FinchState{T<:AbstractFloat}
         0,
         0,
         
-        [], [], [], [[],[],[],[]], [],
+        [], [], [], 
+        [[],[],[],[],[],[],[],[],[],[]], 
+        [],
         
         false,
         ParallelBuffers{T}([],[],[],[],[],[]),
