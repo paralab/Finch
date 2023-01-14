@@ -1444,6 +1444,19 @@ function dendrite_equation_file(var, IR)
         function_defs *= indent * fun * "\n"*indent*"}\n";
     end
     
+    # Define some pieces that match generated names
+    other_labels = "        double ELEMENTDIAMETER = elementDiameter;\n";
+    other_labels *= "        double FACENORMAL1_1 = normal[0];\n";
+    other_labels *= "        double FACENORMAL1_2 = normal[1];\n";
+    if config.dimension > 2 other_labels *= "        double FACENORMAL1_3 = normal[2];\n"; end
+    other_labels *= "        double TRUENORMAL1_1 = true_normal[0];\n";
+    other_labels *= "        double TRUENORMAL1_2 = true_normal[1];\n";
+    if config.dimension > 2 other_labels *= "        double TRUENORMAL1_3 = true_normal[2];\n"; end
+    other_labels *= "        double DIST2BDRY_1 = dist2bdry[0];\n";
+    other_labels *= "        double DIST2BDRY_2 = dist2bdry[1];\n";
+    if config.dimension > 2 other_labels *= "        double DIST2BDRY_3 = dist2bdry[2];\n"; end
+    other_labels *= "        double BOUNDARYVALUE = boundary_value;\n";
+    
     content = """
 #pragma once
 
@@ -1596,12 +1609,19 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
         const double Cb_e = idata_->Cb_e;
         const double detSideJxW = fe.detJxW();
 
-        double h = util_funcs::ElementSize(fe);
+        double elementDiameter = util_funcs::ElementSize(fe);
         double alpha = Cb_e;
-        double d[DIM];
+        double dist2bdry[DIM];
+        double normal[DIM] = fe.surface()->normal().data();
+        double trueNormal[DIM];
 
         SBMCalc sbmCalc(fe, idata_, imga_);
-        sbmCalc.Dist2Geo(d);
+        sbmCalc.Dist2Geo(dist2bdry);
+        sbmCalc.NormalofGeo(trueNormal, dist2bdry);
+        
+        double boundary_value = 0.0;
+        
+$(other_labels)
         
         if(bcType == CarvedOutGeom::BCType::SBM){
 $(dbdry_matrix_coef_part)
@@ -1643,16 +1663,20 @@ $(nbdry_matrix_part)
         const int nsd = DIM;
         const double detSideJxW = fe.detJxW();
         const double Cb_e = idata_->Cb_e;
-        
-        double h = util_funcs::ElementSize(fe);
-
         double alpha = Cb_e;
-        DENDRITE_REAL d[DIM];
+        
+        double elementDiameter = util_funcs::ElementSize(fe);
+        double alpha = Cb_e;
+        double dist2bdry[DIM];
+        double normal[DIM] = fe.surface()->normal().data();
+        double trueNormal[DIM];
+
+        SBMCalc sbmCalc(fe, idata_, imga_);
+        sbmCalc.Dist2Geo(dist2bdry);
+        sbmCalc.NormalofGeo(trueNormal, dist2bdry);
         
         // Need to find the Dirichlet boundary value.
-        DENDRITE_REAL boundary_value;
-        SBMCalc sbmCalc(fe, idata_, imga_);
-        sbmCalc.Dist2Geo(d);
+        double boundary_value = 0.0;
         // The position of the GP
         const ZEROPTV pt = fe.position();
         // The corresponding position on the true boundary
@@ -1660,6 +1684,7 @@ $(nbdry_matrix_part)
         double y_true = pt.y() + d[1];
         boundaryConditions->getBoundaryValue(ZEROPTV(x_true,y_true), &boundary_value);
         
+$(other_labels)
         
         if(bcType == CarvedOutGeom::BCType::SBM){
 $(dbdry_vector_coef_part)

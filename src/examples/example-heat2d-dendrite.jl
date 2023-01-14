@@ -57,15 +57,7 @@ coefficient("f", "4 * cos(pi/2*sqrt(x*x+y*y))^4")
 # Implicit SBM is handled by target
 # weakForm(u, "Dt(u*v) + dot(grad(u),grad(v)) - f*v")
 
-# Explicitly written SBM with Dirichlet boundary
-# This requires these special symbols to be defined:
-# - dirichletBoundary TODO op
-# - neumannBoundary TODO op
-# - distanceToBdry TODO
-# - dirichletValue TODO
-# - neumannValue TODO
-# - elementSize TODO op
-# - trueNormal TODO op
+# Explicitly written SBM
 coefficient("alpha", 200) # penalty
 weakForm(u, # volume integral
             "Dt(u*v) + dot(grad(u),grad(v)) - f*v + "*

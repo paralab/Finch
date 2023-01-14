@@ -102,6 +102,8 @@ function make_entity_name(c)
     if c.index == -1
         return c.name;
     end
+    # These are special symbols that don't need any modifiers
+    specials = ["ELEMENTDIAMETER", "ELEMENTVOLUME", "BOUNDARYVALUE", "FACENORMAL1", "FACENORMAL2", "TRUENORMAL", "DIST2BDRY"];
     
     tag = "";
     type_label = "value_";
@@ -116,10 +118,16 @@ function make_entity_name(c)
         tag = "D"*string(c.derivs[i]) * tag;
     end
     
-    if typeof(c.index) == Int
-        str = type_label*tag*"_"*string(c.name)*"_"*string(c.index);
+    if string(c.name) in specials
+        str = string(c.name);
     else
-        str = type_label*tag*"_"*string(c.name)*"_";
+        str = type_label*tag*"_"*string(c.name);
+    end
+    
+    if typeof(c.index) == Int
+        str *= "_"*string(c.index);
+    else
+        str *= "_";
         for i=1:length(c.index)
             str *= string(c.index[i]);
         end

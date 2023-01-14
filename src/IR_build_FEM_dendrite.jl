@@ -429,6 +429,7 @@ function make_elemental_computation_fem_dendrite(terms, var, dofsper, offset_ind
     
     # This will be returned
     compute_block = IR_block_node([],"elemental compute");
+    comment_block = IR_block_node([IR_comment_node("Computation before simplifying. For inspection."), IR_comment_node("#=")], "compute comments");
     
     # Separate the factors of each term into test, trial, coef and form the calculation
     if dofsper > 1
@@ -601,6 +602,8 @@ function make_elemental_computation_fem_dendrite(terms, var, dofsper, offset_ind
         for i=1:length(term_vec)
             push!(compute_block.parts, IR_operation_node(IRtypes.math_assign_op,[:+, 
                 IR_data_node(IRtypes.float_data, :N), term_vec[i]]));
+            push!(comment_block.parts, IR_operation_node(IRtypes.math_assign_op,[:+, 
+                IR_data_node(IRtypes.float_data, :N), term_vec[i]]));
         end
         
         if leftOrRight == LHS
@@ -619,6 +622,8 @@ function make_elemental_computation_fem_dendrite(terms, var, dofsper, offset_ind
             ]));
         end
     end
+    
+    push!(comment_block.parts, IR_comment_node("=#"));
     
     return compute_block;
 end

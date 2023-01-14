@@ -18,6 +18,9 @@ function arithmetic_expr_to_IR(ex)
                 return val;
             end
         end
+        # These are special symbols that don't need any modifiers
+        specials = ["ELEMENTDIAMETER", "ELEMENTVOLUME", "BOUNDARYVALUE", "FACENORMAL1", "FACENORMAL2", "TRUENORMAL", "DIST2BDRY"];
+        
         # It is a named coefficient
         tag = "";
         type_label = "value_";
@@ -32,10 +35,16 @@ function arithmetic_expr_to_IR(ex)
             tag = "D"*string(ex.derivs[i]) * tag;
         end
         
-        if typeof(ex.index) == Int
-            str = type_label*tag*"_"*string(ex.name)*"_"*string(ex.index);
+        if string(ex.name) in specials
+            str = string(ex.name);
         else
-            str = type_label*tag*"_"*string(ex.name)*"_";
+            str = type_label*tag*"_"*string(ex.name);
+        end
+        
+        if typeof(ex.index) == Int
+            str *= "_"*string(ex.index);
+        else
+            str *= "_";
             for i=1:length(ex.index)
                 str *= string(ex.index[i]);
             end
@@ -162,6 +171,8 @@ function make_entity_name(c::SymEntity)
     if c.index == -1
         return c.name;
     end
+    # These are special symbols that don't need any modifiers
+    specials = ["ELEMENTDIAMETER", "ELEMENTVOLUME", "BOUNDARYVALUE", "FACENORMAL1", "FACENORMAL2", "TRUENORMAL", "DIST2BDRY"];
     
     tag = "";
     type_label = "value_";
@@ -176,10 +187,16 @@ function make_entity_name(c::SymEntity)
         tag = "D"*string(c.derivs[i]) * tag;
     end
     
-    if typeof(c.index) == Int
-        str = type_label*tag*"_"*string(c.name)*"_"*string(c.index);
+    if string(c.name) in specials
+        str = string(c.name);
     else
-        str = type_label*tag*"_"*string(c.name)*"_";
+        str = type_label*tag*"_"*string(c.name);
+    end
+    
+    if typeof(c.index) == Int
+        str *= "_"*string(c.index);
+    else
+        str *= "_";
         for i=1:length(c.index)
             str *= string(c.index[i]);
         end

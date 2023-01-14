@@ -374,48 +374,55 @@ function extract_entity_parts(ex)
         return(-1, str, []);
     end
     
-    # Extract the index
-    for i=l:-1:1
-        if str[i] == '_' && i < l
-            index_str = str[i+1:l];
-            # This could be an integer or INDEXEDBY...
-            if occursin("INDEXED", index_str)
-                index = extract_index_symbols_from_index_string(index_str);
-            else
-                try
-                    index = parse(Int, index_str);
-                catch
-                    return (-1,str,[]); # an unexpected index, perhaps it is a special symbol
+    if occursin("_", str) # a variable, coefficient, etc. that has a component like _u_1
+        # Extract the index
+        for i=l:-1:1
+            if str[i] == '_' && i < l
+                index_str = str[i+1:l];
+                # This could be an integer or INDEXEDBY...
+                if occursin("INDEXED", index_str)
+                    index = extract_index_symbols_from_index_string(index_str);
+                else
+                    try
+                        index = parse(Int, index_str);
+                    catch
+                        return (-1,str,[]); # an unexpected index, perhaps it is a special symbol
+                    end
                 end
+                
+                e = i-1; # end of variable name
+                break;
             end
-            
-            e = i-1; # end of variable name
-            break;
         end
-    end
-    
-    # Extract the name
-    for i=e:-1:1
-        if str[i] == '_'
-            var = str[i+1:e];
-            b = i-1;
-            break;
-        end
-    end
-    
-    # extract the modifiers like D1_ etc. separated by underscores
-    if b>1
-        e = b-1;
+        
+        # Extract the name
         for i=e:-1:1
             if str[i] == '_'
-                b = i+1;
-                push!(mods, str[b:e]);
-                e = b-2;
-                
-            elseif i == 1
-                push!(mods, str[1:e]);
+                var = str[i+1:e];
+                b = i-1;
+                break;
             end
         end
+        
+        # extract the modifiers like D1_ etc. separated by underscores
+        if b>1
+            e = b-1;
+            for i=e:-1:1
+                if str[i] == '_'
+                    b = i+1;
+                    push!(mods, str[b:e]);
+                    e = b-2;
+                    
+                elseif i == 1
+                    push!(mods, str[1:e]);
+                end
+            end
+        end
+        
+    else # no "_" so it could be a special symbol like dt.
+        index = -1;
+        var = str;
+        mods = [];
     end
     
     return (index, var, mods);
