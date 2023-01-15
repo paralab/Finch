@@ -1449,9 +1449,9 @@ function dendrite_equation_file(var, IR)
     other_labels *= "        double FACENORMAL1_1 = normal[0];\n";
     other_labels *= "        double FACENORMAL1_2 = normal[1];\n";
     if config.dimension > 2 other_labels *= "        double FACENORMAL1_3 = normal[2];\n"; end
-    other_labels *= "        double TRUENORMAL1_1 = true_normal[0];\n";
-    other_labels *= "        double TRUENORMAL1_2 = true_normal[1];\n";
-    if config.dimension > 2 other_labels *= "        double TRUENORMAL1_3 = true_normal[2];\n"; end
+    other_labels *= "        double TRUENORMAL_1 = trueNormal.data()[0];\n";
+    other_labels *= "        double TRUENORMAL_2 = trueNormal.data()[1];\n";
+    if config.dimension > 2 other_labels *= "        double TRUENORMAL_3 = trueNormal.data()[2];\n"; end
     other_labels *= "        double DIST2BDRY_1 = dist2bdry[0];\n";
     other_labels *= "        double DIST2BDRY_2 = dist2bdry[1];\n";
     if config.dimension > 2 other_labels *= "        double DIST2BDRY_3 = dist2bdry[2];\n"; end
@@ -1591,33 +1591,45 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
     // Surface integrals //////////////////////////////////////////////////////////////////////
     void Integrands4side_Ae(const TALYFEMLIB::FEMElm &fe, int side_idx, int id, TALYFEMLIB::ZeroMatrix<double> &Ae){
         
-        GPpos_.push_back(fe.position());
-        if (side_idx < BoundaryTypes::MAX_WALL_TYPE_BOUNDARY){
-            // this is for 2 * DIM domain boundaries
-            const auto &domain_def = idata_->boundary_def.at(side_idx);
-            const auto &bcType = domain_def.bc_type;
-        }else{
-            // this is for carved out boundaries
-            const auto &carved_out_def = idata_->carved_out_geoms_def.at(id);
-            const auto &bcType = carved_out_def.bc_type_V[0];
-        }
+        // GPpos_.push_back(fe.position());
         
         /// from integral by parts, there is no Ae for the boundary term,
         /// because -[w\\dot \\alpha \\grad T] are all known variable, and they go into the be
         /// for the weak BC
         const int nsd = DIM;
         const double Cb_e = idata_->Cb_e;
-        const double detSideJxW = fe.detJxW();
+        const double wdetj= fe.detJxW();
 
         double elementDiameter = util_funcs::ElementSize(fe);
         double alpha = Cb_e;
         double dist2bdry[DIM];
-        double normal[DIM] = fe.surface()->normal().data();
-        double trueNormal[DIM];
+        const double* normal = fe.surface()->normal().data();
+        TALYFEMLIB::ZEROPTV trueNormal;
 
         SBMCalc sbmCalc(fe, idata_, imga_);
         sbmCalc.Dist2Geo(dist2bdry);
         sbmCalc.NormalofGeo(trueNormal, dist2bdry);
+        
+        // The corresponding position on the true boundary
+        double x_true = pt.x() + dist2bdry[0];
+        double y_true = pt.y() + dist2bdry[1];
+        
+        int tmpbctype = 0;
+        if (side_idx < BoundaryTypes::MAX_WALL_TYPE_BOUNDARY){
+            // this is for 2 * DIM domain boundaries
+            const auto &domain_def = idata_->boundary_def.at(side_idx);
+            tmpbctype = domain_def.bc_type;
+        }else{
+            // this is for carved out boundaries
+            const auto &carved_out_def = idata_->carved_out_geoms_def.at(id);
+            const int bid = boundaryConditions->getBoundaryID(ZEROPTV(x_true, y_true));
+            if(bid > 0){
+                tmpbctype = carved_out_def.bc_type_V[bid];
+            }else{
+                tmpbctype = carved_out_def.bc_type_V[0];
+            }
+        }
+        const int bcType = tmpbctype;
         
         double boundary_value = 0.0;
         
@@ -1625,8 +1637,8 @@ $(other_labels)
         
         if(bcType == CarvedOutGeom::BCType::SBM){
 $(dbdry_matrix_coef_part)
-            for (int a = 0; a < fe.nbf(); a++){
-                for (int b = 0; b < fe.nbf(); b++){
+            for (int row = 0; row < fe.nbf(); row++){
+                for (int col = 0; col < fe.nbf(); col++){
                     ////////////////////////////////////////////////////////////////////////
                     // This is generated from the input expressions
 $(dbdry_matrix_part)
@@ -1636,8 +1648,8 @@ $(dbdry_matrix_part)
             
         }else if(bcType == CarvedOutGeom::BCType::NEUMANN_SBM){
 $(nbdry_matrix_coef_part)
-            for (int a = 0; a < fe.nbf(); a++){
-                for (int b = 0; b < fe.nbf(); b++){
+            for (int row = 0; row < fe.nbf(); row++){
+                for (int col = 0; col < fe.nbf(); col++){
                     ////////////////////////////////////////////////////////////////////////
                     // This is generated from the input expressions
 $(nbdry_matrix_part)
@@ -1650,26 +1662,15 @@ $(nbdry_matrix_part)
     void Integrands4side_be(const TALYFEMLIB::FEMElm &fe, int side_idx, int id, TALYFEMLIB::ZEROARRAY<double> &be){
         using namespace TALYFEMLIB;
         
-        if (side_idx < BoundaryTypes::MAX_WALL_TYPE_BOUNDARY){
-            // this is for 2 * DIM domain boundaries
-            const auto &domain_def = idata_->boundary_def.at(side_idx);
-            const auto &bcType = domain_def.bc_type;
-        }else{
-            // this is for carved out boundaries
-            const auto &carved_out_def = idata_->carved_out_geoms_def.at(id);
-            const auto &bcType = carved_out_def.bc_type_V[0];
-        }
-        
         const int nsd = DIM;
-        const double detSideJxW = fe.detJxW();
+        const double wdetj = fe.detJxW();
         const double Cb_e = idata_->Cb_e;
         double alpha = Cb_e;
         
         double elementDiameter = util_funcs::ElementSize(fe);
-        double alpha = Cb_e;
         double dist2bdry[DIM];
-        double normal[DIM] = fe.surface()->normal().data();
-        double trueNormal[DIM];
+        const double* normal = fe.surface()->normal().data();
+        TALYFEMLIB::ZEROPTV trueNormal;
 
         SBMCalc sbmCalc(fe, idata_, imga_);
         sbmCalc.Dist2Geo(dist2bdry);
@@ -1680,15 +1681,33 @@ $(nbdry_matrix_part)
         // The position of the GP
         const ZEROPTV pt = fe.position();
         // The corresponding position on the true boundary
-        double x_true = pt.x() + d[0];
-        double y_true = pt.y() + d[1];
+        double x_true = pt.x() + dist2bdry[0];
+        double y_true = pt.y() + dist2bdry[1];
+        
+        int tmpbctype = 0;
+        if (side_idx < BoundaryTypes::MAX_WALL_TYPE_BOUNDARY){
+            // this is for 2 * DIM domain boundaries
+            const auto &domain_def = idata_->boundary_def.at(side_idx);
+            tmpbctype = domain_def.bc_type;
+        }else{
+            // this is for carved out boundaries
+            const auto &carved_out_def = idata_->carved_out_geoms_def.at(id);
+            const int bid = boundaryConditions->getBoundaryID(ZEROPTV(x_true, y_true));
+            if(bid > 0){
+                tmpbctype = carved_out_def.bc_type_V[bid];
+            }else{
+                tmpbctype = carved_out_def.bc_type_V[0];
+            }
+        }
+        const int bcType = tmpbctype;
+        
         boundaryConditions->getBoundaryValue(ZEROPTV(x_true,y_true), &boundary_value);
         
 $(other_labels)
         
         if(bcType == CarvedOutGeom::BCType::SBM){
 $(dbdry_vector_coef_part)
-            for (int a = 0; a < fe.nbf(); a++){
+            for (int row = 0; row < fe.nbf(); row++){
                 ////////////////////////////////////////////////////////////////////////
                 // This is generated from the input expressions
 $(dbdry_vector_part)
@@ -1697,7 +1716,7 @@ $(dbdry_vector_part)
             
         }else if(bcType == CarvedOutGeom::BCType::NEUMANN_SBM){
 $(nbdry_vector_coef_part)
-            for (int a = 0; a < fe.nbf(); a++){
+            for (int row = 0; row < fe.nbf(); row++){
                 ////////////////////////////////////////////////////////////////////////
                 // This is generated from the input expressions
 $(nbdry_vector_part)
@@ -1779,6 +1798,7 @@ function dendrite_boundary_file(var)
     # bool on_BID_1 = (fabs(y - domainMax.x(1)) < eps);
     bid_defs = "";
     bid_array = "{";
+    bid_get = "";
     nbids = length(prob.bid);
     for i=1:nbids
         bid_name = "on_bid_"*string(prob.bid[i]);
@@ -1788,6 +1808,17 @@ function dendrite_boundary_file(var)
         end
         bid_location = cpp_bid_def(prob.bid_def[i]);
         bid_defs *= "    bool " * bid_name * " = " * bid_location * ";\n";
+        
+        if i==1
+          bid_get *= "    ";
+        end
+        bid_get *= "if(" * bid_location * "){\n";
+        bid_get *= "        return " * string(prob.bid[i]) * ";\n";
+        if i < nbids
+          bid_get *= "    }else ";
+        else
+          bid_get *= "    }\n";
+        end
     end
     bid_array *= "}";
     
@@ -1811,7 +1842,7 @@ function dendrite_boundary_file(var)
             var_ind = var[vi].index;
             # One line for each component
             for ci=1:var[vi].total_components
-                if prob.bc_type[var_ind, i] == DIRICHLET
+                if prob.bc_type[var_ind, i] == DIRICHLET || prob.bc_type[var_ind, i] == NEUMANN
                     # Constant or genfunction values
                     if typeof(prob.bc_func[var_ind, i][ci]) <: Number
                         bc_val = string(prob.bc_func[var_ind, i][ci]);
@@ -1992,6 +2023,24 @@ $(dirichlet_bv)
         // Consider full domain boundaries if there is no geometry
 $(dirichlet_bv)
 
+    };
+    
+    /**
+    * Returns the BID at a position
+    * @param position position
+    */
+    int getBoundaryID(const ZEROPTV &position){
+        static const double eps = 1e-14;
+        double x = position.x();
+        double y = position.y();
+        Point<2> domainMin(inputData_->meshDef.physDomain.min);
+        Point<2> domainMax(inputData_->meshDef.physDomain.max);
+        
+        // Check BIDs
+$(bid_get)
+        
+        // If it gets here, this position is not on a specified BID
+        return -1;
     };
     
 private:
@@ -2949,9 +2998,43 @@ background_mesh = {
 # penalty
 Cb_e = 200
 
-# Carved out sub-mesh
+### Carved out sub-mesh
 geometries = (
 $(geometry_part)
+)
+
+### wall BCs
+boundary = ( # whole domain
+  {
+    side = "x-"
+    bc_type = "sbm"
+    ifRefine = true
+  },
+  {
+    side = "x+"
+    bc_type = "sbm"
+    ifRefine = true
+  },
+  {
+    side = "y-"
+    bc_type = "sbm"
+    ifRefine = true
+  },
+  {
+    side = "y+"
+    bc_type = "sbm"
+    ifRefine = true
+  },
+  {
+    side = "z-"
+    bc_type = "sbm"
+    ifRefine = true
+  },
+  {
+    side = "z+"
+    bc_type = "sbm"
+    ifRefine = true
+  }
 )
 
 # This may be used later
@@ -3172,7 +3255,29 @@ public:
         if (ReadValue("Cb_e", Cb_e)){};
         //if (ReadValue("Cb_f", Cb_f)){};
         //if (ReadValue("C_DC", C_DC)){};
-
+        
+        /// always have dim*2 boundary_def in the order of x-, x+, y-, y+, z-, z+
+        boundary_def.resize(DIM * 2);
+        boundary_def[0].side = BoundaryDef::Side::X_MINUS;
+        boundary_def[1].side = BoundaryDef::Side::X_PLUS;
+        boundary_def[2].side = BoundaryDef::Side::Y_MINUS;
+        boundary_def[3].side = BoundaryDef::Side::Y_PLUS;
+#if (DIM == 3)
+        boundary_def[4].side = BoundaryDef::Side::Z_MINUS;
+        boundary_def[5].side = BoundaryDef::Side::Z_PLUS;
+#endif
+        if (cfg.exists("boundary")){
+          const auto &bc = cfg.getRoot()["boundary"];
+          for (auto &bc_def : boundary_def){
+            for (int j = 0; j < bc.getLength(); j++){
+              /// If the side of bc in config matches with the preset bc
+              if (bc_def.side == BoundaryDef::read_side_from_config(bc[j])){
+                bc_def.read_from_config(bc[j]);
+              }
+            }
+          }
+        }
+        
         /// read geometries
         if (cfg.exists("geometries")){
             const auto &geometries = cfg.getRoot()["geometries"];
@@ -3587,19 +3692,19 @@ struct BoundaryDef{
       bc_type = read_bc_type(root["bc_type"]);
     }
     
-    if ((bc_type == Condition_Type::DIRICHLET_BC) || (bc_type == Condition_Type::WEAK_BC) || (bc_type == Condition_Type::SBM_BC)){
-      ReadVectorRoot(root, "dirichlet_val", dirichlet_val);
-    }
+    //if ((bc_type == Condition_Type::DIRICHLET_BC) || (bc_type == Condition_Type::WEAK_BC) || (bc_type == Condition_Type::SBM_BC)){
+    //  ReadVectorRoot(root, "dirichlet_val", dirichlet_val);
+    //}
 
-    if (bc_type == Condition_Type::NEUMANN_BC){
-      ReadVectorRoot(root, "flux", flux);
-    }
+    //if (bc_type == Condition_Type::NEUMANN_BC){
+    //  ReadVectorRoot(root, "flux", flux);
+    //}
 
-    if (bc_type == Condition_Type::ROBIN_BC){
-      /// b * \\frac{\\partial u}{\\partial n} = g - a * u
-      ReadVectorRoot(root, "G_constant", G_vec);
-      ReadVectorRoot(root, "a_constant", a_vec);
-    }
+    //if (bc_type == Condition_Type::ROBIN_BC){
+    //  /// b * \\frac{\\partial u}{\\partial n} = g - a * u
+    //  ReadVectorRoot(root, "G_constant", G_vec);
+    //  ReadVectorRoot(root, "a_constant", a_vec);
+    //}
   }
 
   void PrintBoundaryDef(std::ofstream &fstream) const{
@@ -3633,10 +3738,10 @@ struct BoundaryDef{
         fstream << "bc_type: WEAK_T\\n";
       }
 
-      PrintVector(fstream, "dirichlet_val", dirichlet_val);
-      PrintVector(fstream, "flux", flux);
-      PrintVector(fstream, "G_vec", G_vec);
-      PrintVector(fstream, "a_vec", a_vec);
+      //PrintVector(fstream, "dirichlet_val", dirichlet_val);
+      //PrintVector(fstream, "flux", flux);
+      //PrintVector(fstream, "G_vec", G_vec);
+      //PrintVector(fstream, "a_vec", a_vec);
       fstream << "ifRefine: " << ifRefine << "\\n";
     }
   }
@@ -5328,7 +5433,7 @@ void SBMCalc::Dist2Geo(double (&d)[DIM]){
       for (int geoID = 0; geoID < imga_->getGeometries().size(); geoID++)
       {
         std::vector<GEOMETRY::Triangles> m_triangles = imga_->getGeometries()[geoID]->getSTL()[0].getTriangles();
-        //std::cout<<"m_triangles.size() = " << m_triangles.size() << "\n";
+        //std::cout<<"m_triangles.size() = " << m_triangles.size() << "\\n";
 
         for (int i = 0; i < m_triangles.size(); i++)
         {
