@@ -1431,6 +1431,10 @@ function dendrite_equation_file(var, IR)
         end
     end
     
+    # minor 2d/3d pieces
+    threed1 = (config.dimension == 3) ? ("double z_true = pt.z() + dist2bdry[2];") : ("")
+    threed2 = (config.dimension == 3) ? (", z_true") : ("")
+    
     # Any generated functions used for coefficients
     genfunctions = finch_state.genfunctions;
     function_defs = "";
@@ -1610,9 +1614,14 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
         sbmCalc.Dist2Geo(dist2bdry);
         sbmCalc.NormalofGeo(trueNormal, dist2bdry);
         
+        // Need to find the Dirichlet boundary value.
+        double boundary_value = 0.0;
+        // The position of the GP
+        const ZEROPTV pt = fe.position();
         // The corresponding position on the true boundary
         double x_true = pt.x() + dist2bdry[0];
         double y_true = pt.y() + dist2bdry[1];
+        $(threed1)
         
         int tmpbctype = 0;
         if (side_idx < BoundaryTypes::MAX_WALL_TYPE_BOUNDARY){
@@ -1622,7 +1631,7 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
         }else{
             // this is for carved out boundaries
             const auto &carved_out_def = idata_->carved_out_geoms_def.at(id);
-            const int bid = boundaryConditions->getBoundaryID(ZEROPTV(x_true, y_true));
+            const int bid = boundaryConditions->getBoundaryID(ZEROPTV(x_true, y_true$(threed2)));
             if(bid > 0){
                 tmpbctype = carved_out_def.bc_type_V[bid];
             }else{
@@ -1631,7 +1640,7 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
         }
         const int bcType = tmpbctype;
         
-        double boundary_value = 0.0;
+        boundary_value = 0.0;
         
 $(other_labels)
         
@@ -1683,6 +1692,7 @@ $(nbdry_matrix_part)
         // The corresponding position on the true boundary
         double x_true = pt.x() + dist2bdry[0];
         double y_true = pt.y() + dist2bdry[1];
+        $(threed1)
         
         int tmpbctype = 0;
         if (side_idx < BoundaryTypes::MAX_WALL_TYPE_BOUNDARY){
@@ -1692,7 +1702,7 @@ $(nbdry_matrix_part)
         }else{
             // this is for carved out boundaries
             const auto &carved_out_def = idata_->carved_out_geoms_def.at(id);
-            const int bid = boundaryConditions->getBoundaryID(ZEROPTV(x_true, y_true));
+            const int bid = boundaryConditions->getBoundaryID(ZEROPTV(x_true, y_true$(threed2)));
             if(bid > 0){
                 tmpbctype = carved_out_def.bc_type_V[bid];
             }else{
@@ -2031,10 +2041,7 @@ $(dirichlet_bv)
     */
     int getBoundaryID(const ZEROPTV &position){
         static const double eps = 1e-14;
-        double x = position.x();
-        double y = position.y();
-        Point<2> domainMin(inputData_->meshDef.physDomain.min);
-        Point<2> domainMax(inputData_->meshDef.physDomain.max);
+$(extract_coords) 
         
         // Check BIDs
 $(bid_get)

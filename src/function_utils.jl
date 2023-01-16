@@ -87,7 +87,8 @@ function makeFunction(args, fun, wheretype="")
         nf = GenFunction(name, args, strfun, ex, stringToFunction(name, args, strfun, wheretype));
     else
         ex = Meta.parse(fun);
-        nf = GenFunction(name, args, fun, ex, stringToFunction(name, args, fun, wheretype));
+        strfun = string(fun);
+        nf = GenFunction(name, args, strfun, ex, stringToFunction(name, args, strfun, wheretype));
     end
     add_genfunction(nf);
 end
