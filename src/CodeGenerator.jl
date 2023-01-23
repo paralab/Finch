@@ -228,8 +228,11 @@ function write_grid_to_file(file, grid)
     write_binary_array(file, grid.bdryface, true, true);
     write_binary_array(file, grid.bdrynorm, true);
     write_binary_array(file, grid.bids, true);
+    write_binary_array(file, grid.nodebid, true);
+    
     write_binary_array(file, grid.loc2glb, true, true);
     write_binary_array(file, grid.glbvertex, true, true);
+    
     write_binary_array(file, grid.face2glb, true, true);
     write_binary_array(file, grid.element2face, true, true);
     write_binary_array(file, grid.face2element, true, true);
@@ -237,12 +240,20 @@ function write_grid_to_file(file, grid)
     write_binary_array(file, grid.faceRefelInd, true, true);
     write_binary_array(file, grid.facebid, true);
     
-    write(file, Int(grid.is_subgrid));
+    if grid.is_subgrid
+        write(file, Int(1));
+    else
+        write(file, Int(0));
+    end
+    write_binary_array(file, grid.elemental_order, true, true);
+    
+    # write(file, grid.nel_global);
     write(file, grid.nel_owned);
     write(file, grid.nel_ghost);
     write(file, grid.nface_owned);
     write(file, grid.nface_ghost);
     
+    # write(file, grid.nnodes_global);
     write(file, grid.nnodes_borrowed);
     write_binary_array(file, grid.partition2global_element, true);
     

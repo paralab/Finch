@@ -1823,7 +1823,7 @@ function dendrite_boundary_file(var)
           bid_get *= "    ";
         end
         bid_get *= "if(" * bid_location * "){\n";
-        bid_get *= "        return " * string(prob.bid[i]) * ";\n";
+        bid_get *= "        return " * string(prob.bid[i]-1) * ";\n";
         if i < nbids
           bid_get *= "    }else ";
         else
@@ -1939,12 +1939,26 @@ public:
         double t = time_->getCurrentTime();
 $(extract_coords)
         
+        // Check walls of full domain
+        int wall_index = -1;
+        if(fabs(x - inputData_->meshDef.physDomain.min[0]) < eps){ wall_index = 0;} // xmin
+        else if(fabs(x - inputData_->meshDef.physDomain.max[0]) < eps){ wall_index = 1;} // xmax
+        else if(fabs(y - inputData_->meshDef.physDomain.min[1]) < eps){ wall_index = 2;} // ymin
+        else if(fabs(y - inputData_->meshDef.physDomain.max[1]) < eps){ wall_index = 3;} // ymax
+#if (DIM == 3)
+        else if(fabs(z - inputData_->meshDef.physDomain.min[2]) < eps){ wall_index = 4;} // zmin
+        else if(fabs(z - inputData_->meshDef.physDomain.max[2]) < eps){ wall_index = 5;} // zmax
+#endif
+        
         // Define BIDs
 $(bid_defs)
         
         bool on_bid_array[$(nbids)] = $(bid_array);
         
         /// for carved out geometry
+        // This is commented because currently generateBoundaryFlags only works for nodes
+        // in the interior of a geometry. 
+        /*
         DENDRITE_UINT objectID = -1;
         boundaries_->generateBoundaryFlags(position, objectID);
         if (boundaries_->checkBoundaryType(BoundaryTypes::VOXEL::SPHERE) or
@@ -1954,9 +1968,18 @@ $(bid_defs)
             
             const auto &carved_geo = inputData_->carved_out_geoms_def.at(objectID);
             // Apply BC for each relevant BID and DOF
-            unsigned int nbids = carved_geo.bid_V.size();
+            // ...
+        }
+        */
+        // If there is a geometry, use its BCs
+        if(inputData_->carved_out_geoms_def.size() > 0){
+            const auto &carved_geo = inputData_->carved_out_geoms_def.at(0);
+            // Apply BC for each relevant BID and DOF
+            unsigned int nbids = carved_geo.bc_type_V.size();
             for(int bidi = 0; bidi < nbids; bidi++){
-                if(on_bid_array[carved_geo.bid_V[bidi]]){
+                if(on_bid_array[bidi] && 
+                    (carved_geo.bc_type_V[bidi] == CarvedOutGeom::BCType::SBM || 
+                     carved_geo.bc_type_V[bidi] == CarvedOutGeom::BCType::DIRICHLET)){
                     // This position is part of a BID assigned to this geometry.
                     // If it is also a part of the global boundary or another geometry,
                     // Those will be ignored. Only one BC can be set for a given dof here.
@@ -1967,11 +1990,14 @@ $(dirichlet_bc)
                 }
             }
         }
-        // If it gets here, this position is not on a geometry boundary
+        
         
         // Consider full domain boundaries if there is no geometry
+        const auto boundary_def = inputData_->boundary_def;
+        if(wall_index >= 0 && boundary_def[wall_index].bc_type == BoundaryDef::Condition_Type::DIRICHLET_BC){
 $(dirichlet_bc)
-
+        }
+        
 $(reference_points)
         
         // This may be used at some point in the future.
@@ -2000,12 +2026,26 @@ $(reference_points)
         double t = time_->getCurrentTime();
 $(extract_coords)
         
+        // Check walls of full domain
+        int wall_index = -1;
+        if(fabs(x - inputData_->meshDef.physDomain.min[0]) < eps){ wall_index = 0;} // xmin
+        else if(fabs(x - inputData_->meshDef.physDomain.max[0]) < eps){ wall_index = 1;} // xmax
+        else if(fabs(y - inputData_->meshDef.physDomain.min[1]) < eps){ wall_index = 2;} // ymin
+        else if(fabs(y - inputData_->meshDef.physDomain.max[1]) < eps){ wall_index = 3;} // ymax
+#if (DIM == 3)
+        else if(fabs(z - inputData_->meshDef.physDomain.min[2]) < eps){ wall_index = 4;} // zmin
+        else if(fabs(z - inputData_->meshDef.physDomain.max[2]) < eps){ wall_index = 5;} // zmax
+#endif
+        
         // Define BIDs
 $(bid_defs)
         
         bool on_bid_array[$(nbids)] = $(bid_array);
         
         /// for carved out geometry
+        // This is commented because currently generateBoundaryFlags only works for nodes
+        // in the interior of a geometry. 
+        /*
         DENDRITE_UINT objectID = -1;
         boundaries_->generateBoundaryFlags(position, objectID);
         if (boundaries_->checkBoundaryType(BoundaryTypes::VOXEL::SPHERE) or
@@ -2015,9 +2055,16 @@ $(bid_defs)
             
             const auto &carved_geo = inputData_->carved_out_geoms_def.at(objectID);
             // Apply BC for each relevant BID and DOF
-            unsigned int nbids = carved_geo.bid_V.size();
+            // ...
+        }
+        */
+        // If there is a geometry, use its BCs
+        if(inputData_->carved_out_geoms_def.size() > 0){
+            const auto &carved_geo = inputData_->carved_out_geoms_def.at(0);
+            // Apply BC for each relevant BID and DOF
+            unsigned int nbids = carved_geo.bc_type_V.size();
             for(int bidi = 0; bidi < nbids; bidi++){
-                if(on_bid_array[carved_geo.bid_V[bidi]]){
+                if(on_bid_array[bidi]){
                     // This position is part of a BID assigned to this geometry.
                     // If it is also a part of the global boundary or another geometry,
                     // Those will be ignored. Only one BC can be set for a given dof here.
@@ -2028,10 +2075,12 @@ $(dirichlet_bv)
                 }
             }
         }
-        // If it gets here, this position is not on a geometry boundary
         
         // Consider full domain boundaries if there is no geometry
+        const auto boundary_def = inputData_->boundary_def;
+        if(wall_index >= 0){
 $(dirichlet_bv)
+        }
 
     };
     

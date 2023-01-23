@@ -974,6 +974,7 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
         loc2glb = loc2glb[:,1:nel];
         element_owners = element_owners[1:nel];
         node_owner_index = node_owner_index[1:highest_kept];
+        node_bids = node_bids[1:highest_kept];
         
         # Count nodes that are owned, shared or borrowed
         nnodes_owned = highest_kept;
