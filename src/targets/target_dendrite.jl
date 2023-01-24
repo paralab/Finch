@@ -1263,6 +1263,18 @@ int main(int argc, char* argv[]) {
     
     TALYFEMLIB::PrintStatus("total No of nodes in the mesh = ", octDA->getGlobalNodeSz());
     
+    // Store the distance to boundary vectors and geometry normals
+    // This size is too big, but I'm not sure how to determine the
+    // correct size.
+    unsigned int distanceArraySize = octDA->getLocalElementSz() * octDA->getNumNodesPerElement();
+    double* distanceToBdry = new double[DIM * distanceArraySize];
+    double* bdryNormal = new double[DIM * distanceArraySize];
+    double* surfaceNodeCoords = new double[DIM * distanceArraySize];
+    bool* distanceSet = new bool[distanceArraySize];
+    for (int i = 0; i < distanceArraySize; i++){
+        distanceSet[i] = false;
+    }
+    
     subDomain.finalize(octDA, dTree.getTreePartFiltered(), domainExtents);
     IO::writeBoundaryElements(octDA, dTree.getTreePartFiltered(), "boundary", "subDA", domainExtents);
     SubDomainBoundary boundary(&subDomain, octDA, domainExtents);
@@ -1303,6 +1315,7 @@ int main(int argc, char* argv[]) {
                                                 &inputData, imga);
     
     $(project_name)Eq->equation()->setBoundaryCondition(&$(project_name)BC);
+    $(project_name)Eq->equation()->setDistanceArrays(distanceToBdry, bdryNormal, surfaceNodeCoords, distanceSet, distanceArraySize);
     
     // Setup PETSc solver
     LinearSolver *$(project_name)Solver = setLinearSolver($(project_name)Eq, octDA, NUM_VARS, mfree);
@@ -1434,6 +1447,21 @@ function dendrite_equation_file(var, IR)
     # minor 2d/3d pieces
     threed1 = (config.dimension == 3) ? ("double z_true = pt.z() + dist2bdry[2];") : ("")
     threed2 = (config.dimension == 3) ? (", z_true") : ("")
+    threed3 = (config.dimension == 3) ? (", geoNormal[nodeID*DIM+2]") : ("")
+    threed4 = (config.dimension == 3) ? (
+"""
+                    if(fabs(pt.z() - surfaceNodeCoords[nodeID*DIM+2]) < 1e-14){
+                      // This is the node!
+                      found_it = true;
+                      break;
+                    }
+""") : (
+"""
+                    // This is the node!
+                    found_it = true;
+                    break;
+"""
+)
     
     # Any generated functions used for coefficients
     genfunctions = finch_state.genfunctions;
@@ -1609,15 +1637,48 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
         double dist2bdry[DIM];
         const double* normal = fe.surface()->normal().data();
         TALYFEMLIB::ZEROPTV trueNormal;
+        
+        // The position of the GP
+        const ZEROPTV pt = fe.position();
 
-        SBMCalc sbmCalc(fe, idata_, imga_);
-        sbmCalc.Dist2Geo(dist2bdry);
-        sbmCalc.NormalofGeo(trueNormal, dist2bdry);
+        // Only calculate distance and normal once
+        // But, there is no node ID available, so need to find it.
+        unsigned int nodeID = 0;
+        bool found_it = false;
+        while(distanceSet[nodeID]){
+            if(fabs(pt.x() - surfaceNodeCoords[nodeID*DIM]) < 1e-14){
+                if(fabs(pt.y() - surfaceNodeCoords[nodeID*DIM+1]) < 1e-14){
+$(threed4)
+                }
+            }
+            // Not the node.
+            nodeID++;
+        }
+        
+        // Now we either found a set node, or need to compute a new one.
+        if(found_it){
+            for(int i=0; i<DIM; i++){
+              dist2bdry[i] = distanceToBdry[nodeID*DIM+i];
+            }
+            trueNormal = TALYFEMLIB::ZEROPTV(geoNormal[nodeID*DIM], geoNormal[nodeID*DIM+1]$(threed3));
+            
+        }else{
+            // This is a new node. Compute things and store them.
+            SBMCalc sbmCalc(fe, idata_, imga_);
+            sbmCalc.Dist2Geo(dist2bdry);
+            sbmCalc.NormalofGeo(trueNormal, dist2bdry);
+            // Save them
+            for(int i=0; i<DIM; i++){
+              distanceToBdry[nodeID*DIM+i] = dist2bdry[i];
+              geoNormal[nodeID*DIM+i] = trueNormal.data()[i];
+              surfaceNodeCoords[nodeID*DIM+i] = pt.data()[i];
+            }
+            distanceSet[nodeID] = true;
+        }
         
         // Need to find the Dirichlet boundary value.
         double boundary_value = 0.0;
-        // The position of the GP
-        const ZEROPTV pt = fe.position();
+        
         // The corresponding position on the true boundary
         double x_true = pt.x() + dist2bdry[0];
         double y_true = pt.y() + dist2bdry[1];
@@ -1680,15 +1741,48 @@ $(nbdry_matrix_part)
         double dist2bdry[DIM];
         const double* normal = fe.surface()->normal().data();
         TALYFEMLIB::ZEROPTV trueNormal;
+        
+        // The position of the GP
+        const ZEROPTV pt = fe.position();
 
-        SBMCalc sbmCalc(fe, idata_, imga_);
-        sbmCalc.Dist2Geo(dist2bdry);
-        sbmCalc.NormalofGeo(trueNormal, dist2bdry);
+        // Only calculate distance and normal once
+        // But, there is no node ID available, so need to find it.
+        unsigned int nodeID = 0;
+        bool found_it = false;
+        while(distanceSet[nodeID]){
+            if(fabs(pt.x() - surfaceNodeCoords[nodeID*DIM]) < 1e-14){
+                if(fabs(pt.y() - surfaceNodeCoords[nodeID*DIM+1]) < 1e-14){
+$(threed4)
+                }
+            }
+            // Not the node.
+            nodeID++;
+        }
+        
+        // Now we either found a set node, or need to compute a new one.
+        if(found_it){
+            for(int i=0; i<DIM; i++){
+              dist2bdry[i] = distanceToBdry[nodeID+i];
+            }
+            trueNormal = TALYFEMLIB::ZEROPTV(geoNormal[nodeID], geoNormal[nodeID+1]$(threed3));
+            
+        }else{
+            // This is a new node. Compute things and store them.
+            SBMCalc sbmCalc(fe, idata_, imga_);
+            sbmCalc.Dist2Geo(dist2bdry);
+            sbmCalc.NormalofGeo(trueNormal, dist2bdry);
+            // Save them
+            for(int i=0; i<DIM; i++){
+              distanceToBdry[nodeID+i] = dist2bdry[i];
+              geoNormal[nodeID+i] = trueNormal.data()[i];
+              surfaceNodeCoords[nodeID+i] = pt.data()[i];
+            }
+            distanceSet[nodeID] = true;
+        }
         
         // Need to find the Dirichlet boundary value.
         double boundary_value = 0.0;
-        // The position of the GP
-        const ZEROPTV pt = fe.position();
+        
         // The corresponding position on the true boundary
         double x_true = pt.x() + dist2bdry[0];
         double y_true = pt.y() + dist2bdry[1];
@@ -1711,7 +1805,7 @@ $(nbdry_matrix_part)
         }
         const int bcType = tmpbctype;
         
-        boundaryConditions->getBoundaryValue(ZEROPTV(x_true,y_true), &boundary_value);
+        boundaryConditions->getBoundaryValue(ZEROPTV(x_true,y_true$(threed2)), &boundary_value);
         
 $(other_labels)
         
@@ -1743,16 +1837,30 @@ $(nbdry_vector_part)
         GPpos = GPpos_;
     }
     
-    void setBoundaryCondition($(project_name)BoundaryConditions *bcs){
+    void setBoundaryCondition(heat3dBoundaryConditions *bcs){
       boundaryConditions = bcs;
     }
     
+    void setDistanceArrays(double* dist, double* gnorm, double* sncoords, bool* dset, unsigned int nnodes){
+        distanceToBdry = dist;
+        geoNormal = gnorm;
+        surfaceNodeCoords = sncoords;
+        distanceSet = dset;
+        distanceArraySize = nnodes;
+    }
+    
     protected:
-    const $(project_name)InputData *idata_;
-    $(project_name)BoundaryConditions *boundaryConditions;
+    const heat3dInputData *idata_;
+    heat3dBoundaryConditions *boundaryConditions;
     double dt;
     double currentT;
     unsigned int NUM_VARS;
+    
+    double* distanceToBdry;
+    double* geoNormal;
+    double* surfaceNodeCoords;
+    bool* distanceSet;
+    unsigned int distanceArraySize;
     
     const IMGA *imga_;
     std::vector<ZEROPTV> GPpos_;
@@ -3194,7 +3302,7 @@ public:
     typeSolver solverType;
     
     /// Declare the dist calc type
-    typeDistCalc DistCalcType;
+    typeDistCalc DistCalcType = typeDistCalc::NORMAL_BASED;
 
     DENDRITE_UINT elemOrder = 1;
     bool ifMatrixFree = false;
@@ -5356,8 +5464,8 @@ void SBMCalc::Dist2Geo(double (&d)[DIM]){
   
   //////////////////////////////////////////////////////////////////////////////////////////////////
   // Set these if specifying the distance to geometry below
-  bool user_specified_distance = true;
-  bool general_mesh_distance = false;
+  bool user_specified_distance = false;
+  bool general_mesh_distance = true;
   //////////////////////////////////////////////////////////////////////////////////////////////////
 
 #if (DIM == 2)
@@ -5421,15 +5529,12 @@ void SBMCalc::Dist2Geo(double (&d)[DIM]){
     int PickGeomID = 0;
     int PickTrianleID = 0;
 
-    switch (idata_->DistCalcType)
-    {
+    switch (idata_->DistCalcType){
 
     case $(project_name)InputData::typeDistCalc::GP_BASED:
     {
-      for (const auto gp : idata_->GPPTVAll)
-      {
-        if (sqrt(pow(x - gp(0), 2) + pow(y - gp(1), 2) + pow(z - gp(2), 2)) < MinDist)
-        {
+      for (const auto gp : idata_->GPPTVAll){
+        if (sqrt(pow(x - gp(0), 2) + pow(y - gp(1), 2) + pow(z - gp(2), 2)) < MinDist){
           MinDist = sqrt(pow(x - gp(0), 2) + pow(y - gp(1), 2) + pow(z - gp(2), 2));
           d[0] = gp(0) - x;
           d[1] = gp(1) - y;
@@ -5441,19 +5546,15 @@ void SBMCalc::Dist2Geo(double (&d)[DIM]){
 
     case $(project_name)InputData::typeDistCalc::NORMAL_BASED_DistributeSTL:
     {
-      for (int geoID = 0; geoID < imga_->getGeometries().size(); geoID++)
-      {
+      for (int geoID = 0; geoID < imga_->getGeometries().size(); geoID++){
         std::vector<GEOMETRY::Triangles> m_triangles = imga_->getGeometries()[geoID]->getSTL()[0].getTriangles();
 
         assert(idata_->PBoxEnd(0) > x && idata_->PBoxEnd(1) > y && idata_->PBoxEnd(2) > z && idata_->PBoxStart(0) < x && idata_->PBoxStart(1) < y && idata_->PBoxStart(2) < z);
         int it = 0;
-        for (auto point : idata_->DistributePoints[geoID])
-        {
-          if (sqrt(pow(x - point.x() - shift_[0], 2) + pow(y - point.y() - shift_[1], 2) + pow(z - point.z() - shift_[2], 2)) < MinDist)
-          {
+        for (auto point : idata_->DistributePoints[geoID]){
+          if (sqrt(pow(x - point.x() - shift_[0], 2) + pow(y - point.y() - shift_[1], 2) + pow(z - point.z() - shift_[2], 2)) < MinDist){
             MinDist = sqrt(pow(x - point.x() - shift_[0], 2) + pow(y - point.y() - shift_[1], 2) + pow(z - point.z() - shift_[2], 2));
-            for (int dim = 0; dim < DIM; dim++)
-            {
+            for (int dim = 0; dim < DIM; dim++){
               OnePointVector(dim) = m_triangles[idata_->TriangleNumber[geoID][it]].triangleCoord[0][dim] + shift_[dim] - pt(dim);
               PickNormalVector(dim) = m_triangles[idata_->TriangleNumber[geoID][it]].normal[dim];
               PickTrianleID = idata_->TriangleNumber[geoID][it];
@@ -5466,19 +5567,16 @@ void SBMCalc::Dist2Geo(double (&d)[DIM]){
 
       // scaling of vector
       double scale = 0.0;
-      for (int dim = 0; dim < DIM; dim++)
-      {
+      for (int dim = 0; dim < DIM; dim++){
         scale += OnePointVector(dim) * PickNormalVector(dim);
       }
 
-      for (int dim = 0; dim < DIM; dim++)
-      {
+      for (int dim = 0; dim < DIM; dim++){
         d[dim] = scale * PickNormalVector(dim);
       }
 
       GEOMETRY::Triangles m_triangle = imga_->getGeometries()[PickGeomID]->getSTL()[0].getTriangles()[PickTrianleID];
-      if (!CheckInside3DTriangle(pt, d, m_triangle, shift_))
-      {
+      if (!CheckInside3DTriangle(pt, d, m_triangle, shift_)){
         ShortestDist2TriEdge(pt, m_triangle, shift_, d);
       }
       break;
@@ -5486,19 +5584,16 @@ void SBMCalc::Dist2Geo(double (&d)[DIM]){
 
     case $(project_name)InputData::typeDistCalc::NORMAL_BASED:
     {
-      for (int geoID = 0; geoID < imga_->getGeometries().size(); geoID++)
-      {
+      for (int geoID = 0; geoID < imga_->getGeometries().size(); geoID++){
         std::vector<GEOMETRY::Triangles> m_triangles = imga_->getGeometries()[geoID]->getSTL()[0].getTriangles();
         //std::cout<<"m_triangles.size() = " << m_triangles.size() << "\\n";
 
-        for (int i = 0; i < m_triangles.size(); i++)
-        {
-          if (sqrt(pow(x - (m_triangles[i].triangleCoord[0][0] + m_triangles[i].triangleCoord[1][0] + m_triangles[i].triangleCoord[2][0]) / 3 - shift_[0], 2) + pow(y - (m_triangles[i].triangleCoord[0][1] + m_triangles[i].triangleCoord[1][1] + m_triangles[i].triangleCoord[2][1]) / 3 - shift_[1], 2) + pow(z - (m_triangles[i].triangleCoord[0][2] + m_triangles[i].triangleCoord[1][2] + m_triangles[i].triangleCoord[2][2]) / 3 - shift_[2], 2)) < MinDist)
-          {
-            MinDist = sqrt(pow(x - (m_triangles[i].triangleCoord[0][0] + m_triangles[i].triangleCoord[1][0] + m_triangles[i].triangleCoord[2][0]) / 3 - shift_[0], 2) + pow(y - (m_triangles[i].triangleCoord[0][1] + m_triangles[i].triangleCoord[1][1] + m_triangles[i].triangleCoord[2][1]) / 3 - shift_[1], 2) + pow(z - (m_triangles[i].triangleCoord[0][2] + m_triangles[i].triangleCoord[1][2] + m_triangles[i].triangleCoord[2][2]) / 3 - shift_[2], 2));
+        for (int i = 0; i < m_triangles.size(); i++){
+          double tmp_dist = sqrt(pow(x - (m_triangles[i].triangleCoord[0][0] + m_triangles[i].triangleCoord[1][0] + m_triangles[i].triangleCoord[2][0]) / 3 - shift_[0], 2) + pow(y - (m_triangles[i].triangleCoord[0][1] + m_triangles[i].triangleCoord[1][1] + m_triangles[i].triangleCoord[2][1]) / 3 - shift_[1], 2) + pow(z - (m_triangles[i].triangleCoord[0][2] + m_triangles[i].triangleCoord[1][2] + m_triangles[i].triangleCoord[2][2]) / 3 - shift_[2], 2));
+          if (tmp_dist < MinDist){
+            MinDist = tmp_dist;
 
-            for (int dim = 0; dim < DIM; dim++)
-            {
+            for (int dim = 0; dim < DIM; dim++){
               OnePointVector(dim) = m_triangles[i].triangleCoord[0][dim] + shift_[dim] - pt(dim);
               PickNormalVector(dim) = m_triangles[i].normal[dim];
               PickTrianleID = i;
@@ -5510,19 +5605,16 @@ void SBMCalc::Dist2Geo(double (&d)[DIM]){
 
       // scaling of vector
       double scale = 0.0;
-      for (int dim = 0; dim < DIM; dim++)
-      {
+      for (int dim = 0; dim < DIM; dim++){
         scale += OnePointVector(dim) * PickNormalVector(dim);
       }
 
-      for (int dim = 0; dim < DIM; dim++)
-      {
+      for (int dim = 0; dim < DIM; dim++){
         d[dim] = scale * PickNormalVector(dim);
       }
 
       GEOMETRY::Triangles m_triangle = imga_->getGeometries()[PickGeomID]->getSTL()[0].getTriangles()[PickTrianleID];
-      if (!CheckInside3DTriangle(pt, d, m_triangle, shift_))
-      {
+      if (!CheckInside3DTriangle(pt, d, m_triangle, shift_)){
         ShortestDist2TriEdge(pt, m_triangle, shift_, d);
       }
       break;

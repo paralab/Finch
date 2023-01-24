@@ -3,13 +3,13 @@
 =#
 
 ### If the Finch package has already been added, use this line #########
-# using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
+using Finch # Note: to add the package, first do: ]add "https://github.com/paralab/Finch.git"
 
 ### If not, use these four lines (working from the examples directory) ###
-if !@isdefined(Finch)
-    include("../Finch.jl");
-    using .Finch
-end
+# if !@isdefined(Finch)
+#     include("../Finch.jl");
+#     using .Finch
+# end
 ##########################################################################
 
 initFinch("heat3d");
@@ -18,14 +18,13 @@ useLog("heat3d-dendritelog", level=3)
 # Add any other parameters to be added to config.txt here.
 # config.txt values will override any configuration set
 # elsewhere in this script.
-generateFor("Dendrite", baseRefineLevel=4, min=[0.0,0.0,0.0], max=[1.0,0.775294,0.985516], 
-                        #refineWhere="level < (sqrt(x*x+y*y) * 8.2) && level < 9",
+generateFor("Dendrite", baseRefineLevel=5, min=[0.0,0.0,0.0], max=[1.0,0.775294,0.985516], 
                         geometries=[Dict([
                                         (:meshFile, "bunny.stl"),
                                         (:meshName, "bunny"),
                                         (:boundaryTypes, ["sbm"]),
                                         (:bids, [1]),
-                                        (:refineLevel, 5)
+                                        (:refineLevel, 8)
                                     ])])
 
 domain(3)
@@ -44,12 +43,9 @@ initial(u, 0.0) # initial condition
 # Later ones can overlap. They are tested sequentially and the first one satisfied is used.
 addBoundaryID(1, "true") # everywhere
 
-boundary(u, 1, DIRICHLET, "exp(-z*z / 0.01)") # Hot feet
+boundary(u, 1, DIRICHLET, "exp(-z*z / 0.04)") # Hot feet
 
-coefficient("f", 0.0)
-
-# Implicit SBM is handled by target
-# weakForm(u, "Dt(u*v) + dot(grad(u),grad(v)) - f*v")
+coefficient("f", 0.0) # forcing
 
 # Explicitly written SBM
 coefficient("alpha", 200) # penalty
