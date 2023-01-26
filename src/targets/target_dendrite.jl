@@ -5586,18 +5586,42 @@ void SBMCalc::Dist2Geo(double (&d)[DIM]){
     {
       for (int geoID = 0; geoID < imga_->getGeometries().size(); geoID++){
         std::vector<GEOMETRY::Triangles> m_triangles = imga_->getGeometries()[geoID]->getSTL()[0].getTriangles();
-        //std::cout<<"m_triangles.size() = " << m_triangles.size() << "\\n";
+        //std::cout<<"m_triangles.size() = " << m_triangles.size() << "\n";
 
         for (int i = 0; i < m_triangles.size(); i++){
-          double tmp_dist = sqrt(pow(x - (m_triangles[i].triangleCoord[0][0] + m_triangles[i].triangleCoord[1][0] + m_triangles[i].triangleCoord[2][0]) / 3 - shift_[0], 2) + pow(y - (m_triangles[i].triangleCoord[0][1] + m_triangles[i].triangleCoord[1][1] + m_triangles[i].triangleCoord[2][1]) / 3 - shift_[1], 2) + pow(z - (m_triangles[i].triangleCoord[0][2] + m_triangles[i].triangleCoord[1][2] + m_triangles[i].triangleCoord[2][2]) / 3 - shift_[2], 2));
-          if (tmp_dist < MinDist){
-            MinDist = tmp_dist;
-
-            for (int dim = 0; dim < DIM; dim++){
-              OnePointVector(dim) = m_triangles[i].triangleCoord[0][dim] + shift_[dim] - pt(dim);
-              PickNormalVector(dim) = m_triangles[i].normal[dim];
-              PickTrianleID = i;
-              PickGeomID = geoID;
+          // Check if the distance from center of mass(COM) is greater than extent of triangle.
+          // Do for each dimension in sequence to minimize work
+          double centerX = (m_triangles[i].triangleCoord[0][0] + m_triangles[i].triangleCoord[1][0] + m_triangles[i].triangleCoord[2][0]) / 3 - shift_[0];
+          double extent = std::max(fabs(m_triangles[i].triangleCoord[0][0] - m_triangles[i].triangleCoord[1][0]), 
+                                    std::max(fabs(m_triangles[i].triangleCoord[2][0] - m_triangles[i].triangleCoord[1][0]), 
+                                            fabs(m_triangles[i].triangleCoord[2][0] - m_triangles[i].triangleCoord[0][0])));
+          double displacementX = x - centerX;
+          if(fabs(x - centerX) < extent){
+            double centerY = (m_triangles[i].triangleCoord[0][1] + m_triangles[i].triangleCoord[1][1] + m_triangles[i].triangleCoord[2][1]) / 3 - shift_[1];
+            extent = std::max(fabs(m_triangles[i].triangleCoord[0][1] - m_triangles[i].triangleCoord[1][1]), 
+                              std::max(fabs(m_triangles[i].triangleCoord[2][1] - m_triangles[i].triangleCoord[1][1]), 
+                                      fabs(m_triangles[i].triangleCoord[2][1] - m_triangles[i].triangleCoord[0][1])));
+            double displacementY = y - centerY;
+            
+            if(fabs(displacementY) < extent){
+              double centerZ = (m_triangles[i].triangleCoord[0][2] + m_triangles[i].triangleCoord[1][2] + m_triangles[i].triangleCoord[2][2]) / 3 - shift_[2];
+              extent = std::max(fabs(m_triangles[i].triangleCoord[0][2] - m_triangles[i].triangleCoord[1][2]), 
+                                std::max(fabs(m_triangles[i].triangleCoord[2][2] - m_triangles[i].triangleCoord[1][2]), 
+                                        fabs(m_triangles[i].triangleCoord[2][2] - m_triangles[i].triangleCoord[0][2])));
+              double displacementZ = z - centerZ;
+              if(fabs(displacementZ) < extent){
+                double tmp_dist = displacementX*displacementX + displacementY*displacementY + displacementZ*displacementZ;
+                if (tmp_dist < MinDist){
+                  MinDist = tmp_dist;
+                  
+                  for (int dim = 0; dim < DIM; dim++){
+                    OnePointVector(dim) = m_triangles[i].triangleCoord[0][dim] + shift_[dim] - pt(dim);
+                    PickNormalVector(dim) = m_triangles[i].normal[dim];
+                    PickTrianleID = i;
+                    PickGeomID = geoID;
+                  }
+                }
+              }
             }
           }
         }
