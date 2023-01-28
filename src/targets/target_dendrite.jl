@@ -1837,7 +1837,7 @@ $(nbdry_vector_part)
         GPpos = GPpos_;
     }
     
-    void setBoundaryCondition(heat3dBoundaryConditions *bcs){
+    void setBoundaryCondition($(project_name)BoundaryConditions *bcs){
       boundaryConditions = bcs;
     }
     
@@ -1850,8 +1850,8 @@ $(nbdry_vector_part)
     }
     
     protected:
-    const heat3dInputData *idata_;
-    heat3dBoundaryConditions *boundaryConditions;
+    const $(project_name)InputData *idata_;
+    $(project_name)BoundaryConditions *boundaryConditions;
     double dt;
     double currentT;
     unsigned int NUM_VARS;
@@ -3118,9 +3118,12 @@ target_link_libraries($(project_name) dendriteKT dendroKT \${LAPACK_LIBRARIES} \
     # These are the minimum and default solver options
     solver_options = Dict([("ksp_max_it", "1000"),
                           ("ksp_type", "\"bcgs\""),
-                          ("pc_type", "\"lu\""),
+                          ("pc_type", "\"bjacobi\""),
                           ("ksp_atol", "1e-8"),
-                          ("ksp_rtol", "1e-8")]);
+                          ("ksp_rtol", "1e-8"),
+                          ("ksp_monitor", ""),
+                          ("ksp_converged_reason", "")
+                          ]);
     # Include and solver options supplied in params
     # check these possibilities. This list needs to be expanded
     petsc_solver_ops = ["ksp_monitor", "ksp_converged_reason"];
