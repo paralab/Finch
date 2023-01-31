@@ -627,67 +627,67 @@ function prepare_coefficient_values_fvm(entities, var, dimension, counts, fv_inf
     # Are face normals needed?
     need_normals = false;
     normal_part = IR_block_node([]);
-    # FACENORMAL1[1] -> value__FACENORMAL1_1 = mesh.facenormals[1,fid];
-    push!(normal_part.parts, IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL1_1, 
+    # FACENORMAL1[1] -> FACENORMAL1_1 = mesh.facenormals[1,fid];
+    push!(normal_part.parts, IR_operation_node(IRtypes.assign_op, [:FACENORMAL1_1, 
         IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :facenormals, [dimension, :num_faces], [1,:fid])])]));
     if dimension > 1
-        push!(normal_part.parts, IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL1_2, 
+        push!(normal_part.parts, IR_operation_node(IRtypes.assign_op, [:FACENORMAL1_2, 
             IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :facenormals, [dimension, :num_faces], [2,:fid])])]));
     else
-        # push!(normal_part.parts, IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL1_2, 0.0]));
+        # push!(normal_part.parts, IR_operation_node(IRtypes.assign_op, [:FACENORMAL1_2, 0.0]));
     end
     if dimension > 2
-        push!(normal_part.parts, IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL1_3, 
+        push!(normal_part.parts, IR_operation_node(IRtypes.assign_op, [:FACENORMAL1_3, 
             IR_operation_node(IRtypes.member_op, [:mesh, IR_data_node(IRtypes.float_data, :facenormals, [dimension, :num_faces], [3,:fid])])]));
     else
-        # push!(normal_part.parts, IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL1_3, 0.0]));
+        # push!(normal_part.parts, IR_operation_node(IRtypes.assign_op, [:FACENORMAL1_3, 0.0]));
     end
     
     if dimension == 1
         push!(normal_part.parts, IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(==), :eid, :left_el]),
             # normal is correct, make FACENORMAL2 = -FACENORMAL1
             IR_block_node([
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL2_1, IR_operation_node(IRtypes.math_op, [:-, :value__FACENORMAL1_1])])]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL2_1, IR_operation_node(IRtypes.math_op, [:-, :FACENORMAL1_1])])]),
             # normal is reversed
             IR_block_node([
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL2_1, :value__FACENORMAL1_1]),
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL1_1, IR_operation_node(IRtypes.math_op, [:-, :value__FACENORMAL1_1])])])
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL2_1, :FACENORMAL1_1]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL1_1, IR_operation_node(IRtypes.math_op, [:-, :FACENORMAL1_1])])])
         ))
     elseif dimension == 2
         push!(normal_part.parts, IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(==), :eid, :left_el]),
             # normal is correct, make FACENORMAL2 = -FACENORMAL1
             IR_block_node([
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL2_1, IR_operation_node(IRtypes.math_op, [:-, :value__FACENORMAL1_1])]),
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL2_2, IR_operation_node(IRtypes.math_op, [:-, :value__FACENORMAL1_2])])]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL2_1, IR_operation_node(IRtypes.math_op, [:-, :FACENORMAL1_1])]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL2_2, IR_operation_node(IRtypes.math_op, [:-, :FACENORMAL1_2])])]),
             # normal is reversed
             IR_block_node([
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL2_1, :value__FACENORMAL1_1]),
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL2_2, :value__FACENORMAL1_2]),
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL1_1, IR_operation_node(IRtypes.math_op, [:-, :value__FACENORMAL1_1])]),
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL1_2, IR_operation_node(IRtypes.math_op, [:-, :value__FACENORMAL1_2])])])
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL2_1, :FACENORMAL1_1]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL2_2, :FACENORMAL1_2]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL1_1, IR_operation_node(IRtypes.math_op, [:-, :FACENORMAL1_1])]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL1_2, IR_operation_node(IRtypes.math_op, [:-, :FACENORMAL1_2])])])
         ))
     elseif dimension == 3
         push!(normal_part.parts, IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(==), :eid, :left_el]),
             # normal is correct, make FACENORMAL2 = -FACENORMAL1
             IR_block_node([
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL2_1, IR_operation_node(IRtypes.math_op, [:-, :value__FACENORMAL1_1])]),
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL2_2, IR_operation_node(IRtypes.math_op, [:-, :value__FACENORMAL1_2])]),
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL2_3, IR_operation_node(IRtypes.math_op, [:-, :value__FACENORMAL1_3])])]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL2_1, IR_operation_node(IRtypes.math_op, [:-, :FACENORMAL1_1])]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL2_2, IR_operation_node(IRtypes.math_op, [:-, :FACENORMAL1_2])]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL2_3, IR_operation_node(IRtypes.math_op, [:-, :FACENORMAL1_3])])]),
             # normal is reversed
             IR_block_node([
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL2_1, :value__FACENORMAL1_1]),
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL2_2, :value__FACENORMAL1_2]),
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL2_3, :value__FACENORMAL1_3]),
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL1_1, IR_operation_node(IRtypes.math_op, [:-, :value__FACENORMAL1_1])]),
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL1_2, IR_operation_node(IRtypes.math_op, [:-, :value__FACENORMAL1_2])]),
-                IR_operation_node(IRtypes.assign_op, [:value__FACENORMAL1_3, IR_operation_node(IRtypes.math_op, [:-, :value__FACENORMAL1_3])])])
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL2_1, :FACENORMAL1_1]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL2_2, :FACENORMAL1_2]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL2_3, :FACENORMAL1_3]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL1_1, IR_operation_node(IRtypes.math_op, [:-, :FACENORMAL1_1])]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL1_2, IR_operation_node(IRtypes.math_op, [:-, :FACENORMAL1_2])]),
+                IR_operation_node(IRtypes.assign_op, [:FACENORMAL1_3, IR_operation_node(IRtypes.math_op, [:-, :FACENORMAL1_3])])])
         ))
     end
     
     # Is the distance between cell centers needed for derivatives?
     # normal scaled by distance between cell centers"
     # cell_dist = sqrt( (xn-xe)^2 + ()^2 + ()^2 )
-    # cell_dx = cell_dist * value__FACENORMAL1_1
+    # cell_dx = cell_dist * FACENORMAL1_1
     need_deriv_dist = false;
     # get cell_xe, cell_xn, ...
     cell_coords_2 = IR_block_node([
@@ -766,19 +766,19 @@ function prepare_coefficient_values_fvm(entities, var, dimension, counts, fv_inf
         ]),
         IR_operation_node(IRtypes.assign_op, [
             IR_data_node(IRtypes.float_data, :dxyz_1, [], []),
-            IR_operation_node(IRtypes.math_op, [:*, :cell_dist, :value__FACENORMAL1_1])
+            IR_operation_node(IRtypes.math_op, [:*, :cell_dist, :FACENORMAL1_1])
         ])
     ]);
     if dimension > 1
         push!(deriv_dist.parts, IR_operation_node(IRtypes.assign_op, [
                 IR_data_node(IRtypes.float_data, :dxyz_2, [], []),
-                IR_operation_node(IRtypes.math_op, [:*, :cell_dist, :value__FACENORMAL1_2])
+                IR_operation_node(IRtypes.math_op, [:*, :cell_dist, :FACENORMAL1_2])
             ]))
     end
     if dimension > 2
         push!(deriv_dist.parts, IR_operation_node(IRtypes.assign_op, [
                 IR_data_node(IRtypes.float_data, :dxyz_3, [], []),
-                IR_operation_node(IRtypes.math_op, [:*, :cell_dist, :value__FACENORMAL1_3])
+                IR_operation_node(IRtypes.math_op, [:*, :cell_dist, :FACENORMAL1_3])
             ]))
     end
     
@@ -952,11 +952,11 @@ function prepare_coefficient_values_fvm(entities, var, dimension, counts, fv_inf
                                 #     cname = 0
                                 # end
                                 if entities[i].derivs[1] == 1
-                                    normal_n = :value__FACENORMAL1_1;
+                                    normal_n = :FACENORMAL1_1;
                                 elseif entities[i].derivs[1] == 2
-                                    normal_n = :value__FACENORMAL1_2;
+                                    normal_n = :FACENORMAL1_2;
                                 else
-                                    normal_n = :value__FACENORMAL1_3;
+                                    normal_n = :FACENORMAL1_3;
                                 end
                                 push!(surf_block.parts, IR_conditional_node(
                                     IR_operation_node(IRtypes.math_op, [:(&&), 

@@ -104,6 +104,7 @@ function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=fa
         else
             detJ[:,e] = e_detJ;
         end
+        
         J[e] = e_J;
         
         if do_vol_area
@@ -173,23 +174,24 @@ function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=fa
     return GeometricFactors(J, detJ, volume, face_detj, area);
 end
 
-function geometric_factors(refel::Refel, pts::Matrix{FT}; constantJ::Bool=false, do_J::Bool=true) where FT<:AbstractFloat
+function geometric_factors(refel::Refel, pts::Matrix; constantJ::Bool=false, do_J::Bool=true)
     # pts = element node global coords
     # detJ = determinant(J)
     # J = Jacobian
+    FT = finch_state.config.float_type;
     np = size(pts,2);
     if refel.dim == 0
-        detJ = [1];
+        detJ = [FT(1.0)];
         if do_J
-            J = Jacobian([1.0],zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0));
+            J = Jacobian([FT(1.0)],zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0));
         end
         
     elseif refel.dim == 1
         if np == 1
             # 0D face refels can only have 1 point
-            detJ = [1];
+            detJ = [FT(1.0)];
             if do_J
-                J = Jacobian([1.0],zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0));
+                J = Jacobian([FT(1.0)],zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0),zeros(FT,0));
             end
         else
             xr  = refel.Dg*pts[:];
@@ -221,7 +223,7 @@ function geometric_factors(refel::Refel, pts::Matrix{FT}; constantJ::Bool=false,
     elseif refel.dim == 2
         # if refel.Nfaces == 3 # triangle
             if constantJ
-                xr = 0.0; xs = 0.0; yr = 0.0; ys = 0.0;
+                xr = FT(0.0); xs = FT(0.0); yr = FT(0.0); ys = FT(0.0);
                 for i=1:np
                     xr += refel.Qr[1,i] * pts[1,i];
                     xs += refel.Qs[1,i] * pts[1,i];
@@ -275,9 +277,9 @@ function geometric_factors(refel::Refel, pts::Matrix{FT}; constantJ::Bool=false,
     else
         # if refel.Nfaces == 4 # tetrahedron
             if constantJ
-                xr = 0.0; xs = 0.0; xt = 0.0;
-                yr = 0.0; ys = 0.0; yt = 0.0;
-                zr = 0.0; zs = 0.0; zt = 0.0;
+                xr = FT(0.0); xs = FT(0.0); xt = FT(0.0);
+                yr = FT(0.0); ys = FT(0.0); yt = FT(0.0);
+                zr = FT(0.0); zs = FT(0.0); zt = FT(0.0);
                 for i=1:np
                     xr += refel.Qr[1,i] * pts[1,i];
                     xs += refel.Qs[1,i] * pts[1,i];

@@ -276,7 +276,7 @@ julia> ]build PETSc", fatal=true);
         petsclib = PETSc.petsclibs[1];
         PETSc.initialize(petsclib)
         
-        finch_state.config.linalg.usePetsc = useit;
+        finch_state.config.linalg_usePetsc = useit;
     else
         printerr("Cannot use PETSc. Set up PETSc.jl manually first. Proceeding with default.")
     end
