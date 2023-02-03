@@ -3,6 +3,23 @@
 # Writes a .msh file from a MeshData struct
 =#
 export write_mesh
+export write_mesh_graph
+
+function write_mesh(file, format, mesh::MeshData)
+    # don't proceed unless the mesh contains things
+    if mesh.nx == 0 || mesh.nel == 0
+        println("Tried to write a MSH file with an empty mesh.");
+        return;
+    end
+    # select your file format
+    if format == MSH_V2
+        write_mesh_MSHv2(file, mesh);
+    elseif format == MSH_V4
+        write_mesh_MSHv4(file, mesh);
+    elseif format == "medit"
+        write_mesh_medit(file, mesh);
+    end
+end
 
 # Writes to the file stream using the mesh
 function write_mesh_MSHv2(file, mesh::MeshData)
@@ -131,18 +148,93 @@ function write_mesh_medit(file, mesh)
     println(file, "End");
 end
 
-function write_mesh(file, format, mesh::MeshData)
-    # don't proceed unless the mesh contains things
-    if mesh.nx == 0 || mesh.nel == 0
-        println("Tried to write a MSH file with an empty mesh.");
-        return;
+# Output the connectivity graph info for a mesh.
+# An edge exists between two elements that share a node.
+# The weight is how many shared nodes.
+# The format is 
+# - number of dimensions (2 or 3)
+# - number of elements (integer)
+# - number of edges (integer)
+# - element center coordinates (two or three floats each)
+# - edge pairs and weight (three integers each)
+function write_mesh_graph(file, mesh::MeshData)
+    dim = size(mesh.nodes,1);
+    num_elements = mesh.nel;
+    total_edges = 0; # to be found
+    el_centers = zeros(dim, num_elements);
+    
+    # temporary storage
+    el_connections = zeros(Int, num_elements * mesh.nv[1]);
+    el_edges = zeros(Int, 2, num_elements);
+    center = zeros(dim);
+    lines = fill("",0);
+    
+    for ei=2:num_elements
+        # Find center of mass
+        center .= 0.0;
+        for ni=1:mesh.nv[ei]
+            nid = mesh.elements[ni,ei];
+            center .+= mesh.nodes[:,nid];
+        end
+        el_centers[:,ei] .= center ./ mesh.nv[ei];
+        
+        # find all connections with other elements
+        # only check ej<ei to avoid double counting
+        num_connections = 0;
+        for ej=1:ei-1
+            for ni=1:mesh.nv[ei]
+                nid = mesh.elements[ni,ei];
+                for nj=1:mesh.nv[ej]
+                    if nid == mesh.elements[nj,ej]
+                        num_connections += 1;
+                        el_connections[num_connections] = ej;
+                    end
+                end
+            end
+        end
+        
+        # make pairs and weights
+        num_edges = 0;
+        for ej=1:num_connections
+            found=false;
+            for edgei=1:num_edges
+                if el_connections[ej] == el_edges[1,edgei]
+                    found = true;
+                    el_edges[2,edgei] += 1;
+                    break;
+                end
+            end
+            if !found
+                num_edges += 1;
+                el_edges[1, num_edges] = el_connections[ej];
+                el_edges[2, num_edges] = 1;
+            end
+        end
+        
+        # Write this element's edges to the lines for the file
+        tmp_lines = "";
+        for edgei=1:num_edges
+            tmp_lines *= string(ei) * " " * string(el_edges[1,edgei]) * " " * string(el_edges[2,edgei]) * "\n";
+        end
+        push!(lines, tmp_lines);
+        total_edges += num_edges;
+        
     end
-    # select your file format
-    if format == MSH_V2
-        write_mesh_MSHv2(file, mesh);
-    elseif format == MSH_V4
-        write_mesh_MSHv4(file, mesh);
-    elseif format == "medit"
-        write_mesh_medit(file, mesh);
+    
+    # Now all the numbers have been collected.
+    # Print to the file.
+    println(file, string(dim));
+    println(file, string(num_elements));
+    println(file, string(total_edges));
+    for ei=1:num_elements
+        if dim==2
+            println(file, string(el_centers[1,ei]) * " " * string(el_centers[2,ei]));
+        else
+            println(file, string(el_centers[1,ei]) * " " * string(el_centers[2,ei]) * " " * string(el_centers[3,ei]));
+        end
+    end
+    for i=1:length(lines)
+        print(file, lines[i]);
     end
 end
+

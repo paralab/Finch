@@ -4,7 +4,8 @@ This file contains all of the common interface functions.
 export initFinch, generateFor, useLog, indexDataType, floatDataType,
         domain, solverType, functionSpace, finiteVolumeOrder,
         nodeType, timeStepper, setSteps, linAlgOptions, usePetsc, customOperator, customOperatorFile,
-        mesh, exportMesh, variable, coefficient, parameter, testSymbol, index, boundary, addBoundaryID,
+        mesh, exportMesh, exportMeshGraph,
+        variable, coefficient, parameter, testSymbol, index, boundary, addBoundaryID,
         referencePoint, timeInterval, initial, preStepFunction, postStepFunction, callbackFunction,
         variableTransform, transformVariable,
         weakForm, conservationForm, assemblyLoops,
@@ -479,6 +480,32 @@ function exportMesh(filename, format=MSH_V2)
     mfile = open(filename, "w");
     log_entry("Writing mesh file: "*filename);
     output_mesh(finch_state, mfile, format);
+    close(mfile);
+end
+
+"""
+    exportMeshGraph(filename)
+
+Export the mesh connectivity info. The format will be:
+
+ - number of dimensions (2 or 3)
+ - number of elements (integer)
+ - number of edges (integer)
+ - element center coordinates (two or three floats each)
+ - edge pairs and weight (three integers each)
+
+Edges are pairs of elements that share nodes.
+The weights are the number of nodes shared by the elements on that edge.
+"""
+function exportMeshGraph(filename)
+    if finch_state.mesh_data.nx < 2
+        print_err("Need to create or import mesh before exporting graph");
+        return;
+    end
+    # open the file to write to
+    mfile = open(filename, "w");
+    log_entry("Writing mesh graph file: "*filename);
+    write_mesh_graph(mfile, finch_state.mesh_data);
     close(mfile);
 end
 
