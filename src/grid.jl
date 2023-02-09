@@ -222,9 +222,10 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
     normals = zeros(dim, nfaces);
     el_center = zeros(float_type, dim);
     Nfp = refel.Nfp[1];
+    Nfv = facenvtx;
     tmpf2glb = zeros(Int, Nfp);
     faceNodesA = zeros(dim, Nfp);
-    faceNodesB = zeros(dim, Nfp);
+    faceNodesB = zeros(dim, Nfv);
     
     for ei=1:nel
         n_vert = etypetonv[mesh.etypes[ei]];
@@ -278,7 +279,7 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
             
             for mfi=1:nfaces
                 thisfaceind = mesh.element2face[mfi, ei];
-                for fpi=1:Nfp
+                for fpi=1:Nfv
                     tmp_nodeid = mesh.face2vertex[fpi,thisfaceind];
                     for di=1:dim
                         faceNodesB[di,fpi] = mesh.nodes[di, tmp_nodeid];
@@ -384,6 +385,7 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
     log_entry("Remove duplicate bdry nodes: "*string(t_faces1), 3);
     
     # Refel index for each face
+    faceNodesB = zeros(dim, Nfp);
     for fi=1:totalfaces
         eL = face2element[1,fi];
         eR = face2element[2,fi];
@@ -1395,14 +1397,14 @@ function remove_duplicate_nodes(nodes::Matrix, loc2glb::Matrix; tol=1e-12, scale
     for i=1:tmpNnodes
         abins[i] = i;
         x = nodes[1,i];
-        y = nodes[2,i];
-        z = nodes[3,i];
         xlim[1] = min(xlim[1], x);
         xlim[2] = max(xlim[2], x);
         if dim>1
+            y = nodes[2,i];
             ylim[1] = min(ylim[1], y);
             ylim[2] = max(ylim[2], y);
             if dim > 2
+                z = nodes[3,i];
                 zlim[1] = min(zlim[1], z);
                 zlim[2] = max(zlim[2], z);
             end
