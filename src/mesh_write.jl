@@ -169,6 +169,13 @@ function write_mesh_graph(file, mesh::MeshData)
     center = zeros(dim);
     lines = fill("",0);
     
+    print("mesh to graph progress %0");
+    progress_interval = num_elements/20;
+    next_progress = progress_interval;
+    next_percent = 5;
+    dot_interval = num_elements/100;
+    next_dot = dot_interval;
+    
     for ei=2:num_elements
         # Find center of mass
         center .= 0.0;
@@ -218,6 +225,16 @@ function write_mesh_graph(file, mesh::MeshData)
         end
         push!(lines, tmp_lines);
         total_edges += num_edges;
+        
+        if ei > next_progress
+            print(string(next_percent))
+            next_percent = next_percent + 5;
+            next_progress += progress_interval;
+            
+        elseif ei > next_dot
+            print(".")
+            next_dot += dot_interval;
+        end
         
     end
     

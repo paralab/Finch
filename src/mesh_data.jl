@@ -54,9 +54,10 @@ export build_faces, find_boundaries, find_normals
 # end
 
 # Builds invind.
-function invert_index(ind)
+function invert_index(ind::Vector{Int})
     invind = zeros(Int, size(ind));
-    for i=1:length(ind)
+    N = length(ind);
+    for i=1:N
         invind[ind[i]] = i;
     end
     return invind;
@@ -64,7 +65,7 @@ end
 
 # Builds faces
 # For now assumes only one type of element.
-function build_faces(nel, elements, etypes)
+function build_faces(nel::Int, elements::Matrix{Int}, etypes::Vector{Int})
     # numbers of nodes and faces for first and second order elements as defined by GMSH
     # line, triangle, quad, tet, hex, prism, 5-pyramid
     etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices
@@ -91,9 +92,12 @@ function build_faces(nel, elements, etypes)
             e2face[2,ei] = Nfaces+2;
             Nfaces += 2;
         elseif etypes[ei] == 2 # triangle
-            face2v[:,Nfaces+1] = elements[1:2, ei];
-            face2v[:,Nfaces+2] = elements[2:3, ei];
-            face2v[:,Nfaces+3] = elements[[3,1], ei];
+            face2v[1,Nfaces+1] = elements[1, ei];
+            face2v[2,Nfaces+1] = elements[2, ei];
+            face2v[1,Nfaces+2] = elements[2, ei];
+            face2v[2,Nfaces+2] = elements[3, ei];
+            face2v[1,Nfaces+3] = elements[3, ei];
+            face2v[2,Nfaces+3] = elements[1, ei];
             face2e[1,Nfaces+1] = ei; #
             face2e[1,Nfaces+2] = ei; #
             face2e[1,Nfaces+3] = ei; #
@@ -116,10 +120,16 @@ function build_faces(nel, elements, etypes)
             e2face[4,ei] = Nfaces+4;
             Nfaces += 4;
         elseif etypes[ei] == 4 # tet
-            face2v[:,Nfaces+1] = elements[[1,3,2], ei];
-            face2v[:,Nfaces+2] = elements[[2,3,4], ei];
-            face2v[:,Nfaces+3] = elements[[1,2,4], ei];
-            face2v[:,Nfaces+4] = elements[[1,4,3], ei];
+            # face2v[:,Nfaces+1] = elements[[1,3,2], ei];
+            # face2v[:,Nfaces+2] = elements[[2,3,4], ei];
+            # face2v[:,Nfaces+3] = elements[[1,2,4], ei];
+            # face2v[:,Nfaces+4] = elements[[1,4,3], ei];
+            tmp = [1 3 2; 2 3 4; 1 2 4; 1 4 3];
+            for i=1:4
+                face2v[1,Nfaces+i] = elements[tmp[i,1], ei];
+                face2v[2,Nfaces+i] = elements[tmp[i,2], ei];
+                face2v[3,Nfaces+i] = elements[tmp[i,3], ei];
+            end
             face2e[1,Nfaces+1] = ei; #
             face2e[1,Nfaces+2] = ei; #
             face2e[1,Nfaces+3] = ei; #
@@ -130,12 +140,19 @@ function build_faces(nel, elements, etypes)
             e2face[4,ei] = Nfaces+4;
             Nfaces += 4;
         elseif etypes[ei] == 5 # hex
-            face2v[:,Nfaces+1] = elements[[1,5,8,4], ei];
-            face2v[:,Nfaces+2] = elements[[2,3,7,6], ei];
-            face2v[:,Nfaces+3] = elements[[1,2,6,5], ei];
-            face2v[:,Nfaces+4] = elements[[3,4,8,7], ei];
-            face2v[:,Nfaces+5] = elements[[1,4,3,2], ei];
-            face2v[:,Nfaces+6] = elements[[5,6,7,8], ei];
+            # face2v[:,Nfaces+1] = elements[[1,5,8,4], ei];
+            # face2v[:,Nfaces+2] = elements[[2,3,7,6], ei];
+            # face2v[:,Nfaces+3] = elements[[1,2,6,5], ei];
+            # face2v[:,Nfaces+4] = elements[[3,4,8,7], ei];
+            # face2v[:,Nfaces+5] = elements[[1,4,3,2], ei];
+            # face2v[:,Nfaces+6] = elements[[5,6,7,8], ei];
+            tmp = [1 5 8 4;2 3 7 6;1 2 6 5;3 4 8 7;1 4 3 2;5 6 7 8];
+            for i=1:6
+                face2v[1,Nfaces+i] = elements[tmp[i,1], ei];
+                face2v[2,Nfaces+i] = elements[tmp[i,2], ei];
+                face2v[3,Nfaces+i] = elements[tmp[i,3], ei];
+                face2v[4,Nfaces+i] = elements[tmp[i,4], ei];
+            end
             face2e[1,Nfaces+1] = ei; #
             face2e[1,Nfaces+2] = ei; #
             face2e[1,Nfaces+3] = ei; #
@@ -197,7 +214,7 @@ function build_faces(nel, elements, etypes)
     newe2face = zeros(Int, NfacesPerElement, nel);
     newface2v[:,1] = face2v[:,1];
     newface2e[:,1] = face2e[:,1];
-    for fk=1:length(e2face[:,face2e[1,1]])
+    for fk=1:NfacesPerElement
         if e2face[fk,face2e[1,1]] == 1
             newe2face[fk,face2e[1,1]] = 1;
         end
@@ -207,19 +224,22 @@ function build_faces(nel, elements, etypes)
     remove_count = 0;
     found = false;
     both_sides_done = zeros(Bool, Nfaces); # If both sides have been handled, don't need to check anymore.
+    removeinds = zeros(Int, Nfp);
+    keepinds = zeros(Int, Nfp);
     for fi=2:Nfaces
         found = false;
-        removeinds = face2v[:,fi];
+        for ni=1:Nfp
+            removeinds[ni] = face2v[ni,fi];
+        end
+        # Check against all found faces
         for fj=1:next_ind-1
             if !both_sides_done[fj]
-                keepinds = newface2v[:,fj];
-                if shared_face(keepinds, removeinds) # fi is a duplicate. 
-                    #newface2e[1,fj] = face2e[1,fj];
+                for ni=1:Nfp
+                    keepinds[ni] = newface2v[ni,fj];
+                end
+                if shared_face(keepinds, removeinds) # fi is a duplicate.
                     newface2e[2,fj] = face2e[1,fi];
-                    for fk=1:length(e2face[:,face2e[1,fi]])
-                        # if e2face[fk,newface2e[1,fj]] == fj
-                        #     newe2face[fk,newface2e[1,fj]] = fj;
-                        # end
+                    for fk=1:NfacesPerElement
                         if e2face[fk,face2e[1,fi]] == fi
                             newe2face[fk,face2e[1,fi]] = fj;
                         end
@@ -235,8 +255,10 @@ function build_faces(nel, elements, etypes)
         if !found # fi wasn't a duplicate. give it a new index.
             newface2e[1,next_ind] = face2e[1,fi];
             newface2e[2,next_ind] = 0;
-            newface2v[:,next_ind] = face2v[:,fi];
-            for fk=1:length(e2face[:,face2e[1,fi]])
+            for ni=1:Nfp
+                newface2v[ni,next_ind] = removeinds[ni];
+            end
+            for fk=1:NfacesPerElement
                 if e2face[fk,face2e[1,fi]] == fi
                     newe2face[fk,face2e[1,fi]] = next_ind;
                 end
@@ -252,16 +274,12 @@ function build_faces(nel, elements, etypes)
     face2v = newface2v[:,1:remaining];
     e2face = newe2face;
     
-    # println("after:");
-    # println(face2e)
-    # println(e2face)
-    
     return (face2v, face2e, e2face);
 end
 
 # Compute normal vectors for each face
 # Note: this does not account for sign! 
-function find_normals(face2v, x)
+function find_normals(face2v::Matrix{Int}, x::Matrix{Float64})
     dim = size(x,1);
     nfaces = size(face2v,2);
     
@@ -273,9 +291,9 @@ function find_normals(face2v, x)
     normals = zeros(dim, nfaces);
     for fi=1:nfaces
         if dim == 2 # faces are lines
-            normals[:,fi] = normal2(x[:,face2v[1,fi]], x[:,face2v[2,fi]]);
+            normals[:,fi] .= normal2(x[:,face2v[1,fi]], x[:,face2v[2,fi]]);
         elseif dim == 3
-            normals[:,fi] = normal3(x[:,face2v[1,fi]], x[:,face2v[2,fi]], x[:,face2v[3,fi]]);
+            normals[:,fi] .= normal3(x[:,face2v[1,fi]], x[:,face2v[2,fi]], x[:,face2v[3,fi]]);
         end
     end
     
@@ -286,26 +304,29 @@ function normal1(a, b)
     return b[1]>a[1] ? 1.0 : -1.0
 end
 
-function normal2(a, b)
+function normal2(a::Vector{Float64}, b::Vector{Float64})
     nx = b[2]-a[2];
     ny = a[1]-b[1];
     d = sqrt(nx*nx + ny*ny);
-    return [nx/d; ny/d];
+    return (nx/d; ny/d);
 end
 
-function normal3(a, b, c)
-    v = b.-a;
-    w = c.-a;
-    nx = v[2]*w[3]-v[3]*w[2];
-    ny = v[3]*w[1]-v[1]*w[3];
-    nz = v[1]*w[2]-v[3]*w[1];
+function normal3(a::Vector{Float64}, b::Vector{Float64}, c::Vector{Float64})
+    # v = b.-a;
+    # w = c.-a;
+    # nx = v[2]*w[3]-v[3]*w[2];
+    # ny = v[3]*w[1]-v[1]*w[3];
+    # nz = v[1]*w[2]-v[3]*w[1];
+    nx = (b[2]-a[2])*(c[3]-a[3]) - (b[3]-a[3])*(c[2]-a[2]);
+    ny = (b[3]-a[3])*(c[1]-a[1]) - (b[1]-a[1])*(c[3]-a[3]);
+    nz = (b[1]-a[1])*(c[2]-a[2]) - (b[3]-a[3])*(c[1]-a[1]);
     d = sqrt(nx*nx + ny*ny + nz*nz);
-    return [nx/d; ny/d; nz/d];
+    return (nx/d; ny/d; nz/d);
 end
 
 # Finds faces that have face2e[2,fi] == 0
 # Just sets those BIDs to 1
-function find_boundaries(face2e)
+function find_boundaries(face2e::Matrix{Int})
     nfaces = size(face2e,2);
     bdry = zeros(Int, nfaces);
     for fi=1:nfaces
@@ -317,7 +338,7 @@ function find_boundaries(face2e)
     return bdry;
 end
 
-function shared_face(f1, f2)
+function shared_face(f1::Vector{Int}, f2::Vector{Int})
     h = 0;
     s = 0;
     for i=1:length(f1)

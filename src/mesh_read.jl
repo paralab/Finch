@@ -49,11 +49,12 @@ function read_msh_v2(file)
     elements_done = false;
     nx = 0;
     nel = 0;
-    nodes = [];
-    indices = [];
-    elements = [];
-    etypes = [];
-    nv = [];
+    nodes = zeros(0,0);
+    indices = zeros(Int,0);
+    elements = zeros(Int,0,0);
+    etypes = zeros(Int,0);
+    nv = zeros(Int,0);
+    
     while((!nodes_done || !elements_done) && !eof(file))
         line = readline(file);
         if occursin("\$Nodes", line)

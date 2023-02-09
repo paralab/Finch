@@ -74,7 +74,7 @@
 
 # Build a grid from a mesh
 # This is for full grids. For partitioned grids see partitioned_grid_from_mesh()
-function grid_from_mesh(mesh; grid_type=CG, order=1)
+function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
     etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices for each type
     etypetodim= [1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3]; # dimension of each type
     etypetonf = [2, 3, 4, 4, 6, 5, 5, 2, 3, 4, 4, 6, 5, 5, 1, 4, 6, 5, 5]; # number of faces for element types
@@ -107,7 +107,7 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
     nvtx = etypetonv[mesh.etypes[1]]; # Assumes one element type
     
     log_entry("Building reference element: "*string(dim)*"D, order="*string(ord)*", nfaces="*string(nfaces), 3);
-    refel = build_refel(dim, ord, nfaces, config.elemental_nodes);
+    refel::Refel = build_refel(dim, ord, nfaces, config.elemental_nodes);
     
     if grid_type == DG
         Gness = 2;
@@ -118,9 +118,9 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
     vertex_dist_scale = zeros(float_type, nel); # a scale for relative tolerance
     
     Np = refel.Np;                      # number of nodes per element
-    bdry = [];                          # index(in x) of boundary nodes for each BID
-    bdryfc = [];                        # index of faces touching each BID
-    bdrynorm = [];                      # normal at boundary nodes
+    bdry = Vector{Vector{int_type}}(undef,0);       # index(in x) of boundary nodes for each BID
+    bdryfc = Vector{Vector{int_type}}(undef,0);     # index of faces touching each BID
+    bdrynorm = Vector{Matrix{float_type}}(undef,0); # normal at boundary nodes
     bids = collectBIDs(mesh);           # BID list
     nbids = length(bids);
     for i=1:nbids
@@ -137,16 +137,32 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
     faceRefelInd = zeros(int_type, 2, totalfaces); # Index in refel for this face for elements on both sides
     facebid = zeros(int_type, totalfaces); # BID of each face
     
-    tmpallnodes = zeros(float_type, dim, mesh.nel*refel.Np);
     t_nodes1 = Base.Libc.time();
+    
+    tmpallnodes = zeros(float_type, dim, mesh.nel*refel.Np);
+    n_vert = etypetonv[mesh.etypes[1]]; # Assumes one element type
+    e_vert = zeros(dim, n_vert); # Assumes one element type
+    e_x = zeros(float_type, refel.Np);
+    e_y = zeros(float_type, refel.Np);
+    e_z = zeros(float_type, refel.Np);
+    
     for ei=1:nel
         # Find this element's nodes
-        n_vert = etypetonv[mesh.etypes[ei]];
-        e_vert = mesh.nodes[1:dim, mesh.elements[1:n_vert, ei]];
+        # n_vert = etypetonv[mesh.etypes[ei]];
+        # e_vert = mesh.nodes[1:dim, mesh.elements[1:n_vert, ei]];
+        for ni=1:n_vert
+            for di=1:dim
+                e_vert[di, ni] = mesh.nodes[di, mesh.elements[ni, ei]];
+            end
+        end
         
         # sample distance betweeen vertices
         for i=2:n_vert
-            vertex_dist_scale[ei] += sum(abs.(e_vert[:,i] .- e_vert[:,i-1]));
+            tmp = 0.0;
+            for di=1:dim
+                tmp += abs(e_vert[di,i] .- e_vert[di,i-1]);
+            end
+            vertex_dist_scale[ei] += tmp;
         end
         vertex_dist_scale[ei] /= (n_vert-1);
         
@@ -162,21 +178,25 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
             if nvtx == 8 # hexes
                 (e_x, e_y, e_z) = hex_refel_to_xyz(refel.r[:,1], refel.r[:,2], refel.r[:,3], e_vert);
             else # tets
-                (e_x, e_y, e_z) = tetrahedron_refel_to_xyz(refel.r[:,1], refel.r[:,2], refel.r[:,3], e_vert);
+                # (e_x, e_y, e_z) = tetrahedron_refel_to_xyz(refel.r[:,1], refel.r[:,2], refel.r[:,3], e_vert);
+                tetrahedron_refel_to_xyz!(refel.r, e_vert, e_x, e_y, e_z);
             end
         end
         
         # Add them to the tmp global nodes
-        tmpallnodes[1, ((ei-1)*Np+1):(ei*Np)] = e_x;
+        tmpallnodes[1, ((ei-1)*Np+1):(ei*Np)] .= e_x;
         if dim > 1
-            tmpallnodes[2, ((ei-1)*Np+1):(ei*Np)] = e_y;
+            tmpallnodes[2, ((ei-1)*Np+1):(ei*Np)] .= e_y;
             if dim > 2
-                tmpallnodes[3, ((ei-1)*Np+1):(ei*Np)] = e_z;
+                tmpallnodes[3, ((ei-1)*Np+1):(ei*Np)] .= e_z;
             end
         end
         
         # temporary mapping
-        loc2glb[:,ei] = ((ei-1)*Np+1):(ei*Np);
+        # loc2glb[:,ei] = ((ei-1)*Np+1):(ei*Np);
+        for ni=1:Np
+            loc2glb[ni,ei] = (ei-1)*Np+ni;
+        end
     end
     t_nodes1 = Base.Libc.time() - t_nodes1;
     log_entry("Initial node setup: "*string(t_nodes1), 3);
@@ -197,18 +217,38 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
     
     # vertices, faces and boundary
     t_faces1 = Base.Libc.time();
+    
+    mfids = zeros(Int, nfaces);
+    normals = zeros(dim, nfaces);
+    el_center = zeros(float_type, dim);
+    Nfp = refel.Nfp[1];
+    tmpf2glb = zeros(Int, Nfp);
+    faceNodesA = zeros(dim, Nfp);
+    faceNodesB = zeros(dim, Nfp);
+    
     for ei=1:nel
         n_vert = etypetonv[mesh.etypes[ei]];
-        mfids = mesh.element2face[:,ei];
-        normals = mesh.normals[:,mfids];
-        el_center = zeros(float_type, dim);
+        # mfids = mesh.element2face[:,ei];
+        # normals = mesh.normals[:,mfids];
+        for fi=1:nfaces
+            mfids[fi] = mesh.element2face[fi, ei];
+            for di=1:dim
+                normals[di,fi] = mesh.normals[di, mfids[fi]];
+            end
+        end
         
         # vertices and center
+        el_center .= 0.0;
         for ni=1:Np
-            el_center += allnodes[:,loc2glb[ni,ei]];
+            for di=1:dim
+                el_center[di] += allnodes[di, loc2glb[ni,ei]];
+            end
             
             for vi=1:n_vert
-                if is_same_node(mesh.nodes[:, mesh.elements[vi,ei]], allnodes[:,loc2glb[ni,ei]], tol, vertex_dist_scale[ei])
+                # if is_same_node(mesh.nodes[:, mesh.elements[vi,ei]], allnodes[:,loc2glb[ni,ei]], tol, vertex_dist_scale[ei])
+                if (dim == 3 && is_same_node_3d(tol, vertex_dist_scale[ei], mesh.nodes[1, mesh.elements[vi,ei]], allnodes[1,loc2glb[ni,ei]], mesh.nodes[2, mesh.elements[vi,ei]], allnodes[2,loc2glb[ni,ei]], mesh.nodes[3, mesh.elements[vi,ei]], allnodes[3,loc2glb[ni,ei]])) ||
+                    (dim == 2 && is_same_node_2d(tol, vertex_dist_scale[ei], mesh.nodes[1, mesh.elements[vi,ei]], allnodes[1,loc2glb[ni,ei]], mesh.nodes[2, mesh.elements[vi,ei]], allnodes[2,loc2glb[ni,ei]])) ||
+                    (dim == 1 && is_same_node_1d(tol, vertex_dist_scale[ei], mesh.nodes[1, mesh.elements[vi,ei]], allnodes[1,loc2glb[ni,ei]]))
                     glbvertex[vi, ei] = loc2glb[ni,ei];
                 end
             end
@@ -218,7 +258,6 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
         # f2glb has duplicates. Compare to mesh faces and keep same ordering as mesh.
         # Copy normals and bdry info.
         # Set element2face map.
-        meshfaces = mesh.element2face[:,ei];    # index from mesh
         if dim == 1
             test_same_face = is_same_node;
         elseif dim == 2
@@ -230,18 +269,31 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
         end
         
         for gfi=1:nfaces
-            tmpf2glb = loc2glb[refel.face2local[gfi], ei];
+            for fpi=1:Nfp
+                tmpf2glb[fpi] = loc2glb[refel.face2local[gfi][fpi], ei];
+                for di=1:dim
+                    faceNodesA[di,fpi] = allnodes[di, tmpf2glb[fpi]];
+                end
+            end
             
             for mfi=1:nfaces
-                thisfaceind = meshfaces[mfi];
-                if test_same_face(mesh.nodes[:,mesh.face2vertex[:,thisfaceind]], allnodes[:, tmpf2glb], tol, vertex_dist_scale[ei])
+                thisfaceind = mesh.element2face[mfi, ei];
+                for fpi=1:Nfp
+                    tmp_nodeid = mesh.face2vertex[fpi,thisfaceind];
+                    for di=1:dim
+                        faceNodesB[di,fpi] = mesh.nodes[di, tmp_nodeid];
+                    end
+                end
+                if test_same_face(faceNodesB, faceNodesA, tol, vertex_dist_scale[ei])
                     # This mesh face corresponds to this tmpf2glb face
                     # Put the tmpf2glb map into f2glb at the mesh index(thisfaceind).
                     # Move the f2glb[:,1,ind] to f2glb[:,2,ind] first if DG (Gness==2)
                     # Set element2face according to gfi(not mfi)
                     # Move face2element[1] to face2element[2] and put this one in [1]
-                    if (Gness == 2) f2glb[:, 2, thisfaceind] = f2glb[:, 1, thisfaceind]; end
-                    f2glb[:, 1, thisfaceind] = tmpf2glb;
+                    for fpi=1:Nfp
+                        if (Gness == 2) f2glb[fpi, 2, thisfaceind] = f2glb[fpi, 1, thisfaceind]; end
+                        f2glb[fpi, 1, thisfaceind] = tmpf2glb[fpi];
+                    end
                     element2face[gfi, ei] = thisfaceind;
                     face2element[2, thisfaceind] = face2element[1, thisfaceind];
                     face2element[1, thisfaceind] = ei;
@@ -250,10 +302,10 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
                     # Note that the normal stored in mesh_data could be pointing either way.
                     thisnormal = normals[:, mfi];
                     f_center = zeros(float_type, dim);
-                    for ni=1:length(tmpf2glb)
-                        f_center += allnodes[:, tmpf2glb[ni]];
+                    for ni=1:Nfp
+                        f_center += faceNodesA[:, ni];
                     end
-                    f_center ./= length(tmpf2glb)
+                    f_center ./= Nfp
                     d1 = norm(f_center + thisnormal - el_center);
                     d2 = norm(f_center - thisnormal - el_center);
                     fdotn = sum((f_center-el_center) .* thisnormal);
@@ -268,14 +320,13 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
                     # Copy boundary info: bdry, bdryface, bdrynorm
                     mbid = mesh.bdryID[thisfaceind];
                     gbid = indexin([mbid], bids)[1];
-                    nfacenodes = length(tmpf2glb);
                     if !(gbid === nothing) # This is a boundary face
                         append!(bdry[gbid], tmpf2glb);
                         push!(bdryfc[gbid], thisfaceind);
                         facebid[thisfaceind] = gbid;
                         thisnormal = normals[:, mfi];
-                        normchunk = zeros(float_type, config.dimension, nfacenodes);
-                        for ni=1:nfacenodes
+                        normchunk = zeros(float_type, config.dimension, Nfp);
+                        for ni=1:Nfp
                             normchunk[:,ni] = thisnormal;
                         end
                         bdrynorm[gbid] = hcat(bdrynorm[gbid], normchunk);
@@ -290,19 +341,19 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
     
     # There are duplicates in the bdry info. Remove them
     t_faces1 = Base.Libc.time();
-    newbdry = similar(bdry);
-    newbdrynorm = similar(bdrynorm);
-    for i=1:length(bdry)
+    newbdry = Vector{Vector{Int}}(undef,nbids);
+    newbdrynorm = Vector{Matrix{float_type}}(undef,nbids);
+    for i=1:nbids
         newbdry[i] = zeros(int_type, length(bdry[i]));
         newbdrynorm[i] = zeros(float_type, size(bdrynorm[i]));
     end
     
-    for bidi=1:length(bids)
+    for bidi=1:nbids
         nextbdryind = 1;
         for bi=1:length(bdry[bidi])
             found = false;
             for bidj=1:bidi
-                for bj=1:length(newbdry[bidj])
+                for bj=1:(nextbdryind-1)
                     if bdry[bidi][bi] == newbdry[bidj][bj]
                         # bi already exists in newbdry
                         found = true;
@@ -315,14 +366,16 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
             end
             if !found # it's a new bdry node
                 newbdry[bidi][nextbdryind] = bdry[bidi][bi];
-                newbdrynorm[bidi][:,nextbdryind] = bdrynorm[bidi][:,bi];
+                for di=1:dim
+                    newbdrynorm[bidi][di,nextbdryind] = bdrynorm[bidi][di,bi];
+                end
                 nextbdryind += 1;
                 
                 node_bids[bdry[bidi][bi]] = bids[bidi];
             end
         end
-        newbdry[bidi] = newbdry[bidi][1:nextbdryind-1];
-        newbdrynorm[bidi] = newbdrynorm[bidi][:, 1:nextbdryind-1];
+        newbdry[bidi] = newbdry[bidi][1:(nextbdryind-1)];
+        newbdrynorm[bidi] = newbdrynorm[bidi][:, 1:(nextbdryind-1)];
     end
     bdry = newbdry;
     bdrynorm = newbdrynorm;
@@ -334,9 +387,41 @@ function grid_from_mesh(mesh; grid_type=CG, order=1)
     for fi=1:totalfaces
         eL = face2element[1,fi];
         eR = face2element[2,fi];
-        faceRefelInd[1,fi] = which_refel_face(f2glb[:,1,fi], allnodes, refel, loc2glb[:,eL], tol, vertex_dist_scale[eL]);
+        
+        # Check f2glb against the face2local in refel
+        for fpi=1:Nfp
+            for di=1:dim
+                faceNodesA[di,fpi] = allnodes[di, f2glb[fpi,1,fi]];
+            end
+        end
+        for fi=1:refel.Nfaces
+            for fpi=1:Nfp
+                for di=1:dim
+                    faceNodesB[di,fpi] = allnodes[di, loc2glb[refel.face2local[fi][fpi], eL]];
+                end
+            end
+            
+            if is_same_face(faceNodesA, faceNodesB, dim, tol, vertex_dist_scale[eL])
+                faceRefelInd[1,fi] = fi;
+                break;
+            end
+        end
+        
+        # Then do the same things for the other side of the face
         if eR > 0
-            faceRefelInd[2,fi] = which_refel_face(f2glb[:,Gness,fi], allnodes, refel, loc2glb[:,eR], tol, vertex_dist_scale[eR]);
+            # Check f2glb against the face2local in refel
+            for fi=1:refel.Nfaces
+                for fpi=1:Nfp
+                    for di=1:dim
+                        faceNodesB[di,fpi] = allnodes[di, loc2glb[refel.face2local[fi][fpi], eR]];
+                    end
+                end
+                
+                if is_same_face(faceNodesA, faceNodesB, dim, tol, vertex_dist_scale[eL])
+                    faceRefelInd[2,fi] = fi;
+                    break;
+                end
+            end
         end
     end
     
@@ -1267,18 +1352,21 @@ end
   
 #########################################################################
 
-function collectBIDs(mesh)
-    bids = [];
-    for i=1:length(mesh.bdryID)
+function collectBIDs(mesh::MeshData)
+    bids = zeros(Int,0);
+    N = length(mesh.bdryID);
+    nbids = 0;
+    for i=1:N
         if mesh.bdryID[i] > 0
             already = false;
-            for j=1:length(bids)
+            for j=1:nbids
                 if mesh.bdryID[i] == bids[j]
                     already = true;
                 end
             end
             if !already
                 push!(bids, mesh.bdryID[i]);
+                nbids += 1;
             end
         end
     end
@@ -1286,7 +1374,7 @@ function collectBIDs(mesh)
 end
 
 # Removes duplicate nodes and updates local to global maps
-function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, scale=1, depth=5, mincount=50, other2glb=[])
+function remove_duplicate_nodes(nodes::Matrix, loc2glb::Matrix; tol=1e-12, scale=1, depth=5, mincount=50, other2glb=[])
     # defaults
     # depth = 5; # 32768 for 3D
     # mincount = 50; # don't subdivide if less than this
@@ -1306,15 +1394,17 @@ function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, scale=1, depth=5, min
     zlim = [1e10, -1e10];
     for i=1:tmpNnodes
         abins[i] = i;
-        xyz=nodes[:,i];
-        xlim[1] = min(xlim[1], xyz[1]);
-        xlim[2] = max(xlim[2], xyz[1]);
+        x = nodes[1,i];
+        y = nodes[2,i];
+        z = nodes[3,i];
+        xlim[1] = min(xlim[1], x);
+        xlim[2] = max(xlim[2], x);
         if dim>1
-            ylim[1] = min(ylim[1], xyz[2]);
-            ylim[2] = max(ylim[2], xyz[2]);
+            ylim[1] = min(ylim[1], y);
+            ylim[2] = max(ylim[2], y);
             if dim > 2
-                zlim[1] = min(zlim[1], xyz[3]);
-                zlim[2] = max(zlim[2], xyz[3]);
+                zlim[1] = min(zlim[1], z);
+                zlim[2] = max(zlim[2], z);
             end
         end
     end
@@ -1327,15 +1417,21 @@ function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, scale=1, depth=5, min
         (abins, bin_ends, cbin) = partition_nodes_in_bins_3d(nodes, abins, xlim, ylim, zlim, depth, mincount);
     end
     
+    nbins::Int = length(bin_ends);
     remove_count = 0;
     startind = 1;
+    lastind = 1;
     # Loop over nodes in bins and put numbers in replace_with where duplicates will be removed.
-    for bini = 1:length(bin_ends)
-        for ni=startind:bin_ends[bini]
+    for bini = 1:nbins
+        lastind = bin_ends[bini];
+        for ni=startind:lastind
             if replace_with[abins[ni]] == 0 # It may have already been handled
                 for nj=startind:(ni-1)
                     # If node[nj] == node[ni], keep nj, remove ni
-                    if is_same_node(nodes[:,abins[ni]], nodes[:,abins[nj]], tol, scale)
+                    if (dim == 3 && is_same_node_3d(tol, scale, nodes[1,abins[ni]], nodes[1,abins[nj]], nodes[2,abins[ni]], nodes[2,abins[nj]], nodes[3,abins[ni]], nodes[3,abins[nj]])) ||
+                        (dim == 2 && is_same_node_2d(tol, scale, nodes[1,abins[ni]], nodes[1,abins[nj]], nodes[2,abins[ni]], nodes[2,abins[nj]])) ||
+                        (dim == 1 && is_same_node_1d(tol, scale, nodes[1,abins[ni]], nodes[1,abins[nj]]))
+                        
                         remove_count += 1;
                         replace_with[abins[ni]] = abins[nj];
                         break;
@@ -1347,11 +1443,13 @@ function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, scale=1, depth=5, min
     end
     # Then check cbin against itself for the rare case of split nodes
     # println("part "*string(finch_state.config.partition_index)*" cbin "*string(length(cbin)));
-        
-    for ni=2:length(cbin)
+    ncbin = length(cbin);
+    for ni=2:ncbin
         if replace_with[cbin[ni]] == 0 # It may have already been handled
             for nj=1:ni-1
-                if is_same_node(nodes[:,cbin[ni]], nodes[:,cbin[nj]], tol, scale)
+                if (dim == 3 && is_same_node_3d(tol, scale, nodes[1,cbin[ni]], nodes[1,cbin[nj]], nodes[2,cbin[ni]], nodes[2,cbin[nj]], nodes[3,cbin[ni]], nodes[3,cbin[nj]])) ||
+                    (dim == 2 && is_same_node_2d(tol, scale, nodes[1,cbin[ni]], nodes[1,cbin[nj]], nodes[2,cbin[ni]], nodes[2,cbin[nj]])) ||
+                    (dim == 1 && is_same_node_1d(tol, scale, nodes[1,cbin[ni]], nodes[1,cbin[nj]]))
                     # make sure I'm not replacing with something replaced by this
                     if replace_with[cbin[nj]] > 0
                         tmp = replace_with[cbin[nj]];
@@ -1401,12 +1499,14 @@ function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, scale=1, depth=5, min
     # Loop over nodes and place in new allnodes array while adjusting replace_with
     Nnodes = tmpNnodes-remove_count;
     next_ind = 1;
-    newnodes = zeros(float_type, size(nodes,1), Nnodes);
+    newnodes = zeros(float_type, dim, Nnodes);
     new_homes = zeros(Int, tmpNnodes);
     for i=1:tmpNnodes
         if replace_with[i] == 0
             # A node to keep
-            newnodes[:,next_ind] = nodes[:,i];
+            for j=1:dim
+                newnodes[j,next_ind] = nodes[j,i];
+            end
             new_homes[i] = next_ind;
             next_ind += 1;
         end
@@ -1419,8 +1519,10 @@ function remove_duplicate_nodes(nodes, loc2glb; tol=1e-12, scale=1, depth=5, min
     end
     
     # Loop over each element's nodes and adjust loc2glb
-    for ei=1:size(loc2glb,2) # nel
-        for ni=1:size(loc2glb,1) # Np
+    nel = size(loc2glb,2);
+    Np = size(loc2glb,1);
+    for ei=1:nel
+        for ni=1:Np
             ind = loc2glb[ni,ei];
             if replace_with[ind] > 0
                 loc2glb[ni,ei] = replace_with[ind];
@@ -1817,10 +1919,63 @@ function tetrahedron_refel_to_xyz(r, s, t, v)
     return (x, y, z);
 end
 
+function tetrahedron_refel_to_xyz!(rst::Matrix, v::Matrix, x::Vector, y::Vector, z::Vector)
+    # Check the orientation of the vertices.
+    # If they don't match refel, the jacobian will be bad.
+    # (p2-p1) X (p3-p1) points toward p4
+    # If not, swap p3 and p4
+    p1 = v[1:3,1];
+    p2 = v[1:3,2];
+    p3 = v[1:3,3];
+    p4 = v[1:3,4];
+    e1 = p2 - p1;
+    e2 = p3 - p1;
+    e1xe2 = [e1[2]*e2[3] - e1[3]*e2[2], e1[3]*e2[1] - e1[1]*e2[3], e1[1]*e2[2] - e1[2]*e2[1]];
+    # If dist(p1+e1xe2, p4) < dist(p1-e1xe2, p4), it is pointing toward p4
+    d1 = (p4[1] - (p1[1]+e1xe2[1]))^2 + (p4[2] - (p1[2]+e1xe2[2]))^2 + (p4[3] - (p1[3]+e1xe2[3]))^2;
+    d2 = (p4[1] - (p1[1]-e1xe2[1]))^2 + (p4[2] - (p1[2]-e1xe2[2]))^2 + (p4[3] - (p1[3]-e1xe2[3]))^2;
+    if d1 > d2
+        #3 and 4 need to be swapped
+        p3 = v[1:3,4];
+        p4 = v[1:3,3];
+    end
+    
+    np = size(rst,1);
+    # mv = zeros(finch_state.config.float_type, 3, np);
+    # A = [p2-p1   p3-p1   p4-p1];
+    for i=1:np
+        # Leave this to remember what this does
+        # tmp = [(rst[i,1]+1)/2, (rst[i,2]+1)/2, (rst[i,3]+1)/2];
+        # mv[:,i] = A*tmp + p1;
+        # x[i] = mv[1,i];
+        # y[i] = mv[2,i];
+        # z[i] = mv[3,i];
+        
+        x[i] = p1[1] + ( (p2[1]-p1[1])*(rst[i,1]+1) + 
+                         (p3[1]-p1[1])*(rst[i,2]+1) + 
+                         (p4[1]-p1[1])*(rst[i,3]+1) )*0.5;
+        y[i] = p1[2] + ( (p2[2]-p1[2])*(rst[i,1]+1) + 
+                         (p3[2]-p1[2])*(rst[i,2]+1) + 
+                         (p4[2]-p1[2])*(rst[i,3]+1) )*0.5;
+        z[i] = p1[3] + ( (p2[3]-p1[3])*(rst[i,1]+1) + 
+                         (p3[3]-p1[3])*(rst[i,2]+1) + 
+                         (p4[3]-p1[3])*(rst[i,3]+1) )*0.5;
+    end
+end
+
 # Returns true if the nodes are within tol of each other.
 # If scale is provided, it is a relative tolerance.
 function is_same_node(x1, x2, tol, scale=1)
     return (sum(abs.(x1 - x2)) / scale) < tol
+end
+function is_same_node_1d(tol, scale, x1, x2)
+    return (abs(x1-x2) / scale) < tol
+end
+function is_same_node_2d(tol, scale, x1, x2, y1, y2)
+    return ((abs(x1-x2) + abs(y1-y2)) / scale) < tol
+end
+function is_same_node_3d(tol, scale, x1, x2, y1, y2, z1, z2)
+    return ((abs(x1-x2) + abs(y1-y2) + abs(z1-z2)) / scale) < tol
 end
 
 # Returns true if the centroid of each line is close enough.
@@ -1866,13 +2021,28 @@ function is_same_line(l1, l2, tol, scale=1)
     found = 0;
     n1 = size(l1,2);
     n2 = size(l2,2);
-    for i=1:n1
-        for j=1:n2
-            if is_same_node(l1[:,i], l2[:,j], tol, scale)
-                found += 1;
+    dim = size(l1,1);
+    
+    if dim == 2
+        for i=1:n1
+            for j=1:n2
+                if is_same_node_2d(tol, scale, l1[1,i], l2[1,j], l1[2,i], l2[2,j]) # is_same_node(l1[:,i], l2[:,j], tol, scale)
+                    found += 1;
+                end
+                if found >= 2
+                    return true;
+                end
             end
-            if found >= 2
-                return true;
+        end
+    else
+        for i=1:n1
+            for j=1:n2
+                if is_same_node_3d(tol, scale, l1[1,i], l2[1,j], l1[2,i], l2[2,j], l1[3,i], l2[3,j]) # is_same_node(l1[:,i], l2[:,j], tol, scale)
+                    found += 1;
+                end
+                if found >= 2
+                    return true;
+                end
             end
         end
     end
@@ -1887,7 +2057,7 @@ function is_same_plane(p1, p2, tol, scale=1)
     n2 = size(p2,2);
     for i=1:n1
         for j=1:n2
-            if is_same_node(p1[:,i], p2[:,j], tol, scale)
+            if is_same_node_3d(tol, scale, p1[1,i], p2[1,j], p1[2,i], p2[2,j], p1[3,i], p2[3,j])# is_same_node(p1[:,i], p2[:,j], tol, scale)
                 found += 1;
             end
             if found >= 3
@@ -1899,13 +2069,13 @@ function is_same_plane(p1, p2, tol, scale=1)
     return false;
 end
 
-function which_refel_face(f2glb, nodes, ref, elem, tol, scale)
+function which_refel_face(f2glb, nodes, refel, elem, tol, scale)
     # Check f2glb against the face2local in refel
     fnodes = nodes[:,f2glb];
-    for fi=1:ref.Nfaces
-        refnodes = nodes[:, elem[ref.face2local[fi]]];
+    for fi=1:refel.Nfaces
+        refnodes = nodes[:, elem[refel.face2local[fi]]];
         
-        if is_same_face(fnodes, refnodes, ref.dim, tol, scale)
+        if is_same_face(fnodes, refnodes, refel.dim, tol, scale)
             return fi;
         end
     end
@@ -1915,7 +2085,7 @@ end
 
 function is_same_face(f1, f2, dim, tol, scale=1)
     if dim == 1 # one point
-        return is_same_node(f1, f2, tol, scale);
+        return is_same_node_1d(tol, scale, f1[1], f2[1]);
     elseif dim == 2 # same line(two same points)
         return is_same_line(f1, f2, tol, scale);
     elseif dim == 3 # same plane(three same points)

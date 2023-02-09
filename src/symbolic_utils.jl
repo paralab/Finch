@@ -2,7 +2,7 @@
 Utilities for manipulating symbolic expressions that may also
 be useful outside of SymbolicParser.
 =#
-export apply_negative, apply_flag_to_all_symbols, apply_old_to_symbol, apply_delta_to_symbol,
+export apply_negative, apply_flag_to_all_symbols, apply_flag_to_variables, apply_old_to_symbol, apply_delta_to_symbol,
         get_root_symbol, apply_delta_to_symbols_in_expression, create_deriv_func
 
 function apply_negative(ex)
@@ -33,6 +33,34 @@ function apply_flag_to_all_symbols(flag, ex)
         symbs = free_symbols(ex);
         for i=1:length(symbs)
             ex = subs(ex, symbs[i], symbols(flag*"_"*string(symbs[i])));
+        end
+    end
+    
+    return ex;
+end
+
+function apply_flag_to_variables(flag, ex)
+    if typeof(ex) <: Array
+        for i=1:length(ex)
+            ex[i] = apply_flag_to_variables(flag, ex[i]);
+        end
+        
+    elseif typeof(ex) == Expr
+        for i=1:length(ex.args)
+            ex.args[i] = apply_flag_to_variables(flag, ex.args[i]);
+        end
+        
+    elseif typeof(ex) == Symbol
+        # Is it a variable?
+        isvar = false;
+        for v in finch_state.variables
+            vroot = "_" * string(v.symbol) * "_";
+            if string(get_root_symbol(ex)) == vroot
+                isvar = true;
+            end
+        end
+        if isvar
+            ex = Symbol(flag * string(ex));
         end
     end
     
@@ -96,6 +124,7 @@ function apply_old_to_symbol(ex)
     
     return symbols(newstr);
 end
+
 # Adds "DELTA" to the variable symbol
 function apply_delta_to_symbol(ex)
     str = string(ex);
@@ -124,8 +153,12 @@ function apply_delta_to_symbol(ex)
     
     return symbols(newstr);
 end
+
 function apply_delta_to_symbols_in_expression(ex, var_symbol)
     root_symbol = get_root_symbol(var_symbol);
+    if root_symbol === nothing 
+        return ex;
+    end
     
     new_ex = ex;
     if typeof(ex) == Basic
