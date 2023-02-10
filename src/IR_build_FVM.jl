@@ -1278,7 +1278,7 @@ function make_elemental_computation_fvm(terms, var, dofsper, offset_ind, lorr, v
             
         else # RHS
             terms = terms[1][1];
-            term_vec = Vector{IR_part}(undef,0);
+            term_vec = Vector{Union{IR_part,Number}}(undef,0);
             
             #process each term
             for i=1:length(terms)
