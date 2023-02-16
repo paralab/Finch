@@ -376,18 +376,22 @@ end
 
 # place the values from sol into the variable value arrays
 function place_vector_in_vars(var::Vector{Variable{FT}}, vect::Vector) where FT<:AbstractFloat
-    tmp = 0;
+    offset = 0;
     totalcomponents = 0;
+    values_per_dof = size(var[1].values,2);
     for vi=1:length(var)
         totalcomponents = totalcomponents + var[vi].total_components;
     end
     
-    for vi=1:length(var)
-        components = var[vi].total_components;
-        for compi=1:components
-            var[vi].values[compi,:] .= @view(vect[(compi+tmp):totalcomponents:end]);
+    for dofi=1:values_per_dof
+        offset = (dofi - 1) * totalcomponents + 1;
+        for vi=1:length(var)
+            components = var[vi].total_components;
+            for compi=1:components
+                var[vi].values[compi,dofi] = vect[offset];
+                offset += 1;
+            end
         end
-        tmp = tmp + components;
     end
     
     return nothing;

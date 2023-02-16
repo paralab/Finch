@@ -322,10 +322,16 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
     
     @timeit finch_state.timer_output "gen/read" begin
     if msh == LINEMESH
+        if finch_state.config.dimension > 1 || bids > 2 || length(interval) > 2
+            printerr("Unexpected 1D mesh specification. Check your \"mesh()\" command.", fatal=true)
+        end
         log_entry("Building simple line mesh with nx elements, nx="*string(elsperdim));
         mshdat = simple_line_mesh(elsperdim.+1, bids, interval);
         
     elseif msh == QUADMESH
+        if finch_state.config.dimension != 2 || bids > 4 || length(interval) > 4
+            printerr("Unexpected 2D mesh specification. Check your \"mesh()\" command.", fatal=true)
+        end
         if length(interval) == 2
             interval = [interval[1], interval[2], interval[1], interval[2]];
         end
@@ -333,6 +339,9 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
         mshdat = simple_quad_mesh(elsperdim.+1, bids, interval);
         
     elseif msh == TRIMESH
+        if finch_state.config.dimension != 2 || bids > 4 || length(interval) > 4
+            printerr("Unexpected 2D mesh specification. Check your \"mesh()\" command.", fatal=true)
+        end
         if length(interval) == 2
             interval = [interval[1], interval[2], interval[1], interval[2]];
         end
@@ -341,6 +350,9 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
         finch_state.config.mesh_type = UNSTRUCTURED;
         
     elseif msh == HEXMESH
+        if finch_state.config.dimension != 3 || bids > 6 || length(interval) > 6
+            printerr("Unexpected 3D mesh specification. Check your \"mesh()\" command.", fatal=true)
+        end
         if length(interval) == 2
             interval = [interval[1], interval[2], interval[1], interval[2], interval[1], interval[2]];
         end
@@ -1225,6 +1237,9 @@ function importCode(filename)
         
         close(file);
         log_entry("Imported code from "*filename*".jl");
+        
+        # include the file as is to make any additional functions available
+        include(pwd()*"/"*filename*".jl");
         
     else
         # external code doesn't need to be imported

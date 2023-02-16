@@ -416,15 +416,17 @@ function apply_boundary_conditions_elemental(var::Vector{Variable{FT}}, eid::Int
             row_index = ni;
             col_offset = 0;
             for vi=1:length(var)
-                if !(var[1].indexer === nothing)
+                bc_type = prob.bc_type[var[vi].index, node_bid];
+                
+                if var[vi].indexer === nothing || length(var[vi].indexer) == 0
+                    compo_range = 1:var[vi].total_components;
+                else
                     compo_range = component + 1;
                     # row_index += nnodes * (component-1);
                     # col_offset += nnodes * (component-1);
-                else
-                    compo_range = 1:var[vi].total_components;
                 end
+                
                 for compo=compo_range
-                    bc_type = prob.bc_type[var[vi].index, node_bid];
                     if bc_type == NO_BC
                         # do nothing
                     elseif bc_type == DIRICHLET
@@ -491,11 +493,12 @@ function apply_boundary_conditions_elemental_rhs(var::Vector{Variable{FT}}, eid:
             # Handle the BC for each variable
             row_index = ni;
             for vi=1:length(var)
-                if !(var[1].indexer === nothing)
+                if var[vi].indexer === nothing || length(var[vi].indexer) == 0
+                    compo_range = 1:var[vi].total_components;
+                else
                     compo_range = component + 1;
                     # row_index += nnodes * (component-1);
-                else
-                    compo_range = 1:var[vi].total_components;
+                    # col_offset += nnodes * (component-1);
                 end
                 for compo=compo_range
                     bc_type = prob.bc_type[var[vi].index, node_bid];
@@ -541,11 +544,12 @@ function apply_boundary_conditions_face(var::Vector{Variable{FT}}, eid::Int, fid
     facex = fv_info.faceCenters[:,fid];
     dim = size(fv_info.cellCenters,1);
     for vi=1:length(var)
-        if !(var[1].indexer === nothing)
+        if var[vi].indexer === nothing || length(var[vi].indexer) == 0
+            compo_range = 1:var[vi].total_components;
+        else
             compo_range = component + 1;
             # row_index += nnodes * (component-1);
-        else
-            compo_range = 1:var[vi].total_components;
+            # col_offset += nnodes * (component-1);
         end
         for compo=compo_range
             dofind = dofind + 1;
@@ -582,10 +586,12 @@ function apply_boundary_conditions_face_rhs(var::Vector{Variable{FT}}, eid::Int,
     facex = fv_info.faceCenters[:,fid];
     dim = size(fv_info.cellCenters,1);
     for vi=1:length(var)
-        if !(var[vi].indexer === nothing) # if the variable is indexed, a component offset should be specified
-            compo_range = component + 1;
-        else # not an indexed variable, use all components
+        if var[vi].indexer === nothing || length(var[vi].indexer) == 0
             compo_range = 1:var[vi].total_components;
+        else
+            compo_range = component + 1;
+            # row_index += nnodes * (component-1);
+            # col_offset += nnodes * (component-1);
         end
         for compo=compo_range
             dofind = dofind + 1;

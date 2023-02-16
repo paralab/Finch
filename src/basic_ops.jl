@@ -36,6 +36,8 @@ function sym_cross_op(a,b)
     else
         printerr("Unequal dimensions for: cross(a,b), sizes: a="*string(size(a))*", b="*string(size(b))*")");
     end
+    printerr("Unexpected dimensions for: cross(a,b), sizes: a="*string(size(a))*", b="*string(size(b))*")");
+    return [0];
 end
 
 function sym_transpose_op(a)
