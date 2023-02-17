@@ -63,10 +63,11 @@
     function isothermal_bdry(intensity, vg::Vector, sx::Vector, sy::Vector, 
                             band::Int, dir::Int, normal::Vector{Float64}, temp)
         #
+        ndir::Int = ndirs;
         sdotn::Float64 = sx[dir]*normal[1] + sy[dir]*normal[2];
         
         if sdotn > 0 # outward
-            interior_intensity::Float64 = intensity[dir + (band-1)*ndirs];
+            interior_intensity::Float64 = intensity[dir + (band-1)*ndir];
             result = -vg[band] * interior_intensity * sdotn;
             
         else # inward gains from equilibrium
@@ -87,6 +88,7 @@
     function symmetric_bdry(intensity, vg::Vector, sx::Vector, sy::Vector, 
                             band::Int, dir::Int, normal::Vector{Float64})
         #
+        ndir::Int = ndirs;
         sdotn::Float64 = sx[dir]*normal[1] + sy[dir]*normal[2];
         if sdotn > 0 # outward
             # use interior intensity
@@ -100,7 +102,7 @@
             reflect_y = sy[dir] - 2*sdotn * normal[2];
             closest = 1;
             difference = 0.0
-            ndir::Int = ndirs;
+            
             for i=1:ndir
                 tmp = sx[i]*reflect_x + sy[i]*reflect_y;
                 if tmp > difference
@@ -121,10 +123,11 @@
     function isothermal_bdry_3d(intensity, vg::Vector, sx::Vector, sy::Vector, sz::Vector,
                                 band::Int, dir::Int, normal::Vector{Float64}, temp)
         #
+        ndir::Int = ndirs;
         sdotn = sx[dir]*normal[1] + sy[dir]*normal[2] + sz[dir]*normal[3];
         
         if sdotn > 0
-            interior_intensity::Float64 = intensity[dir + (band-1)*ndirs];
+            interior_intensity::Float64 = intensity[dir + (band-1)*ndir];
             result = -vg[band] * interior_intensity * sdotn;
             
         else # inward
@@ -144,6 +147,7 @@
     function symmetric_bdry_3d(intensity, vg::Vector, sx::Vector, sy::Vector, sz::Vector,
                                 band::Int, dir::Int, normal::Vector{Float64})
         #
+        ndir::Int = ndirs;
         sdotn::Float64 = sx[dir]*normal[1] + sy[dir]*normal[2] + sz[dir]*normal[3];
         if sdotn > 0 # outward
             # use interior intensity
@@ -158,7 +162,6 @@
             reflect_z = sz[dir] - 2*sdotn * normal[3];
             reflect_dir = 1;
             difference = 0.0
-            ndir::Int = ndirs;
             for i=1:ndir
                 tmp = sx[i]*reflect_x + sy[i]*reflect_y + sz[i]*reflect_z;
                 if tmp > difference
