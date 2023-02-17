@@ -155,19 +155,23 @@ end
 # - number of dimensions (2 or 3)
 # - number of elements (integer)
 # - number of edges (integer)
+# - number of boundary elements (integer)
 # - element center coordinates (two or three floats each)
 # - edge pairs and weight (three integers each)
+# - boundary element index and BID (two integers)
 function write_mesh_graph(file, mesh::MeshData)
     dim = size(mesh.nodes,1);
     num_elements = mesh.nel;
     total_edges = 0; # to be found
     el_centers = zeros(dim, num_elements);
+    faces_per_el = size(mesh.element2face, 1);
     
     # temporary storage
     el_connections = zeros(Int, num_elements * mesh.nv[1]);
     el_edges = zeros(Int, 2, num_elements);
     center = zeros(dim);
     lines = fill("",0);
+    bdryLines = fill("",0);
     
     print("mesh to graph progress %0");
     progress_interval = num_elements/20;
@@ -176,7 +180,7 @@ function write_mesh_graph(file, mesh::MeshData)
     dot_interval = num_elements/100;
     next_dot = dot_interval;
     
-    for ei=2:num_elements
+    for ei=1:num_elements
         # Find center of mass
         center .= 0.0;
         for ni=1:mesh.nv[ei]
@@ -226,6 +230,15 @@ function write_mesh_graph(file, mesh::MeshData)
         push!(lines, tmp_lines);
         total_edges += num_edges;
         
+        # If this is a boundary element, write its index and BID to bdryLines
+        for fi=1:faces_per_el
+            fid = mesh.element2face[fi, ei];
+            if mesh.bdryID[fid] > 0
+                push!(bdryLines, string(ei) * " " * string(mesh.bdryID[fid]) * "\n");
+                break;
+            end
+        end
+        
         if ei > next_progress
             print(string(next_percent))
             next_percent = next_percent + 5;
@@ -243,6 +256,8 @@ function write_mesh_graph(file, mesh::MeshData)
     println(file, string(dim));
     println(file, string(num_elements));
     println(file, string(total_edges));
+    println(file, string(length(bdryLines)));
+    # element center coords
     for ei=1:num_elements
         if dim==2
             println(file, string(el_centers[1,ei]) * " " * string(el_centers[2,ei]));
@@ -250,8 +265,13 @@ function write_mesh_graph(file, mesh::MeshData)
             println(file, string(el_centers[1,ei]) * " " * string(el_centers[2,ei]) * " " * string(el_centers[3,ei]));
         end
     end
+    # graph edges
     for i=1:length(lines)
         print(file, lines[i]);
+    end
+    # bdry elements and ID
+    for i=1:length(bdryLines)
+        print(file, bdryLines[i]);
     end
 end
 
