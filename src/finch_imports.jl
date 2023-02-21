@@ -233,6 +233,12 @@ catch e
 end
 
 try
+    using CUDA
+catch e
+    #println("Optional CUDA package is not available.")
+end
+
+try
     using TimerOutputs
 catch e
     if force_package_install
