@@ -228,7 +228,7 @@ catch e
     #     println("Continuing without PETSc.")
     #     PETSc = nothing;
     # end
-    println("PETSc package is not available. It is optional, but PETSc solvers can't be used.")
+    println("Optional PETSc package is not available. That's OK, but PETSc solvers can't be used.")
     
 end
 

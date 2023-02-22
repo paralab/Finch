@@ -694,6 +694,7 @@ mutable struct FinchState{T<:AbstractFloat}
     solve_functions::Vector{Union{GenFunction, IR_part, Nothing}}
     symexpressions::Vector{Vector}
     code_strings::Vector{String}
+    aux_code::String
     
     # Misc
     use_cachesim::Bool
@@ -742,6 +743,7 @@ mutable struct FinchState{T<:AbstractFloat}
         [], [], [], 
         [[],[],[],[],[],[],[],[],[],[]], 
         [],
+        "",
         
         false,
         ParallelBuffers{T}([],[],[],[],[],[]),

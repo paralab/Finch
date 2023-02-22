@@ -9,15 +9,18 @@ function generate_code_layer(var, IR, solver, language, framework)
     # end
     
     if language == JULIA
-        code = generate_code_layer_julia(var, IR, solver);
+        # code holds the solve function
+        # aux_code holds any other code that needs to be imported for this to work
+        (code, aux_code) = generate_code_layer_julia(var, IR, solver);
         
     ### External targets ##############################################################
     # The appropriate code gen function should be set
     else
         code = code_gen_context.external_generate_code_files_function(var, IR);
         # We won't actually return code because it has been written to files.
-        code = "# See code in generated files ";
+        code = fill("# See code in generated files ", length(var));
+        aux_code = "";
     end
     
-    return code;
+    return (code, aux_code);
 end

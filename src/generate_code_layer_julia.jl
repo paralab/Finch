@@ -14,18 +14,18 @@ with specific names that are used in the IR, such as mesh, refel, num_elements, 
 # or as just the body of a function that will be generated(default).
 function generate_code_layer_julia(var::Vector{Variable{FT}}, IR::IR_part, solver, wrap_in_function=true) where FT<:AbstractFloat
     # This will hold the code string to be returned
-    code ="";
+    codes =fill("", length(var));
+    code = "";
     
     # Set up useful numbers
     # Count variables, dofs, and store offsets
-    varcount = 1;
+    varcount = length(var);
     dofs_per_node = var[1].total_components;
     dofs_per_loop = length(var[1].symvar);
     offset_ind = [0];
-    if length(var) > 1
-        varcount = length(var);
+    if varcount > 1
         offset_ind = zeros(Int, varcount);
-        for i=2:length(var)
+        for i=2:varcount
             offset_ind[i] = dofs_per_node;
             dofs_per_node += var[i].total_components;
             dofs_per_loop += length(var[i].symvar);
@@ -65,7 +65,9 @@ function generate_code_layer_julia(var::Vector{Variable{FT}}, IR::IR_part, solve
     end
     
     if wrap_in_function
-        code = "function generated_solve_function_for_"*string(var[1].symbol) * args * "\n";
+        for vi=1:varcount
+            codes[vi] = "function generated_solve_function_for_"*string(var[vi].symbol) * args * "\n";
+        end
     end
     
     # Directly place all generated functions within this function to avoid the 
@@ -146,10 +148,19 @@ $genfunction_part
     return nothing;\n"
     
     if wrap_in_function
-        code *= "\nend # function\n";
+        for vi=1:varcount
+            codes[vi] *= code * "\nend # function\n";
+        end
+        
+    else
+        for vi=1:varcount
+            codes[vi] = code;
+        end
     end
     
-    return code;
+    aux_code = "";
+    
+    return (codes, aux_code);
 end
 
 # Directly translate IR into julia code

@@ -986,9 +986,10 @@ function weakForm(var, wf)
     log_entry("Weak form IR: \n"*repr_IR(full_IR),3);
     
     # Generate code from IR
-    code = generate_code_layer(var, full_IR, solver_type, finch_state.target_language, finch_state.target_framework);
-    log_entry("Code layer: \n" * code, 3);
+    (code, aux_code) = generate_code_layer(var, full_IR, solver_type, finch_state.target_language, finch_state.target_framework);
+    log_entry("Code layer: \n" * code[1], 3);
     set_code(finch_state, var, code, full_IR);
+    set_aux_code(finch_state, aux_code);
     
     end # timer block
 end
@@ -1102,9 +1103,10 @@ function conservationForm(var, cf)
     log_entry("Conservation form IR: "*repr_IR(full_IR),3);
     
     # Generate code from IR
-    code = generate_code_layer(var, full_IR, solver_type, finch_state.target_language, finch_state.target_framework);
-    log_entry("Code layer: \n" * code, 3);
+    (code, aux_code) = generate_code_layer(var, full_IR, solver_type, finch_state.target_language, finch_state.target_framework);
+    log_entry("Code layer: \n" * code[1], 3);
     set_code(finch_state, var, code, full_IR);
+    set_aux_code(finch_state, aux_code);
     
     end # timer block
 end
@@ -1168,6 +1170,11 @@ function exportCode(filename)
             end
         end
         
+        if length(finch_state.aux_code) > 0
+            println(file, "#=\nAuxilliary code that will be included in Finch\n=#\n");
+            println(file, finch_state.aux_code);
+        end
+        
         close(file);
         log_entry("Exported code to "*filename*".jl");
     else
@@ -1188,6 +1195,8 @@ function importCode(filename)
     if finch_state.target_language == JULIA
         file = open(filename*".jl", "r");
         lines = readlines(file, keep=true);
+        seekstart(file);
+        aux_code = read(file, String);
         
         # Loop over variables and check to see if a matching function is present.
         for i=1:length(finch_state.variables)
@@ -1238,8 +1247,10 @@ function importCode(filename)
         close(file);
         log_entry("Imported code from "*filename*".jl");
         
-        # include the file as is to make any additional functions available
-        include(pwd()*"/"*filename*".jl");
+        # include the full content of the file to make any additional functions available
+        #include(pwd()*"/"*filename*".jl");
+        set_aux_code(finch_state, aux_code);
+        include_string(Finch, aux_code);
         
     else
         # external code doesn't need to be imported

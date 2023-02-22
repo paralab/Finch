@@ -399,21 +399,25 @@ end
 
 # Set the values from variable arrays in a global vector
 function get_var_vals(var::Vector{Variable{FT}}, vect::Union{Nothing, Vector}=nothing) where FT<:AbstractFloat
-    tmp = 0;
+    offset = 0;
     totalcomponents = 0;
+    values_per_dof = size(var[1].values,2);
     for vi=1:length(var)
         totalcomponents = totalcomponents + var[vi].total_components;
     end
     if vect === nothing
-        vect = zeros(config.float_type, totalcomponents * size(var[1].values, 2));
+        vect = zeros(finch_state.config.float_type, totalcomponents * values_per_dof);
     end
     
-    for vi=1:length(var)
-        components = var[vi].total_components;
-        for compi=1:components
-            vect[(compi+tmp):totalcomponents:end] .= @view(var[vi].values[compi,:]);
+    for dofi=1:values_per_dof
+        offset = (dofi - 1) * totalcomponents + 1;
+        for vi=1:length(var)
+            components = var[vi].total_components;
+            for compi=1:components
+                vect[offset] = var[vi].values[compi, dofi];
+                offset += 1;
+            end
         end
-        tmp = tmp + components;
     end
     
     return vect;

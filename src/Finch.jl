@@ -786,17 +786,22 @@ end
 
 # Generates a function from a code string and sets that as the code for the variable(s).
 function set_code(state::FinchState, var, code, IR)
+    # If code is just a string, apply it to all vars
+    if typeof(var) <:Array && !(typeof(code) <:Array)
+        code = fill(code, length(var));
+    end
     if state.target_language == JULIA
-        code_expr = CodeGenerator.code_string_to_expr(code);
-        # args = "args; kwargs...";
-        # makeFunction(args, code_expr);
-        makeCompleteFunction(code_expr);
         if typeof(var) <:Array
+            code_expr = CodeGenerator.code_string_to_expr(code[1]);
+            makeCompleteFunction(code_expr);
             for i=1:length(var)
                 state.solve_functions[var[i].index] = state.genfunctions[end];
-                state.code_strings[var[i].index] = code;
+                state.code_strings[var[i].index] = code[i];
             end
+            
         else
+            code_expr = CodeGenerator.code_string_to_expr(code);
+            makeCompleteFunction(code_expr);
             state.solve_functions[var.index] = state.genfunctions[end];
             state.code_strings[var.index] = code;
         end
@@ -804,13 +809,18 @@ function set_code(state::FinchState, var, code, IR)
         if typeof(var) <:Array
             for i=1:length(var)
                 state.solve_functions[var[i].index] = IR;
-                state.code_strings[var[i].index] = code;
+                state.code_strings[var[i].index] = code[i];
             end
         else
             state.solve_functions[var.index] = IR;
             state.code_strings[var.index] = code;
         end
     end
+end
+
+# Generates a function from a code string and sets that as the code for the variable(s).
+function set_aux_code(state::FinchState, code)
+    state.aux_code = code;
 end
 
 function set_symexpressions(state::FinchState, var, ex, ind)
