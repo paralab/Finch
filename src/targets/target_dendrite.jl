@@ -1146,6 +1146,8 @@ $(progress_update)
 #include <PETSc/Solver/LinearSolver.h>
 #include <PETSc/PetscUtils.h>
 #include <PETSc/IO/petscVTU.h>
+// For surface search
+#include "nanoflann.hpp"
 
 // generated
 #include <$(project_name)Equation.h>
@@ -1156,6 +1158,11 @@ $(progress_update)
 
 using namespace PETSc;
 
+// A kd-tree index for surface search:
+using surface_kd_tree_t = nanoflann::KDTreeSingleIndexAdaptor<
+        nanoflann::L2_Simple_Adaptor<double, PointCloud<double>>,
+        PointCloud<double>, DIM>;
+
 int main(int argc, char* argv[]) {
     /// initialize
     dendrite_init(argc, argv);
@@ -1165,7 +1172,7 @@ int main(int argc, char* argv[]) {
     TimerGroup<MPITimer> timers;
 
     std::vector<std::string>
-        timer_labels = {"Total", "Setup", "Solve", "FileIO"};
+        timer_labels = {"Total", "Setup", "Solve", "FileIO", "OctreeCreate", "KDTree"};
     std::map<std::string, int> timer_tags;
     for (int i = 0; i < timer_labels.size(); i++){
         timer_tags.insert(std::pair<std::string, int>(timer_labels[i], i));
@@ -1257,23 +1264,13 @@ int main(int argc, char* argv[]) {
         return (subDomain.functionToRetain(octCoords, scale));
     };
     
+    timers.Start(timer_tags["OctreeCreate"]);
     octDA = createSubDA(dTree, functionToRetain, level, eleOrder);
     subDomain.finalize(octDA, dTree.getTreePartFiltered(), domainExtents);
     util_funcs::performRefinementSubDA(octDA, dTree.getTreePartFiltered(), domainExtents, dTree, inputData, &subDomain);
+    timers.Stop(timer_tags["OctreeCreate"]);
     
     TALYFEMLIB::PrintStatus("total No of nodes in the mesh = ", octDA->getGlobalNodeSz());
-    
-    // Store the distance to boundary vectors and geometry normals
-    // This size is too big, but I'm not sure how to determine the
-    // correct size.
-    unsigned int distanceArraySize = octDA->getLocalElementSz() * octDA->getNumNodesPerElement();
-    double* distanceToBdry = new double[DIM * distanceArraySize];
-    double* bdryNormal = new double[DIM * distanceArraySize];
-    double* surfaceNodeCoords = new double[DIM * distanceArraySize];
-    bool* distanceSet = new bool[distanceArraySize];
-    for (int i = 0; i < distanceArraySize; i++){
-        distanceSet[i] = false;
-    }
     
     subDomain.finalize(octDA, dTree.getTreePartFiltered(), domainExtents);
     IO::writeBoundaryElements(octDA, dTree.getTreePartFiltered(), "boundary", "subDA", domainExtents);
@@ -1309,13 +1306,27 @@ int main(int argc, char* argv[]) {
     Marker *elementMarker = new Marker(octDA, dTree.getTreePartFiltered(), domainExtents, imga, MarkerType::GAUSS_POINT);
     std::vector<PetscInt> dirichletNodes;
     
+    // Pre Calculation of true boundary mesh center points
+    PointCloud<double> CenterPts;
+    
+    // Setup for distance function calculation in SBM
+    timers.Start(timer_tags["KDTree"]);
+#if (DIM == 3)
+    util_funcs::GetTriangleCenter(stls,CenterPts);
+#endif
+#if (DIM == 2)
+    util_funcs::GetLineEdgePt(mshs,CenterPts);
+#endif
+    
+    surface_kd_tree_t kd_tree(DIM, CenterPts, {static_cast<size_t>(inputData.MaxLeaf)});
+    timers.Stop(timer_tags["KDTree"]);
+    
     auto $(project_name)Eq = new TalyEquation<$(project_name)Equation, $(project_name)NodeData>
                                                 (&talyMesh, octDA, dTree.getTreePartFiltered(),
                                                 subDomain.domainExtents(), NUM_VARS, &timeInfo, true, subDomainBoundary,
-                                                &inputData, imga);
+                                                &inputData, imga, &kd_tree);
     
     $(project_name)Eq->equation()->setBoundaryCondition(&$(project_name)BC);
-    $(project_name)Eq->equation()->setDistanceArrays(distanceToBdry, bdryNormal, surfaceNodeCoords, distanceSet, distanceArraySize);
     
     // Setup PETSc solver
     LinearSolver *$(project_name)Solver = setLinearSolver($(project_name)Eq, octDA, NUM_VARS, mfree);
@@ -1502,11 +1513,17 @@ function dendrite_equation_file(var, IR)
 #include <Basis/MatVec.h>
 #include <Basis/Vec.h>
 #include <Basis/Mat.h>
+#include "nanoflann.hpp"
+
+using surface_kd_tree_t = nanoflann::KDTreeSingleIndexAdaptor<
+        nanoflann::L2_Simple_Adaptor<double, PointCloud<double>>,
+        PointCloud<double>, DIM>;
+
 class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)NodeData> {
     
     public:
-    explicit $(project_name)Equation(const $(project_name)InputData * idata, const IMGA *imga)
-            : TALYFEMLIB::CEquation<$(project_name)NodeData>(false, TALYFEMLIB::kAssembleGaussPoints), imga_(imga){
+    explicit $(project_name)Equation(const $(project_name)InputData * idata, const IMGA *imga, surface_kd_tree_t *kd_tree)
+            : TALYFEMLIB::CEquation<$(project_name)NodeData>(false, TALYFEMLIB::kAssembleGaussPoints), imga_(imga), kd_tree_(kd_tree){
         idata_ = idata;
         dt = idata->dt[0];
         currentT = 0.0;
@@ -1640,41 +1657,10 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
         
         // The position of the GP
         const ZEROPTV pt = fe.position();
-
-        // Only calculate distance and normal once
-        // But, there is no node ID available, so need to find it.
-        unsigned int nodeID = 0;
-        bool found_it = false;
-        while(distanceSet[nodeID]){
-            if(fabs(pt.x() - surfaceNodeCoords[nodeID*DIM]) < 1e-14){
-                if(fabs(pt.y() - surfaceNodeCoords[nodeID*DIM+1]) < 1e-14){
-$(threed4)
-                }
-            }
-            // Not the node.
-            nodeID++;
-        }
         
-        // Now we either found a set node, or need to compute a new one.
-        if(found_it){
-            for(int i=0; i<DIM; i++){
-              dist2bdry[i] = distanceToBdry[nodeID*DIM+i];
-            }
-            trueNormal = TALYFEMLIB::ZEROPTV(geoNormal[nodeID*DIM], geoNormal[nodeID*DIM+1]$(threed3));
-            
-        }else{
-            // This is a new node. Compute things and store them.
-            SBMCalc sbmCalc(fe, idata_, imga_);
-            sbmCalc.Dist2Geo(dist2bdry);
-            sbmCalc.NormalofGeo(trueNormal, dist2bdry);
-            // Save them
-            for(int i=0; i<DIM; i++){
-              distanceToBdry[nodeID*DIM+i] = dist2bdry[i];
-              geoNormal[nodeID*DIM+i] = trueNormal.data()[i];
-              surfaceNodeCoords[nodeID*DIM+i] = pt.data()[i];
-            }
-            distanceSet[nodeID] = true;
-        }
+        SBMCalc sbmCalc(fe, idata_, imga_, kd_tree_);
+        sbmCalc.Dist2Geo(dist2bdry);
+        sbmCalc.NormalofGeo(trueNormal, dist2bdry);
         
         // Need to find the Dirichlet boundary value.
         double boundary_value = 0.0;
@@ -1745,40 +1731,9 @@ $(nbdry_matrix_part)
         // The position of the GP
         const ZEROPTV pt = fe.position();
 
-        // Only calculate distance and normal once
-        // But, there is no node ID available, so need to find it.
-        unsigned int nodeID = 0;
-        bool found_it = false;
-        while(distanceSet[nodeID]){
-            if(fabs(pt.x() - surfaceNodeCoords[nodeID*DIM]) < 1e-14){
-                if(fabs(pt.y() - surfaceNodeCoords[nodeID*DIM+1]) < 1e-14){
-$(threed4)
-                }
-            }
-            // Not the node.
-            nodeID++;
-        }
-        
-        // Now we either found a set node, or need to compute a new one.
-        if(found_it){
-            for(int i=0; i<DIM; i++){
-              dist2bdry[i] = distanceToBdry[nodeID+i];
-            }
-            trueNormal = TALYFEMLIB::ZEROPTV(geoNormal[nodeID], geoNormal[nodeID+1]$(threed3));
-            
-        }else{
-            // This is a new node. Compute things and store them.
-            SBMCalc sbmCalc(fe, idata_, imga_);
-            sbmCalc.Dist2Geo(dist2bdry);
-            sbmCalc.NormalofGeo(trueNormal, dist2bdry);
-            // Save them
-            for(int i=0; i<DIM; i++){
-              distanceToBdry[nodeID+i] = dist2bdry[i];
-              geoNormal[nodeID+i] = trueNormal.data()[i];
-              surfaceNodeCoords[nodeID+i] = pt.data()[i];
-            }
-            distanceSet[nodeID] = true;
-        }
+        SBMCalc sbmCalc(fe, idata_, imga_, kd_tree_);
+        sbmCalc.Dist2Geo(dist2bdry);
+        sbmCalc.NormalofGeo(trueNormal, dist2bdry);
         
         // Need to find the Dirichlet boundary value.
         double boundary_value = 0.0;
@@ -1841,14 +1796,6 @@ $(nbdry_vector_part)
       boundaryConditions = bcs;
     }
     
-    void setDistanceArrays(double* dist, double* gnorm, double* sncoords, bool* dset, unsigned int nnodes){
-        distanceToBdry = dist;
-        geoNormal = gnorm;
-        surfaceNodeCoords = sncoords;
-        distanceSet = dset;
-        distanceArraySize = nnodes;
-    }
-    
     protected:
     const $(project_name)InputData *idata_;
     $(project_name)BoundaryConditions *boundaryConditions;
@@ -1856,14 +1803,9 @@ $(nbdry_vector_part)
     double currentT;
     unsigned int NUM_VARS;
     
-    double* distanceToBdry;
-    double* geoNormal;
-    double* surfaceNodeCoords;
-    bool* distanceSet;
-    unsigned int distanceArraySize;
-    
     const IMGA *imga_;
     std::vector<ZEROPTV> GPpos_;
+    surface_kd_tree_t *kd_tree_;
     
     ////////////////////////////////////////////////////////////////////////
     // Coefficient functions
@@ -3078,6 +3020,11 @@ target_link_libraries($(project_name) dendriteKT dendroKT \${LAPACK_LIBRARIES} \
     else
         mat_free = config.linalg_matrixfree;
     end
+    if haskey(params, :maxLeaf)
+        max_leaf = params[:maxLeaf];
+    else
+        max_leaf = 10;
+    end
     
     # Geometries is an array of geometry chunks, which are dicts with various info
     if haskey(params, :geometries)
@@ -3121,8 +3068,8 @@ target_link_libraries($(project_name) dendriteKT dendroKT \${LAPACK_LIBRARIES} \
                           ("pc_type", "\"bjacobi\""),
                           ("ksp_atol", "1e-8"),
                           ("ksp_rtol", "1e-8"),
-                          ("ksp_monitor", ""),
-                          ("ksp_converged_reason", "")
+                          ("ksp_monitor", "\"\""),
+                          ("ksp_converged_reason", "\"\"")
                           ]);
     # Include and solver options supplied in params
     # check these possibilities. This list needs to be expanded
@@ -3151,6 +3098,9 @@ totalT = $(totalT)
 timeStepper="$(stype)"
 solverType = "rbvms"
 matrixFree = $(mat_free)
+
+DistCalcType = "KD_TREE"
+MaxLeaf = $(max_leaf)
 
 # The full background mesh
 elemOrder = $(config.basis_order_min)
@@ -3283,6 +3233,8 @@ public:
     std::vector<std::vector<ZEROPTV>> DistributePoints;
     std::vector<std::vector<int>> TriangleNumber;
     std::vector<ZEROPTV> GPPTVAll;
+    
+    int MaxLeaf = 10;
 
     /// solver (STABILIZED) and Variational multiscale based solver (RBVMS)
     enum typeSolver{
@@ -3294,18 +3246,27 @@ public:
         FREECONV = 0,
         MIXCONV = 1
     };
+    
+    enum FalseInterceptedElementCheckType{
+        VOLUME_CHECK = 0,
+        DISTANCE_CHECK = 1
+    };
 
     enum typeDistCalc{
         NORMAL_BASED = 0,
         NORMAL_BASED_DistributeSTL = 1,
-        GP_BASED = 2
+        GP_BASED = 2,
+        KD_TREE = 3
     };
 
     /// Declare the Solver type
     typeSolver solverType;
     
     /// Declare the dist calc type
-    typeDistCalc DistCalcType = typeDistCalc::NORMAL_BASED;
+    typeDistCalc DistCalcType = typeDistCalc::KD_TREE;
+    
+    /// Declare the way to check False Intercepted element
+    FalseInterceptedElementCheckType falseInterceptedElementCheckType;
 
     DENDRITE_UINT elemOrder = 1;
     bool ifMatrixFree = false;
@@ -3465,7 +3426,28 @@ public:
                 SurfaceMonitor.push_back(settings[i]);
             }
         }
-
+        
+        if (ReadValue("MaxLeaf", MaxLeaf)){};
+        
+        /// Read Checking way for False Intercepted Element
+        std::string str;
+        if (cfg.getRoot().lookupValue("FalseInterceptedElementCheckType", str)){
+            if (str == "VOLUME_CHECK"){
+                falseInterceptedElementCheckType = VOLUME_CHECK;
+            }
+            else if (str == "DISTANCE_CHECK"){
+                falseInterceptedElementCheckType = DISTANCE_CHECK;
+            }
+            else{
+                PrintStatus("Unexpected check for false intercepted elements. using default volume check");
+                falseInterceptedElementCheckType = VOLUME_CHECK;
+            }
+        }else{
+            PrintStatus("Default VOLUME_CHECK used for False Intercepted Element check");
+            falseInterceptedElementCheckType = VOLUME_CHECK;
+        }
+        
+        
         return true;
     }
 
@@ -4641,18 +4623,63 @@ struct Limiter{
 #include <PETSc/VecBounds.h>
 
 namespace util_funcs{
-  
-  // This is only used by print2vtk
-  void sortrows(std::vector<std::vector<double>>& matrix, int col) {
-      std::sort(matrix.begin(), matrix.end(),
-                [col](const std::vector<double>& lhs, const std::vector<double>& rhs) {
-                    return lhs[col] > rhs[col];
-                });
-  }
+    
+    void GetLineEdgePt(const std::vector<GEOMETRY::MSH *> &mshs,PointCloud<double> &CenterPts){
+
+        for (int mshID = 0; mshID < mshs.size(); mshID++){
+            const std::vector<GEOMETRY::Lines> *m_lines = &mshs[mshID]->getLines();
+
+            CenterPts.pts.resize(m_lines->size());
+
+            for (int i = 0;i<m_lines->size();i++){
+                CenterPts.pts[i].x = m_lines->at(i).lineCoord[0][0];
+                CenterPts.pts[i].y = m_lines->at(i).lineCoord[0][1];
+                CenterPts.pts[i].z = 0;
+            }
+        }
+    }
+
+    void GetTriangleCenter(const std::vector<GEOMETRY::STL *> &stls,PointCloud<double> &CenterPts){
+        for (int stlID = 0; stlID < stls.size(); stlID++){
+            const std::vector<GEOMETRY::Triangles> *m_triangles = &stls[stlID]->getTriangles();
+            //std::cout<<"m_triangles.size() = " << m_triangles.size() << "\\n";
+            CenterPts.pts.resize(m_triangles->size());
+            for (int i = 0;i<m_triangles->size();i++){
+                CenterPts.pts[i].x =(m_triangles->at(i).triangleCoord[0][0] + m_triangles->at(i).triangleCoord[1][0] + m_triangles->at(i).triangleCoord[2][0]) / 3;
+                CenterPts.pts[i].y =(m_triangles->at(i).triangleCoord[0][1] + m_triangles->at(i).triangleCoord[1][1] + m_triangles->at(i).triangleCoord[2][1]) / 3;
+                CenterPts.pts[i].z =(m_triangles->at(i).triangleCoord[0][2] + m_triangles->at(i).triangleCoord[1][2] + m_triangles->at(i).triangleCoord[2][2]) / 3;
+            }
+        }
+    }
+
+
+    // This is only used by print2vtk
+    void sortrows(std::vector<std::vector<double>>& matrix, int col) {
+        std::sort(matrix.begin(), matrix.end(),
+                    [col](const std::vector<double>& lhs, const std::vector<double>& rhs) {
+                        return lhs[col] > rhs[col];
+                    });
+    }
+    
+    void UniquePtvVector(const std::vector<ZEROPTV> &PTV, std::vector<ZEROPTV> &PTVnew){
+        for (int i=0;i<PTV.size();i++){
+            int count =0;
+            for (int j=0;j<PTVnew.size();j++) {
+                if (fabs(PTV[i].distanceTo(PTVnew[j])) >1e-15){
+                    count++;
+                }
+            }
+
+            if (count== PTVnew.size()){
+                PTVnew.push_back(PTV[i]);
+            }
+        }
+    }
 
   void print2vtk(const std::string &fPrefix, std::vector<ZEROPTV> PTV, const ZEROPTV &center){
       std::vector<ZEROPTV> PTVtemp;
       std::vector<ZEROPTV> PTVnew;
+      std::vector<ZEROPTV> PTVnew2;
 
       if (TALYFEMLIB::GetMPIRank() == 0){ // if:master cpu, then:print
           ZEROPTV ptv1,ptv2;
@@ -4691,43 +4718,71 @@ namespace util_funcs{
           for (int i =0; i < PTVtemp.size();i++){
               PTVnew[i] = PTVtemp[AngleMap[i][0]];
           }
+          
+          UniquePtvVector(PTVnew,PTVnew2);
+            
+            int counter = 0;
+            for (int dim =0;dim<DIM;dim++) {
+                if (fabs(PTVnew2[PTVnew2.size()-1](dim)-PTVnew2[0](dim)) < 1e-12){
+                    counter++;
+                }
+            }
+            if (counter ==0){
+                ZEROPTV ptvTemp = PTVnew2[1];
+                PTVnew2[1] = PTVnew2[0];
+                PTVnew2[0] = ptvTemp;
+            }
 
-          char fname[256];
-          snprintf(fname, sizeof(fname), "%s.vtk", fPrefix.c_str());
-          std::ofstream fout(fname);
+            for (int i =0;i<PTVnew2.size()-1;i++){
+                int counter = 0;
+                for (int dim =0;dim<DIM;dim++) {
+                    if (fabs(PTVnew2[i](dim)-PTVnew2[i + 1](dim)) < 1e-12){
+                        counter++;
+                    }
+                }
+                if (counter ==0){
+                    ZEROPTV ptvTemp = PTVnew2[i+1];
+                    PTVnew2[i+1] = PTVnew2[i+2];
+                    PTVnew2[i+2] = ptvTemp;
+                }
+            }
+            
+            char fname[256];
+            snprintf(fname, sizeof(fname), "%s.vtk", fPrefix.c_str());
+            std::ofstream fout(fname);
 
-          int NGP = PTV.size();
+            int NGP = PTVnew2.size();
 
-          fout << "# vtk DataFile Version 2.0\\n";
-          fout << "Created by Dendrite-KT\\n";
-          fout << "ASCII\\n";
-          fout << "DATASET UNSTRUCTURED_GRID\\n";
-          fout << "POINTS " << NGP << " double\\n";
+            fout << "# vtk DataFile Version 2.0\\n";
+            fout << "Created by Dendrite-KT\\n";
+            fout << "ASCII\\n";
+            fout << "DATASET UNSTRUCTURED_GRID\\n";
+            fout << "POINTS " << NGP << " double\\n";
 
-          for (int i = 0; i < NGP; i++) {
-              fout << PTVnew[i].x() << " " << PTVnew[i].y() << " 0"
-                    << "\\n";
-          }
-          fout << "\\n";
+            for (int i = 0; i < NGP; i++){
+                fout << PTVnew2[i].x() << " " << PTVnew2[i].y() << " 0"
+                     << "\\n";
+            }
+            fout << "\\n";
 
-          fout << "CELLS " << NGP << " " << NGP * 3 << "\\n";
-          for (int k = 0; k < NGP; k++){
-              if (k + 1 >= NGP){
-                  fout << "2 " << k << " " << k + 1 - NGP << "\\n";
-              }else{
-                  fout << "2 " << k << " " << k + 1 << "\\n";
-              }
-          }
-          fout << "\\n";
-          fout << "CELL_TYPES " << NGP << "\\n";
-          int k = 0;
-          for (int i = 0; i < NGP; i++){
-              fout << "3\\n";
-          }
-          fout.close();
+            fout << "CELLS " << NGP << " " << NGP * 3 << "\\n";
+            for (int k = 0; k < NGP; k++) {
+                if (k + 1 >= NGP){
+                    fout << "2 " << k << " " << k + 1 - NGP << "\\n";
+                }else{
+                    fout << "2 " << k << " " << k + 1 << "\\n";
+                }
+            }
+            fout << "\\n";
+            fout << "CELL_TYPES " << NGP << "\\n";
+            int k = 0;
+            for (int i = 0; i < NGP; i++){
+                fout << "3\\n";
+            }
+            fout.close();
       }
   }
-
+  
   DENDRITE_REAL ElementSize(const TALYFEMLIB::FEMElm &fe){
     return pow((pow(2, DIM) * fe.jacc()), (double)1 / DIM);
   }
@@ -5347,6 +5402,11 @@ namespace util_funcs{
 
 #include "util.h"
 #include <IMGA/IMGA.h>
+#include "nanoflann.hpp"
+
+using surface_kd_tree_t = nanoflann::KDTreeSingleIndexAdaptor<
+    nanoflann::L2_Simple_Adaptor<double, PointCloud<double>>,
+    PointCloud<double>, DIM>;
 
 class SBMCalc{
 private:
@@ -5354,6 +5414,7 @@ private:
   double DirichletBCValue;
   TALYFEMLIB::FEMElm fe_;
   const IMGA *imga_;
+  const surface_kd_tree_t *kd_tree_;
   const $(project_name)InputData *idata_;
   ZEROPTV shift_;
 
@@ -5390,6 +5451,7 @@ public:
     * @param imga imga context, and we use this to access geometry
     */
   SBMCalc(const TALYFEMLIB::FEMElm &fe, const $(project_name)InputData *idata, const IMGA *imga);
+  SBMCalc(const TALYFEMLIB::FEMElm &fe, $(project_name)InputData *idata, const IMGA *imga, const surface_kd_tree_t *kd_tree);
   
   /**
     * @brief calculate the distance function for different kinds of geometries
@@ -5409,6 +5471,11 @@ public:
 SBMCalc::SBMCalc(const TALYFEMLIB::FEMElm &fe, const $(project_name)InputData *idata, const IMGA *imga)
     : fe_(fe), imga_(imga), shift_(idata->carved_out_geoms_def[0].InitialDisplacement){
   idata_ = idata;
+}
+
+SBMCalc::SBMCalc(const TALYFEMLIB::FEMElm &fe, $(project_name)InputData *idata, const IMGA *imga, const surface_kd_tree_t *kd_tree)
+    : fe_(fe), imga_(imga), shift_(idata->carved_out_geoms_def[0].InitialDisplacement), kd_tree_(kd_tree){
+    idata_ = idata;
 }
 
 bool SBMCalc::CheckInside3DTriangle(const ZEROPTV &pt, const double (&d)[DIM], const GEOMETRY::Triangles &m_triangle, const ZEROPTV &shift){
@@ -5589,7 +5656,7 @@ void SBMCalc::Dist2Geo(double (&d)[DIM]){
     {
       for (int geoID = 0; geoID < imga_->getGeometries().size(); geoID++){
         std::vector<GEOMETRY::Triangles> m_triangles = imga_->getGeometries()[geoID]->getSTL()[0].getTriangles();
-        //std::cout<<"m_triangles.size() = " << m_triangles.size() << "\n";
+        //std::cout<<"m_triangles.size() = " << m_triangles.size() << "\\n";
 
         for (int i = 0; i < m_triangles.size(); i++){
           // Check if the distance from center of mass(COM) is greater than extent of triangle.
@@ -5645,6 +5712,43 @@ void SBMCalc::Dist2Geo(double (&d)[DIM]){
         ShortestDist2TriEdge(pt, m_triangle, shift_, d);
       }
       break;
+    }
+    case $(project_name)InputData::typeDistCalc::KD_TREE:
+    {
+        size_t num_results = 1;
+        std::vector<uint32_t> ret_index(num_results);
+        std::vector<double> out_dist_sqr(num_results);
+
+        const double query_pt[3] = {x - shift_[0], y - shift_[1], z - shift_[2]}; // shift_
+
+        num_results = kd_tree_->knnSearch(
+            &query_pt[0], num_results, &ret_index[0], &out_dist_sqr[0]);
+
+        for (int geoID = 0; geoID < imga_->getGeometries().size(); geoID++){
+            const std::vector<GEOMETRY::Triangles> *m_triangles = &imga_->getGeometries()[geoID]->getSTL()[0].getTriangles();
+            for (int dim = 0; dim < DIM; dim++){
+                OnePointVector(dim) = m_triangles->at(ret_index[0]).triangleCoord[0][dim] + shift_[dim] - pt(dim);
+                PickNormalVector(dim) = m_triangles->at(ret_index[0]).normal[dim];
+            }
+            PickTrianleID = ret_index[0];
+            PickGeomID = geoID;
+        }
+
+        // scaling of vector
+        double scale = 0.0;
+        for (int dim = 0; dim < DIM; dim++){
+            scale += OnePointVector(dim) * PickNormalVector(dim);
+        }
+
+        for (int dim = 0; dim < DIM; dim++){
+            d[dim] = scale * PickNormalVector(dim);
+        }
+
+        GEOMETRY::Triangles m_triangle = imga_->getGeometries()[PickGeomID]->getSTL()[0].getTriangles()[PickTrianleID];
+        if (!CheckInside3DTriangle(pt, d, m_triangle, shift_)){
+            ShortestDist2TriEdge(pt, m_triangle, shift_, d);
+        }
+        break;
     }
     }
     
