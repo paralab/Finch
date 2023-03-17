@@ -27,6 +27,7 @@ const vs_LAS= 9010.0;
 # Germanium is not used, but we need these to match freq bands with fortran
 const freq_max_LAG = 4.41802754820937e13
 const freq_max_TAG = 1.50052084481175e13
+const use_germanium_bands = false; # set to true to match old fortran version
 
 # Others to be added as needed
 
@@ -132,29 +133,34 @@ function get_band_distribution(n)
     t_bands = Int(floor(n * freq_max_TAS / freq_max_LAS));
     # If n = 40, t_bands = 15
     
-    # wait! we have to do this to match the fortran
-    # IF (i .eq. 1) THEN
-    #     no_bands_in_step = ((nbands)* (((wdisper(i) - wminlas)) /wdisper(no_b_steps)))  
-    #     total_bands_in_step(i) = no_bands_in_step
-    # ELSE
-    #     no_bands_in_step = ((nbands-1)* (((wdisper(i) - wdisper(i-1))) /wdisper(no_b_steps))) +1
-    #     total_bands_in_step(i) = no_bands_in_step   !total_bands_in_step (i-1) + no_bands_in_step
-    # END IF
-    tg = Int(floor(freq_max_TAG / freq_max_LAS * n));
-    ts = Int(floor((freq_max_TAS - freq_max_TAG) / freq_max_LAS * (n-1) + 1));
-    lg = Int(floor((freq_max_LAG - freq_max_TAS) / freq_max_LAS * (n-1) + 1));
-    ls = Int(floor((freq_max_LAS - freq_max_LAG) / freq_max_LAS * (n-1) + 1));
-    
-    ls = tg + ts + lg + ls;
-    lg = tg + ts + lg;
-    ts = tg + ts;
+    # Which fortran code version is used?
+    if use_germanium_bands
+        tg = Int(floor(freq_max_TAG / freq_max_LAS * n));
+        ts = Int(floor((freq_max_TAS - freq_max_TAG) / freq_max_LAS * (n-1) + 1));
+        lg = Int(floor((freq_max_LAG - freq_max_TAS) / freq_max_LAS * (n-1) + 1));
+        ls = Int(floor((freq_max_LAS - freq_max_LAG) / freq_max_LAS * (n-1) + 1));
+        ls = tg + ts + lg + ls;
+        lg = tg + ts + lg;
+        ts = tg + ts;
+        
+    else
+        tg = 0;
+        lg = 0;
+        ts = Int(floor(freq_max_TAS / freq_max_LAS * n));
+        ls = Int(floor((freq_max_LAS - freq_max_TAS) / freq_max_LAS * n + 1));
+        ls = ts + ls;
+    end
     
     if ls != n
         println("bad band distribution LAS = " * string(ls) * "instead of " * string(n))
         ls = n;
     end
     
-    return (ts, ls, tg, lg);
+    if use_germanium_bands
+        return (ts, ls, tg, lg);
+    else
+        return (ts, ls);
+    end
 end
 
 # UPDATED for polarizations
@@ -162,35 +168,49 @@ end
 # input: number of bands
 # output: centers of frequency bands, width of bands, polarizations of each band
 function get_band_frequencies(n, low=0, high=0)
-    #######
-    # Due to the fortran version using both polarizations and materials in the band setting
-    # we need to replicate it here. It is not ideal, but...
     # Find all frequency band widths and centers.
     # delta_freq is different for L and T polarizations and materials
-    # order = gt, st, gl, sl
-    (st, sl, gt, gl) = get_band_distribution(n);
-    
-    all_centers = zeros(st+sl);
-    all_dw = zeros(st+sl);
-    
-    for i=1:gt
-        all_dw[i] = freq_max_TAG / gt;
-    end
-    for i=(gt+1):st
-        all_dw[i] = (freq_max_TAS - freq_max_TAG) / (st-gt);
-    end
-    for i=(st+1):gl
-        all_dw[i] = (freq_max_LAG - freq_max_TAS) / (gl-st);
-    end
-    for i=(gl+1):sl
-        all_dw[i] = (freq_max_LAS - freq_max_LAG) / (sl-gl);
+    if use_germanium_bands
+        #######
+        # Due to the fortran version using both polarizations and materials in the band setting
+        # we need to replicate it here. It is not ideal, but...
+        # order = gt, st, gl, sl
+        (st, sl, gt, gl) = get_band_distribution(n);
+        
+        all_centers = zeros(st+sl);
+        all_dw = zeros(st+sl);
+        
+        for i=1:gt
+            all_dw[i] = freq_max_TAG / gt;
+        end
+        for i=(gt+1):st
+            all_dw[i] = (freq_max_TAS - freq_max_TAG) / (st-gt);
+        end
+        for i=(st+1):gl
+            all_dw[i] = (freq_max_LAG - freq_max_TAS) / (gl-st);
+        end
+        for i=(gl+1):sl
+            all_dw[i] = (freq_max_LAS - freq_max_LAG) / (sl-gl);
+        end
+        
+    else # Only silicon
+        (st, sl) = get_band_distribution(n);
+        
+        all_centers = zeros(st+sl);
+        all_dw = zeros(st+sl);
+        
+        for i=1:st
+            all_dw[i] = freq_max_TAS / st;
+        end
+        for i=(st+1):sl
+            all_dw[i] = (freq_max_LAS - freq_max_TAS) / (sl-st);
+        end
     end
     
     all_centers[1] = all_dw[1] * 0.5;
     for i=2:(st+sl)
         all_centers[i] = all_centers[i-1] + (all_dw[i] + all_dw[i-1]) * 0.5;
     end
-    #######
     
     if low==0
         low = 1;

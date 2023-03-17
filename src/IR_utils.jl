@@ -87,6 +87,38 @@ function apply_indexed_access(IR, index, IRtypes::Union{IR_entry_types, Nothing}
     end
 end
 
+# Traverses the IR looking for data nodes with this label.
+# Remove size and index info to make it a scalar.
+# This is useful for GPU things.
+function scalarize_data_nodes(IR, symbol)
+    if typeof(IR) == IR_data_node && IR.label === symbol
+        IR = IR_data_node(IR.type, IR.label, [], []);
+        
+    elseif typeof(IR) == IR_operation_node
+        # apply to all args
+        for i=1:length(IR.args)
+            IR.args[i] = scalarize_data_nodes(IR.args[i], symbol)
+        end
+        
+    elseif typeof(IR) == IR_block_node
+        # apply to all IR_parts
+        for i=1:length(IR.parts)
+            IR.parts[i] = scalarize_data_nodes(IR.parts[i], symbol)
+        end
+        
+    elseif typeof(IR) == IR_loop_node
+        # apply to body
+        IR.body = scalarize_data_nodes(IR.body, symbol)
+        
+    elseif typeof(IR) == IR_conditional_node
+        # apply to body
+        IR.body = scalarize_data_nodes(IR.body, symbol)
+        IR.elsepart = scalarize_data_nodes(IR.elsepart, symbol)
+    end
+    
+    return IR;
+end
+
 # Wraps some IR in a timeroutputs timer with a given label
 # It is up to the caller to keep labels unique
 function wrap_in_timer(label::Symbol, content::IR_part)
@@ -537,4 +569,170 @@ function insert_indices(ex)
     end
     
     return ex;
+end
+
+# Combine terms that have the same factor
+# a * b * c + a * d * c -> a * (c * (b + d))
+# Assume that each term will look like *(a,b,c) or *(a,b)
+function combine_shared_factors(terms)
+    nt = length(terms);
+    newterms = Vector{IR_part}(undef,0);
+    test_factors = [];
+    coef_factors = [];
+    trial_factors = [];
+    test_indices = [zeros(Int,0)]; # indices in terms for matching factors in test_factors
+    coef_indices = [zeros(Int,0)];
+    trial_indices = [zeros(Int,0)];
+    term2test = zeros(Int,nt);
+    term2coef = zeros(Int,nt);
+    term2trial = zeros(Int,nt);
+    test_symbols = [];
+    coef_symbols = [];
+    trial_symbols = [];
+    
+    symbolic_expr = Basic(0);
+    
+    # collect all unique factors of each type and make lists of terms that include them
+    # also set up a symengine expression with variables like t1, c1, r1
+    for i=1:nt
+        if typeof(terms[i]) == IR_operation_node && terms[i].args[1] === :*
+            nf = length(terms[i].args) - 1;
+            test = terms[i].args[2];
+            coef = terms[i].args[3];
+            test_sym = Basic(1);
+            coef_sym = Basic(1);
+            trial_sym = Basic(1);
+            
+            # Check if they have been found already
+            found = false;
+            for j=1:length(test_factors)
+                if string(test) == string(test_factors[j])
+                    found = true;
+                    push!(test_indices[j],i);
+                    term2test[i] = j;
+                    test_sym = test_symbols[j];
+                end
+            end
+            if !found
+                # add it to test_factors
+                push!(test_factors, test);
+                push!(test_indices, [i]);
+                term2test[i] = length(test_factors);
+                test_sym = symbols("t"*string(length(test_factors)))
+                push!(test_symbols, test_sym);
+            end
+            
+            found = false;
+            for j=1:length(coef_factors)
+                if string(coef) == string(coef_factors[j])
+                    found = true;
+                    push!(coef_indices[j],i);
+                    term2coef[i] = j;
+                    coef_sym = coef_symbols[j];
+                end
+            end
+            if !found
+                # add it to coef_factors
+                push!(coef_factors, coef);
+                push!(coef_indices, [i]);
+                term2coef[i] = length(coef_factors);
+                coef_sym = symbols("c"*string(length(coef_factors)))
+                push!(coef_symbols, coef_sym);
+            end
+            
+            if nf == 4 # there is a trial factor
+                trial = terms[i].args[3];
+                found = false;
+                for j=1:length(trial_factors)
+                    if string(trial) == string(trial_factors[j])
+                        found = true;
+                        push!(trial_indices[j],i);
+                        term2trial[i] = j;
+                        trial_sym = trial_symbols[j];
+                    end
+                end
+                if !found
+                    # add it to trial_factors
+                    push!(trial_factors, trial);
+                    push!(trial_indices, [i]);
+                    term2trial[i] = length(trial_factors);
+                    trial_sym = symbols("c"*string(length(trial_factors)));
+                    push!(trial_symbols, trial_sym);
+                end
+            end
+            
+            # At this point we have all the symbols.
+            # Add the term to the expression
+            symbolic_expr = symbolic_expr + test_sym * coef_sym * trial_sym;
+        end
+    end
+    
+    # The symbolic expression has been built. Use symengine to simplify.
+    # simple_expr = 
+    
+    return newterms;
+end
+
+# Given the factor info, group into simplified terms
+# output is [[t,i,[[t,j,[[t,k], ...]], ...]], ...]
+# for fi*(fj*(fk+...)+...)+...
+# t = 1,2,3 for test,coef,trial
+# i,j,k are indices in those arrays
+function get_factor_groups(test, coef, trial, term2test, term2coef, term2trial)
+    remaining = fill(false,nt);
+    num_remaining = nt;
+    
+    # Find the most common from remaining factors
+    largest = 0;
+    largest_ind = 0;
+    largest_type = 0;
+    for i=1:nt
+        if remaining[i] # This term has not been included yet
+            num_common = 0;
+            f_ind = term2trial[i]
+            for j=1:length(test_indices[f_ind])
+                if remaining[test_indices[f_ind][j]]
+                    num_common+=1;
+                end
+            end
+            if num_common > largest
+                largest = num_common;
+                largest_ind = f_ind;
+                largest_type = 1;
+            end
+            
+            num_common = 0;
+            f_ind = term2coef[i];
+            for j=1:length(coef_indices[f_ind])
+                if remaining[coef_indices[f_ind][j]]
+                    num_common+=1;
+                end
+            end
+            if num_common > largest
+                largest = num_common;
+                largest_ind = f_ind;
+                largest_type = 2;
+            end
+            
+            num_common = 0;
+            f_ind = term2trial[i];
+            if f_ind > 0
+                for j=1:length(trial_indices[f_ind])
+                    if remaining[trial_indices[f_ind][j]]
+                        num_common+=1;
+                    end
+                end
+                if num_common > largest
+                    largest = num_common;
+                    largest_ind = f_ind;
+                    largest_type = 3;
+                end
+            end
+        end
+    end
+    
+    # That most common factor will be put here -> a*(...) + ...
+    
+    this_term = [largest_type, largest_ind, []]
+    
 end

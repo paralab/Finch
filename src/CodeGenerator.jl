@@ -20,7 +20,7 @@ import ..Finch: IR_entry_types, IR_string, print_IR, repr_IR,
             IR_block_node, IR_loop_node, IR_conditional_node, IR_comment_node
 import ..Finch: generate_linalg_TDM_product, generate_the_one_pattern, generate_linalg_Tv_product,
             apply_indexed_access, generate_difference_norms_and_update, generate_residual_norms_and_update, 
-            generate_local_to_global_fem
+            generate_local_to_global_fem, scalarize_data_nodes
 #
 # Temporary placeholders for external code gen functions that must be provided.
 # These are reassigned in set_custom_target()
@@ -54,6 +54,7 @@ include("generate_code_layer.jl");
 
 # code gen functions for each solver type and target
 include("generate_code_layer_julia.jl");
+include("generate_code_layer_julia_gpu.jl");
 
 # # target specific code gen functions
 # include("generate_code_layer_dendro.jl");

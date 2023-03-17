@@ -9,9 +9,14 @@ function generate_code_layer(var, IR, solver, language, framework)
     # end
     
     if language == JULIA
-        # code holds the solve function
-        # aux_code holds any other code that needs to be imported for this to work
-        (code, aux_code) = generate_code_layer_julia(var, IR, solver);
+        if finch_state.config.use_gpu
+            (code, aux_code) = generate_code_layer_julia_gpu(var, IR, solver);
+            
+        else
+            # code holds the solve function
+            # aux_code holds any other code that needs to be imported for this to work
+            (code, aux_code) = generate_code_layer_julia(var, IR, solver);
+        end
         
     ### External targets ##############################################################
     # The appropriate code gen function should be set

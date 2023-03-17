@@ -1,5 +1,6 @@
 #=
 2D explicit BTE. This assumes MPI is being used
+for band parallelization AND CUDA is used.
 This version accounts for polarizations.
 This partitions the computation amongst both the 
 frequency bands and polarizations.
@@ -16,9 +17,9 @@ using Finch # Note: to add the package, first do: ]add "https://github.com/paral
 # end
 ##########################################################################
 
-initFinch("FVbte2dband");
+initFinch("FVbte2dgpu");
 
-useLog("FVbte2dbandlog", level=3)
+useLog("FVbte2dgpulog", level=3)
 
 # constants and various functions are in another file
 include("bte-parameters.jl")
@@ -30,8 +31,10 @@ domain(2)
 solverType(FV)
 timeStepper(EULER_EXPLICIT)
 dt = 1e-12;
-nsteps = 100;
+nsteps = 2; # 2 steps for the warmup pass
 setSteps(dt, nsteps);
+
+useCUDA(); # This will attempt to use CUDA
 
 # direction and band numbers
 ndirs = 16;
@@ -67,8 +70,8 @@ MPI = Finch.MPI;
 # A simple mesh is internally generated for convenience
 # This matches the mesh in model_setup_BTE.in
 mesh(QUADMESH, # quad elements
-    elsperdim=[120, 120], # elements in each direction: 20 x 5 uniform grid
-    interval=[0, 525e-6, 0, 525e-6],  # interval in each direction
+    elsperdim=[120, 24], # elements in each direction: 20 x 5 uniform grid
+    interval=[0, 525e-6, 0, 105e-6],  # interval in each direction
     bids=4, # 4 boundary IDs for this mesh correspond to left, right, bottom, top
     partitions=cell_partitions) # If there are enough procs to also do cell partitioning
 
@@ -147,8 +150,8 @@ postStepFunction(post_step);
 # Dt(int(Iij dx)) = int((Io-Iij)*beta dx) ) - vg * int(Iij * Si.n ds)
 conservationForm(I, "(Io[band] - I[direction,band]) * beta[band] + surface(vg[band] * upwind([Sx[direction];Sy[direction]] , I[direction,band]))")
 
-exportCode("bte2dcode") # uncomment to export generated code to a file
-# importCode("bte2dcode") # uncomment to import code from a file
+exportCode("bte2dgpucode") # uncomment to export generated code to a file
+# importCode("bte2dgpucodein") # uncomment to import code from a file
 
 # The fortran version does something odd with volumes
 # We need to manually change it here, or adjust the equation
@@ -158,24 +161,30 @@ solve(I)
 
 ##################################################
 # End warmup
-# If timing after a warmup run, set the steps above to 2
-# and uncomment below
+# Begin timed run
 ##################################################
 
-# if Finch.finch_state.config.proc_rank == 0
-#     println("Warm-up result:")
-#     show(Finch.finch_state.timer_output)
-# end
-# Finch.reset_timer!(Finch.finch_state.timer_output)
+if Finch.finch_state.config.proc_rank == 0
+    println("Warm-up result:")
+    show(Finch.finch_state.timer_output)
+end
+Finch.reset_timer!(Finch.finch_state.timer_output)
 
-# nsteps = 1000;
-# setSteps(dt, nsteps);
+nsteps = 100;
+setSteps(dt, nsteps);
 
-# evalInitialConditions();
-# get_integrated_intensity!(G_last.values, I.values, ndirs, nbands);
+evalInitialConditions();
+get_integrated_intensity!(G_last.values, I.values, ndirs, nbands);
 
-# solve(I)
+solve(I)
 
-outputValues(temperature, "bte2dTemp", format="vtk");
+# outputValues(temperature, "bte2dTemp", format="vtk");
 
 finalizeFinch()
+
+### uncomment below to plot
+
+# xy = Finch.finch_state.fv_info.cellCenters
+# using Plots
+# pyplot();
+# display(plot(xy[1,:], xy[2,:], temperature.values[:], st=:surface))

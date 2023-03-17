@@ -51,16 +51,19 @@ function apply_flag_to_variables(flag, ex)
         end
         
     elseif typeof(ex) == Symbol
-        # Is it a variable?
-        isvar = false;
-        for v in finch_state.variables
-            vroot = "_" * string(v.symbol) * "_";
-            if string(get_root_symbol(ex)) == vroot
-                isvar = true;
+        str = string(ex);
+        if length(str) >= 3 # a variable will have at least 3 like "_u_"
+            # Is it a variable?
+            isvar = false;
+            for v in finch_state.variables
+                vroot = "_" * string(v.symbol) * "_";
+                if string(get_root_symbol(ex)) == vroot
+                    isvar = true;
+                end
             end
-        end
-        if isvar
-            ex = Symbol(flag * string(ex));
+            if isvar
+                ex = Symbol(flag * string(ex));
+            end
         end
     end
     

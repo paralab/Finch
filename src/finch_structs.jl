@@ -58,11 +58,12 @@ mutable struct FinchConfig
     
     # Parallel details
     use_mpi::Bool           # Is MPI available?
-    num_procs::Int;         # number of processes
-    proc_rank::Int;         # this proccess rank
-    num_threads::Int;       # number of available threads
-    num_partitions::Int;    # number of mesh partitions
-    partition_index::Int;   # this process's partition
+    num_procs::Int          # number of processes
+    proc_rank::Int          # this proccess rank
+    num_threads::Int        # number of available threads
+    num_partitions::Int     # number of mesh partitions
+    partition_index::Int    # this process's partition
+    use_gpu::Bool           # Use GPU?
     
     # Data types
     index_type::Type
@@ -111,6 +112,7 @@ mutable struct FinchConfig
         1,
         1,
         0,
+        false,
         
         Int64,
         Float64,

@@ -118,6 +118,31 @@
     end
 )
 
+# ALSI boundary is essentially the same as isothermal, but temperature is from the transducer.
+@callbackFunction(
+    function alsi_bdry(intensity, vg::Vector, sx::Vector, sy::Vector, 
+                            band::Int, dir::Int, normal::Vector{Float64})
+        #
+        ndir::Int = ndirs;
+        sdotn::Float64 = sx[dir]*normal[1] + sy[dir]*normal[2];
+        
+        if sdotn > 0 # outward
+            interior_intensity::Float64 = intensity[dir + (band-1)*ndir];
+            result = -vg[band] * interior_intensity * sdotn;
+            
+        else # inward gains from equilibrium at transducer temp
+            center_f::Float64 = center_freq[band];
+            polarization::String = polarizations[band];
+            delta_f::Float64 = delta_freq[band];
+            temp::Float64 = 300.0; ############# TODO
+            iso_intensity::Float64 = equilibrium_intensity(center_f, delta_f, temp, polarization);
+            result = -vg[band] * iso_intensity * sdotn;
+        end
+        
+        return result;
+    end
+)
+
 # 3D versions of isothermal and symmetric boundaries
 @callbackFunction(
     function isothermal_bdry_3d(intensity, vg::Vector, sx::Vector, sy::Vector, sz::Vector,

@@ -3,7 +3,7 @@ This file contains all of the common interface functions.
 =#
 export initFinch, generateFor, useLog, indexDataType, floatDataType,
         domain, solverType, functionSpace, finiteVolumeOrder,
-        nodeType, timeStepper, setSteps, linAlgOptions, usePetsc, customOperator, customOperatorFile,
+        nodeType, timeStepper, setSteps, linAlgOptions, usePetsc, useCUDA, customOperator, customOperatorFile,
         mesh, exportMesh, exportMeshGraph,
         variable, coefficient, parameter, testSymbol, index, boundary, addBoundaryID,
         referencePoint, timeInterval, initial, preStepFunction, postStepFunction, callbackFunction,
@@ -280,6 +280,25 @@ julia> ]build PETSc", fatal=true);
         finch_state.config.linalg_usePetsc = useit;
     else
         printerr("Cannot use PETSc. Set up PETSc.jl manually first. Proceeding with default.")
+    end
+end
+
+"""
+    useCUDA(useit::Bool=true)
+
+If a CUDA supported GPU is available, use it.
+If it is not available, this won't work.
+"""
+function useCUDA(useit::Bool=true)
+    if !useit
+        finch_state.config.use_gpu = false;
+        return;
+    end
+    if @isdefined(CUDA) && CUDA.functional()
+        log_entry(finch_state, "CUDA is functional. Generating for GPU if possible.", 1)
+        finch_state.config.use_gpu = true;
+    else
+        printerr("Cannot use CUDA. Either the package is not available, or CUDA.functional() is false.")
     end
 end
 
@@ -990,6 +1009,7 @@ function weakForm(var, wf)
     log_entry("Code layer: \n" * code[1], 3);
     set_code(finch_state, var, code, full_IR);
     set_aux_code(finch_state, aux_code);
+    include_string(Finch, aux_code);
     
     end # timer block
 end
@@ -1107,6 +1127,7 @@ function conservationForm(var, cf)
     log_entry("Code layer: \n" * code[1], 3);
     set_code(finch_state, var, code, full_IR);
     set_aux_code(finch_state, aux_code);
+    include_string(Finch, aux_code);
     
     end # timer block
 end
@@ -1158,6 +1179,13 @@ function exportCode(filename)
         file = open(filename*".jl", "w");
         println(file, "#=\nGenerated functions for "*finch_state.project_name*"\n=#\n");
         
+        # Do aux code first because it may be used in other functions
+        if length(finch_state.aux_code) > 0
+            println(file, "#=\nAuxilliary code that will be included in Finch\n=#\n");
+            println(file, finch_state.aux_code);
+        end
+        
+        # Solve functions for each variable
         for i=1:length(finch_state.variables)
             code = finch_state.code_strings[i];
             var = string(finch_state.variables[i].symbol);
@@ -1168,11 +1196,6 @@ function exportCode(filename)
             else
                 println(file, "# No code set for "*var*"\n");
             end
-        end
-        
-        if length(finch_state.aux_code) > 0
-            println(file, "#=\nAuxilliary code that will be included in Finch\n=#\n");
-            println(file, finch_state.aux_code);
         end
         
         close(file);

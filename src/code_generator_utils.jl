@@ -538,3 +538,105 @@ function get_face_side_info(ent)
     
     return side;
 end
+
+# Return true if starts with "#"
+function is_comment(line)
+    if length(line) > 0
+        for i=1:length(line)
+            if line[i] == ' '
+                # skip
+            elseif line[i] == '#'
+                return true;
+            else
+                return false;
+            end
+        end
+    end
+    
+    return false;
+end
+
+# Sets indents to make things readable
+# indent happens on funtion, for, if, begin, while
+function set_indent(code::String)
+    indented = "";
+    # split into lines
+    lines = split(code, "\n");
+    nlines = length(lines);
+    
+    # indent keywords
+    # starts = ["function", "for", "if", "begin"];
+    # specials = ["else", "elseif"];
+    # ends = ["end"];
+    
+    # add lines while indenting as needed
+    indent = "";
+    line_type = 0; # 0=normal, 1=start, 2=special, 3=end
+    for i=1:nlines
+        line_type = 0;
+        # ignore comment content
+        if !is_comment(lines[i])
+            # start of an indentable block
+            tokens = split(lines[i]);
+            if length(tokens) > 0
+                if tokens[1] == "function" || tokens[1] == "for" || tokens[1] == "if" || tokens[end] == "begin" || tokens[1] == "while"
+                    line_type = 1;
+                    if tokens[end] == "end"
+                        line_type = 0;
+                    end
+                elseif tokens[1] == "else" || tokens[1] == "elseif"
+                    line_type = 2;
+                elseif tokens[1] == "end"
+                    line_type = 3;
+                end
+            end
+        end
+        
+        if line_type == 0
+            indented *= indent * lines[i] * "\n";
+            
+        elseif line_type == 1
+            indented *= indent * lines[i] * "\n";
+            indent *= "    ";
+            
+        elseif line_type == 2
+            indent = indent[1:end-4];
+            indented *= indent * "\n" * indent * lines[i] * "\n";
+            indent *= "    ";
+            
+        elseif line_type == 3
+            indent = indent[1:end-4];
+            indented *= indent * lines[i] * "\n\n";
+        end
+    end
+    
+    return indented;
+end
+
+# Removes duplicate lines
+# This is useful for places like allocation blocks
+function remove_duplicate_lines(code::String)
+    removed = "";
+    lines = split(code, "\n");
+    nlines = length(lines);
+    nunique = 0;
+    unique_lines = fill("", 0);
+    
+    for i=1:nlines
+        new = true;
+        for j=1:nunique
+            if lines[i] == unique_lines[j]
+                new = false;
+                break;
+            end
+        end
+        
+        if new
+            push!(unique_lines, lines[i]);
+            nunique += 1;
+            removed *= lines[i] * "\n";
+        end
+    end
+    
+    return removed;
+end
