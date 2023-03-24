@@ -274,7 +274,49 @@ function build_faces(nel::Int, elements::Matrix{Int}, etypes::Vector{Int})
     face2v = newface2v[:,1:remaining];
     e2face = newe2face;
     
+    # face_element_sanity_check(elements, e2face, face2v);
+    
     return (face2v, face2e, e2face);
+end
+
+# Make sure that face vertices are vertices of the element
+function face_element_sanity_check(elements::Matrix{Int}, e2f::Matrix{Int}, face2v::Matrix{Int})
+    nel = size(elements,2);
+    nface = size(face2v,2);
+    face_per_el = size(e2f,1);
+    node_per_face = size(face2v,1);
+    node_per_el = size(elements,1);
+    
+    max_node = 0;
+    max_face = 0;
+    passed = true;
+    for ei=1:nel
+        for fi=1:face_per_el
+            fid = e2f[fi, ei];
+            max_face = max(max_face, fid);
+            for nfi=1:node_per_face
+                fnode = face2v[nfi, fid];
+                max_node = max(max_node, fnode);
+                foundit = false;
+                for nei=1:node_per_el
+                    if elements[nei, ei] == fnode
+                        foundit = true;
+                        break;
+                    end
+                end
+                if !foundit
+                    println("Face vertex node not in element! $ei, $fid, $fnode")
+                    passed = false;
+                end
+            end
+        end
+    end
+    
+    if passed
+        println("passed sanity, max node = $(max_node), max face = $(max_face)")
+    else
+        println("failed sanity, max node = $(max_node), max face = $(max_face)")
+    end
 end
 
 # Compute normal vectors for each face
@@ -292,7 +334,7 @@ function find_normals(face2v::Matrix{Int}, x::Matrix{Float64})
     for fi=1:nfaces
         if dim == 2 # faces are lines
             normals[:,fi] .= normal2(x[:,face2v[1,fi]], x[:,face2v[2,fi]]);
-        elseif dim == 3
+        elseif dim == 3 # Use the first 3 vertices
             normals[:,fi] .= normal3(x[:,face2v[1,fi]], x[:,face2v[2,fi]], x[:,face2v[3,fi]]);
         end
     end
@@ -308,7 +350,7 @@ function normal2(a::Vector{Float64}, b::Vector{Float64})
     nx = b[2]-a[2];
     ny = a[1]-b[1];
     d = sqrt(nx*nx + ny*ny);
-    return (nx/d; ny/d);
+    return (nx/d, ny/d);
 end
 
 function normal3(a::Vector{Float64}, b::Vector{Float64}, c::Vector{Float64})
@@ -317,11 +359,22 @@ function normal3(a::Vector{Float64}, b::Vector{Float64}, c::Vector{Float64})
     # nx = v[2]*w[3]-v[3]*w[2];
     # ny = v[3]*w[1]-v[1]*w[3];
     # nz = v[1]*w[2]-v[3]*w[1];
-    nx = (b[2]-a[2])*(c[3]-a[3]) - (b[3]-a[3])*(c[2]-a[2]);
-    ny = (b[3]-a[3])*(c[1]-a[1]) - (b[1]-a[1])*(c[3]-a[3]);
-    nz = (b[1]-a[1])*(c[2]-a[2]) - (b[3]-a[3])*(c[1]-a[1]);
+    
+    # nx = (b[2]-a[2])*(c[3]-a[3]) - (b[3]-a[3])*(c[2]-a[2]);
+    # ny = (b[3]-a[3])*(c[1]-a[1]) - (b[1]-a[1])*(c[3]-a[3]);
+    # nz = (b[1]-a[1])*(c[2]-a[2]) - (b[2]-a[2])*(c[1]-a[1]);
+    
+    v1 = b[1]-a[1];
+    v2 = b[2]-a[2];
+    v3 = b[3]-a[3];
+    w1 = c[1]-a[1];
+    w2 = c[2]-a[2];
+    w3 = c[3]-a[3];
+    nx = v2*w3 - v3*w2;
+    ny = v3*w1 - v1*w3;
+    nz = v1*w2 - v2*w1;
     d = sqrt(nx*nx + ny*ny + nz*nz);
-    return (nx/d; ny/d; nz/d);
+    return (nx/d, ny/d, nz/d);
 end
 
 # Finds faces that have face2e[2,fi] == 0

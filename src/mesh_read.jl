@@ -325,7 +325,6 @@ function read_medit(file)
             end
             
         elseif occursin("Vertices", line)
-            println(line)
             tokens = split(line, " ", keepempty=false);
             if length(tokens) > 1
                 nx = parse(Int, tokens[2]);
@@ -410,7 +409,6 @@ function read_medit(file)
             elements_done = true;
             
         elseif dim == 3 && (occursin("Tetrahedra", line) || occursin("Hexahedra", line))
-            println(line)
             tokens = split(line, " ", keepempty=false);
             if length(tokens) > 1
                 nel = parse(Int, tokens[2]);
@@ -461,7 +459,7 @@ function read_medit(file)
         return nothing;
     end
     nodes = nodes[1:finch_state.config.dimension, :];
-    indices = 1:nx;
+    indices = Array(1:nx);
     
     return MeshData(nx, nodes, indices, nel, elements, etypes, nv);
 end

@@ -1126,7 +1126,7 @@ next_bdry_index += 1;
 $(index_loop_ends)
 end
 end
-end#timer
+end # timer bdry_vals
 
 # Then get global_vector from gpu
 CUDA.synchronize()
