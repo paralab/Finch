@@ -136,12 +136,15 @@ function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=fa
             # Build a refel for the face
             face_faces = 2; # all 2d faces are lines
             face_const_J = true;
+            face_type = 2;
             if dim == 3
                 if refel.Nfaces == 6 # hex
                     face_faces = 4; # faces are quads
                     face_const_J = constant_jacobian;
+                    face_type = 4;
                 elseif refel.Nfaces == 4 # tet
                     face_faces = 3; # faces are triangles
+                    face_type = 3;
                 end
             end
             face_refel = build_refel(dim-1, refel.N, face_faces, finch_state.config.elemental_nodes);
@@ -162,7 +165,8 @@ function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=fa
                 end
                 
                 if do_vol_area
-                    area[fi] = (2 ^ (dim-1)) * face_detj[fi];
+                    # area[fi] = (2 ^ (dim-1)) * face_detj[fi];
+                    area[fi] = face_area(dim, face_type, xf);
                 end
             end
         end
@@ -459,7 +463,8 @@ function flatten_face(normal::Vector{FT}, pts::Matrix{FT}) where FT<:AbstractFlo
         end
         # find angles to rotate so that normal is along z axis
         # This is safe because we know normal is not along z axis now
-        dxy = sqrt(normal[2]*normal[2] + normal[1]*normal[1]);
+        # dxy = sqrt(normal[2]*normal[2] + normal[1]*normal[1]);
+        dxy = 1.0;
         theta = asin(normal[2] / dxy);
         phi = asin(1 / dxy);
         
@@ -546,6 +551,45 @@ function element_volume(etype::Int, pts::Matrix{FT}) where FT<:AbstractFloat
         return abs(v);
     end
     printerr("Can't compute volume for unknown element type: "*string(etype), fatal=true);
+    return 1.0; 
+end
+
+# computes the area of a face with the given vertex coords
+# face type:
+# 1=point, 2=line, 3=triangle, 4=quad
+function face_area(dim::Int, ftype::Int, pts::Matrix{FT}) where FT<:AbstractFloat
+    if ftype == 1
+        return 1.0; # this is meaningless
+    elseif ftype == 2
+        if dim == 2 # dim=1 doesn't make sense
+            d1 = (pts[1,2] - pts[1,1]);
+            d2 = (pts[2,2] - pts[2,1]);
+            v = d1*d1 + d2*d2;
+            return sqrt(v)
+        elseif dim == 3 # This is an edge, not a face, but let's do it anyway
+            d1 = (pts[1,2] - pts[1,1]);
+            d2 = (pts[2,2] - pts[2,1]);
+            d3 = (pts[3,2] - pts[3,1]);
+            v = d1*d1 + d2*d2 + d3*d3;
+            return sqrt(v)
+        end
+        
+    elseif ftype == 3 # triangle
+        if dim == 3
+            # |v1 X v2| / 2
+            v1 = [pts[i,2]-pts[i,1] for i=1:3];
+            v2 = [pts[i,3]-pts[i,1] for i=1:3];
+            c1 = v1[2]*v2[3] - v1[3]*v2[2];
+            c2 = v1[3]*v2[1] - v1[1]*v2[3];
+            c3 = v1[1]*v2[2] - v1[2]*v2[1];
+            return 0.5 * sqrt(c1*c1 + c2*c2 + c3*c3);
+        end
+        
+    elseif ftype == 4 # quad
+        # treat as two triangles. Assume points 1 and 3 are diagonally oposite
+        return face_area(dim, 3, pts[:,1:3]) + face_area(dim, 3, pts[:,[1,3,4]]);
+    end
+    printerr("Can't compute area for unknown face type: "*string(ftype), fatal=true);
     return 1.0; 
 end
 

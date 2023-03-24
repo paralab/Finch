@@ -204,9 +204,24 @@ function output_values_vtk(vars, file, ascii)
                 range = 1:size(vars[vi].values,2);
             end
             
-            if length(vars[vi].symvar) > 1
-                for ci=1:length(vars[vi].symvar)
-                    compname = string(vars[vi].symbol) * "_" * string(ci);
+            ncomponents = size(vars[vi].values,1)
+            digits = 1;
+            if ncomponents > 9
+                digits = 2;
+            end
+            if ncomponents > 99
+                digits = 3;
+            end
+            if ncomponents > 999
+                digits = 4;
+            end
+            if ncomponents > 9999
+                digits = 5;
+            end
+            
+            if ncomponents > 1
+                for ci=1:ncomponents
+                    compname = string(vars[vi].symbol) * "_" * string(ci, pad=digits);
                     vtkfile[compname] = vars[vi].values[ci,range];
                 end
             else
@@ -220,9 +235,23 @@ function output_values_vtk(vars, file, ascii)
             range = 1:size(vars.values,2);
         end
         
-        if length(vars.symvar) > 1
-            for ci=1:length(vars.symvar)
-                compname = string(vars.symbol) * "_" * string(ci);
+        ncomponents = size(vars.values,1)
+        digits = 1;
+        if ncomponents > 9
+            digits = 2;
+        end
+        if ncomponents > 99
+            digits = 3;
+        end
+        if ncomponents > 999
+            digits = 4;
+        end
+        if ncomponents > 9999
+            digits = 5;
+        end
+        if ncomponents > 1
+            for ci=1:ncomponents
+                compname = string(vars.symbol) * "_" * string(ci, pad=digits);
                 vtkfile[compname] = vars.values[ci,range];
             end
         else
