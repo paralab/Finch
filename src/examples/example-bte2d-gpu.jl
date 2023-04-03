@@ -37,7 +37,7 @@ setSteps(dt, nsteps);
 useCUDA(); # This will attempt to use CUDA
 
 # direction and band numbers
-ndirs = 16;
+ndirs = 20;
 frequency_bands = 40;
 (t_bands, l_bands) = get_band_distribution(frequency_bands);
 total_bands = t_bands + l_bands;
@@ -70,8 +70,8 @@ MPI = Finch.MPI;
 # A simple mesh is internally generated for convenience
 # This matches the mesh in model_setup_BTE.in
 mesh(QUADMESH, # quad elements
-    elsperdim=[120, 24], # elements in each direction: 20 x 5 uniform grid
-    interval=[0, 525e-6, 0, 105e-6],  # interval in each direction
+    elsperdim=[120, 120], # elements in each direction: 20 x 5 uniform grid
+    interval=[0, 525e-6, 0, 525e-6],  # interval in each direction
     bids=4, # 4 boundary IDs for this mesh correspond to left, right, bottom, top
     partitions=cell_partitions) # If there are enough procs to also do cell partitioning
 
@@ -100,29 +100,19 @@ vg = coefficient("vg", group_v, type=VAR_ARRAY) # group speed
 
 # This extra storage is allocated for parallel temperature update
 num_cells = length(temperature.values);
-uold = zeros(num_cells*num_band_partitions); # These strange names are taken from the fortran code
-gnb = zeros(num_cells*num_band_partitions);
-unew = zeros(num_cells*num_band_partitions);
-uchange = zeros(num_cells*num_band_partitions);
-gna = zeros(num_cells*num_band_partitions);
-uprime = zeros(num_cells*num_band_partitions);
+uold = zeros(num_cells); # These strange names are taken from the fortran code
+gnb = zeros(num_cells);
+unew = zeros(num_cells);
+uchange = zeros(num_cells);
+gna = zeros(num_cells);
+uprime = zeros(num_cells);
 converged = fill(false, num_cells);
-
-unew_buffer = MPI.UBuffer(unew, num_cells, num_band_partitions, MPI.Datatype(Float64));
-uchange_buffer = MPI.UBuffer(uchange, num_cells, num_band_partitions, MPI.Datatype(Float64));
-uprime_buffer = MPI.UBuffer(uprime, num_cells, num_band_partitions, MPI.Datatype(Float64));
 
 # All isothermal, top central hot spot
 boundary(I, 1, FLUX, "isothermal_bdry(I, vg, Sx, Sy, band, direction, normal, 300)") # left (ID=1)
 boundary(I, 2, FLUX, "isothermal_bdry(I, vg, Sx, Sy, band, direction, normal, 300)") # right (ID=2)
 boundary(I, 3, FLUX, "isothermal_bdry(I, vg, Sx, Sy, band, direction, normal, 300)") # bottom (ID=3)
-boundary(I, 4, FLUX, "isothermal_bdry(I, vg, Sx, Sy, band, direction, normal, (300 + 10*exp(-(x-262e-6)*(x-262e-6)/(5e-9))))") # top (ID=4)
-
-# # left and right isothermal, top and bottom symmetry
-# boundary(I, 1, FLUX, "isothermal_bdry(I, vg, Sx, Sy, band, direction, normal, 350)")
-# boundary(I, 2, FLUX, "isothermal_bdry(I, vg, Sx, Sy, band, direction, normal, 300)")
-# boundary(I, 3, FLUX, "symmetric_bdry(I, vg, Sx, Sy, band, direction, normal)")
-# boundary(I, 4, FLUX, "symmetric_bdry(I, vg, Sx, Sy, band, direction, normal)")
+boundary(I, 4, FLUX, "isothermal_bdry(I, vg, Sx, Sy, band, direction, normal, (300 + 50*exp(-(x-262e-6)*(x-262e-6)/(5e-9))))") # top (ID=4)
 
 init_temp = 300; # The initial equilibrium temperature everywhere
 initial(I, [equilibrium_intensity(center_freq[b], delta_freq[b], init_temp, polarizations[b]) for d=1:ndirs, b=1:nbands])

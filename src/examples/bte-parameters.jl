@@ -506,8 +506,8 @@ function get_next_temp!(temp_next::Array{Float64}, temp_last::Array{Float64}, I_
 
             G_last_values[j,i] = G_next_values[j,i]; # That was the only place we need G_last, so update it here.
         end
-        uold = 4*pi*idt * uold[offset_i];
-        uchange = 4*pi * uchange[offset_i];
+        uold = 4*pi*idt * uold;
+        uchange = 4*pi * uchange;
         
         unew = (uold + gna - gnb - uchange) / idt
         
@@ -586,39 +586,31 @@ function get_next_temp_par!(temp_next::Array{Float64}, temp_last::Array{Float64}
 
     # First find uold and gnb from the previous step
     rank = MPI.Comm_rank(MPI.COMM_WORLD);
-    offset::Int = rank * n;
     @inbounds for i=1:n # loop over cells
-        offset_i = offset + i;
-        uold[offset_i] = 0.0;
-        uchange[offset_i] = 0.0;
-        gnb[offset_i] = 0.0;
-        gna[offset_i] = 0.0;
+        uold[i] = 0.0;
+        uchange[i] = 0.0;
+        gnb[i] = 0.0;
+        gna[i] = 0.0;
         for j=1:m # loop over local bands
             beta = get_time_scale(freq[j], temp_next[i], polarizations[j]);
 
-            uold[offset_i] += Io_values[j,i] / group_v[j];
-            uchange[offset_i] += Io_values[j,i] * beta / group_v[j];
-            gnb[offset_i] += G_last_values[j,i] * (idt - beta) / group_v[j];
-            gna[offset_i] += G_next_values[j,i] * idt / group_v[j];
+            uold[i] += Io_values[j,i] / group_v[j];
+            uchange[i] += Io_values[j,i] * beta / group_v[j];
+            gnb[i] += G_last_values[j,i] * (idt - beta) / group_v[j];
+            gna[i] += G_next_values[j,i] * idt / group_v[j];
             
             G_last_values[j,i] = G_next_values[j,i]; # That was the only place we need G_last, so update it here.
             
         end
-        uold[offset_i] = 4*pi*idt * uold[offset_i];
-        uchange[offset_i] = 4*pi * uchange[offset_i];
+        uold[i] = 4*pi*idt * uold[i];
+        uchange[i] = 4*pi * uchange[i];
 
-        unew[offset_i] = (uold[offset_i] + gna[offset_i] - gnb[offset_i] - uchange[offset_i]) / idt
+        unew[i] = (uold[i] + gna[i] - gnb[i] - uchange[i]) / idt
     end
-
-    # Allgather across this mesh communicator to combine bands
-    MPI.Allgather!(unew_buffer, MPI.COMM_WORLD);
-
-    # reduce
-    @inbounds for i=1:n # loop over cells
-        for j=2:nband_partitions # loop over band partitions
-            unew[i] += unew[i + (j-1)*n];
-        end
-    end
+    
+    # Now unew holds the partially reduced values for this proc.
+    # Use MPI.Allreduce! to do the full reduction and send to all procs.
+    MPI.Allreduce!(unew, MPI.SUM, MPI.COMM_WORLD);
     
     # Then iteratively refine delta_T
     converged .= false;
@@ -629,34 +621,27 @@ function get_next_temp_par!(temp_next::Array{Float64}, temp_last::Array{Float64}
             if converged[i]
                 continue;
             end
-            offset_i = offset + i;
-            uchange[offset_i] = 0.0;
-            uprime[offset_i] = 0.0;
+            uchange[i] = 0.0;
+            uprime[i] = 0.0;
 
             for j=1:m # loop over local bands
-                beta = get_time_scale(freq[j], temp_next[i], polarizations[j]);
+                # beta = get_time_scale(freq[j], temp_next[i], polarizations[j]);
                 didt = dIdT_single(freq[j], dw[j], temp_next[i], polarizations[j]);
 
-                uchange[offset_i] += equilibrium_intensity(freq[j], dw[j], temp_next[i], polarizations[j]) / group_v[j];
-                uprime[offset_i] += didt / group_v[j];
+                uchange[i] += equilibrium_intensity(freq[j], dw[j], temp_next[i], polarizations[j]) / group_v[j];
+                uprime[i] += didt / group_v[j];
             end
-            uchange[offset_i] = 4*pi*uchange[offset_i];
-            uprime[offset_i] = 4*pi*uprime[offset_i];
+            uchange[i] = 4*pi*uchange[i];
+            uprime[i] = 4*pi*uprime[i];
         end
-
-        # Allgather across this mesh communicator to combine bands
-        MPI.Allgather!(uchange_buffer, MPI.COMM_WORLD);
-        MPI.Allgather!(uprime_buffer, MPI.COMM_WORLD);
+        
+        MPI.Allreduce!(uchange, MPI.SUM, MPI.COMM_WORLD);
+        MPI.Allreduce!(uprime, MPI.SUM, MPI.COMM_WORLD);
 
         # update temp
         @inbounds for i=1:n # loop over cells
             if converged[i]
                 continue;
-            end
-            # reduce
-            for j=2:nband_partitions # loop over band partitions
-                uchange[i] += uchange[i + (j-1)*n];
-                uprime[i] += uprime[i + (j-1)*n];
             end
 
             delta_u = unew[i] - uchange[i];
@@ -722,45 +707,3 @@ function update_temperature(temp::Matrix{Float64}, temp_last::Matrix{Float64}, I
 
     return iterations;
 end
-
-#############################################################################
-## alternative models.
-
-# What was this??????
-
-# # Scattering time scale using Broido data from relaxtime_broido.f90
-# # input: tau array to update, band center frequencies, temperature
-# # output: band average time scales
-# function get_time_scale!(tau::Array, freq::Array, temp::Array; polarization="T")
-#     if polarization=="T"
-#         a_n = a_n_TAS;
-#         a_u = a_u_TAS;
-#     else # L
-#         a_n = a_n_LAS;
-#         a_u = a_u_LAS;
-#     end
-
-#     n = length(temp); # number of cells
-#     m = length(freq); # number of bands
-#     for j=1:n # loop over cells
-#         for i=1:m # loop over bands
-#             tmp = temp[j]*(1 - exp(-3*temp[j]/debye_temp));
-#             tau[i, j] = 1 / (a_n * freq[i]^2 * tmp + a_u * freq[i]^4 * tmp);
-#         end
-#     end
-# end
-# # Similar to above, but for a single band and temp
-# function get_time_scale(freq::Number, temp::Number; polarization="T")
-#     if polarization=="T"
-#         a_n = a_n_TAS;
-#         a_u = a_u_TAS;
-#     else # L
-#         a_n = a_n_LAS;
-#         a_u = a_u_LAS;
-#     end
-
-#     tmp = temp*(1 - exp(-3*temp/debye_temp));
-#     tau = 1 / (a_n * freq^2 * tmp + a_u * freq^4 * tmp);
-
-#     return tau;
-# end

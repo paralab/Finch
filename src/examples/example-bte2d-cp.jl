@@ -1,7 +1,7 @@
 #=
 2D explicit BTE. This assumes MPI is being used
 This version accounts for polarizations.
-Instead of partitioning frequency bands, 
+This is cell-parallel
 =#
 
 ### If the Finch package has already been added, use this line #########
@@ -14,9 +14,9 @@ using Finch # Note: to add the package, first do: ]add "https://github.com/paral
 # end
 ##########################################################################
 
-initFinch("FVbte2dband");
+initFinch("FVbte2dcell");
 
-useLog("FVbte2dbandlog", level=3)
+useLog("FVbte2dcelllog", level=3)
 
 # constants and various functions are in another file
 include("bte-parameters.jl")
@@ -36,30 +36,14 @@ ndirs = 20;
 frequency_bands = 40;
 (t_bands, l_bands) = get_band_distribution(frequency_bands);
 total_bands = t_bands + l_bands;
+nbands = total_bands;
 
 np = Finch.finch_state.config.num_procs;
 rank = Finch.finch_state.config.proc_rank;
-cell_partitions = 1; # only band parallel
-# Divide bands among processes for band based parallel
-if np > total_bands 
-    println("Too many processes. Max is "*string(total_bands));
-    exit(1);
-else
-    nbands = Int(floor(total_bands / np));
-    low_band = rank*nbands + 1;
-    high_band = (rank+1)*nbands;
-    extras = mod(total_bands, np);
-    if extras > rank
-        nbands += 1;
-        low_band += rank;
-        high_band += rank+1;
-    else
-        low_band += extras;
-        high_band += extras;
-    end
-end
+cell_partitions = np; # only cell parallel
+num_band_partitions = 1;
 MPI = Finch.MPI;
-num_band_partitions = MPI.Comm_size(MPI.COMM_WORLD);
+
 
 # A simple mesh is internally generated for convenience
 # This matches the mesh in model_setup_BTE.in
@@ -84,7 +68,7 @@ G_next = variable("G_next", type=VAR_ARRAY, location=CELL, index = [band]) # int
 
 # Coefficients and related numbers
 (dir_x, dir_y) = get_directions_2d(ndirs)
-(center_freq, delta_freq, polarizations) = get_band_frequencies(frequency_bands, low_band, high_band);
+(center_freq, delta_freq, polarizations) = get_band_frequencies(frequency_bands);
 group_v = get_group_speeds(center_freq, polarizations);
 
 # These are set as coefficients because they have known values.
@@ -127,7 +111,7 @@ get_integrated_intensity!(G_last.values, I.values, ndirs, nbands);
 timer = Finch.finch_state.timer_output;
 function post_step()
     Finch.@timeit timer "temp update" update_temperature(temperature.values, temperatureLast.values, I.values, beta.values, 
-                        center_freq, delta_freq, converged, polarizations, band_parallel=true);
+                        center_freq, delta_freq, converged, polarizations);
 end
 postStepFunction(post_step);
 
@@ -135,8 +119,8 @@ postStepFunction(post_step);
 # Dt(int(Iij dx)) = int((Io-Iij)*beta dx) ) - vg * int(Iij * Si.n ds)
 conservationForm(I, "(Io[band] - I[direction,band]) * beta[band] + surface(vg[band] * upwind([Sx[direction];Sy[direction]] , I[direction,band]))")
 
-exportCode("bte2dcode") # uncomment to export generated code to a file
-# importCode("bte2dcodein") # uncomment to import code from a file
+exportCode("bte2dcellcode") # uncomment to export generated code to a file
+# importCode("bte2dcellcodein") # uncomment to import code from a file
 
 # The fortran version does something odd with volumes
 # We need to manually change it here, or adjust the equation
