@@ -369,9 +369,21 @@ function extract_entity_parts(ex)
     e = l; # end of variable name
     b = l; # beginning of variable name
     
-    # dt is a special symbol that will be passed as a number value in the generated function.
+    # coordinates and dt are special symbols that will be passed as a number value in the generated function.
+    if str == "COORDINATEX"
+        return(-1, "x", []);
+    end
+    if str == "COORDINATEY"
+        return(-1, "y", []);
+    end
+    if str == "COORDINATEZ"
+        return(-1, "z", []);
+    end
+    if str == "COORDINATET"
+        return(-1, "t", []);
+    end
     if str == "dt"
-        return(-1, str, []);
+        return(-1, "dt", []);
     end
     
     if occursin("_", str) # a variable, coefficient, etc. that has a component like _u_1

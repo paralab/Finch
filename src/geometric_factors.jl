@@ -39,7 +39,7 @@ function copy(j::Jacobian)
 end
 
 # Construct the geometric factors from a grid+refel
-function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=false, 
+function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=true, 
                                 do_vol_area::Bool=false, constant_jacobian::Bool=false)
     ftype = finch_state.config.float_type;
     nel = size(grid.loc2glb, 2);

@@ -38,15 +38,32 @@ function generate_code_layer_julia(var::Vector{Variable{FT}}, IR::IR_part, solve
                 "config::FinchConfig, coefficients::Vector{Coefficient}, variables::Vector{Variable{FT}}, "*
                 "test_functions::Vector{Coefficient}, ordered_indexers::Vector{Indexer}, prob::FinchProblem, "*
                 "time_stepper::Stepper, buffers::ParallelBuffers, timer_output::TimerOutput, nl_var=nothing) where FT<:AbstractFloat";
+        
+        if finch_state.use_sbm
+            sbm_pieces ="
+############### SBM #
+subdomain::Subdomain = finch_state.subdomains[1];
+DIST2BDRY_1 = zeros(nodes_per_face);
+DIST2BDRY_2 = zeros(nodes_per_face);
+SBMPENALTY::Float64 = finch_state.sbm_penalty;
+#####################
+" 
+        else
+            sbm_pieces = ""
+        end
         disc_specific = "
 # FEM specific pieces
 Q = refel.Q;
 wg = refel.wg;
+surf_wg = refel.surf_wg[1];
 gness = size(mesh.face2glb,2); # CG=1, DG=2
+
+$(sbm_pieces)
 
 # For partitioned meshes
 (partitioned_order, partitioned_sizes) = get_partitioned_ordering(dofs_per_node, mesh, config);
 "
+        
         
     elseif solver == FV
         args = "(var::Vector{Variable{FT}}, mesh::Grid, refel::Refel, geometric_factors::GeometricFactors, "*
@@ -738,6 +755,78 @@ end
 end
 end";
     
+    elseif op === :LINALG_MATMAT_BLOCKS_FACE
+        # This is not just a matmat, 
+        # it is the loop structure for a block matmat that
+        # computes blocks that are computed like small 
+        # mat*mat loops. A_ij = sum_k( something(i,j,k) )
+        n_blocks = IR.args[2];
+        blocksize = IR.args[3];
+        matname = generate_from_IR_julia(IR.args[4], IRtypes);
+        
+        init_lines = "";
+        compute_lines = "";
+        
+        for blk = 1:n_blocks
+            r_ind = IR.args[4 + (blk-1)*3 + 1];
+            c_ind = IR.args[4 + (blk-1)*3 + 2];
+            comp  = IR.args[4 + (blk-1)*3 + 3];
+            row_index = r_ind > 1 ? (string(r_ind-1)*"*nodes_per_element + row") : "row";
+            col_index = c_ind > 1 ? (string(c_ind-1)*"*nodes_per_element + col") : "col";
+            content = generate_from_IR_julia(comp, IRtypes);
+            
+            init_lines *=    "# $matname[$row_index, $col_index] = 0; # Uncomment if this is the first one.\n";
+            compute_lines *= "$matname[$row_index, $col_index] += $content;\n";
+        end
+        
+        # content = generate_from_IR_julia(IR.args[6], IRtypes);
+        code = "
+@inbounds begin
+for row=1:nodes_per_element
+for col=1:nodes_per_element
+$init_lines
+for face_i=1:nodes_per_face
+i = refel.face2local[face_refel_ind][face_i];
+$compute_lines
+end
+end
+end
+end";
+
+    elseif op === :LINALG_MATVEC_BLOCKS_FACE
+        # This is not just a matvec, 
+        # it is the loop structure for a block matvec that
+        # computes blocks that are computed like small 
+        # mat*vec loops. b_i = sum_j( something(i,j) )
+        n_blocks = IR.args[2];
+        blocksize = IR.args[3];
+        vecname = generate_from_IR_julia(IR.args[4], IRtypes);
+        
+        init_lines = "";
+        compute_lines = "";
+        
+        for blk = 1:n_blocks
+            r_ind = IR.args[4 + (blk-1)*2 + 1];
+            comp  = IR.args[4 + (blk-1)*2 + 2];
+            row_index = r_ind > 1 ? (string(r_ind-1)*"*nodes_per_element + row") : "row";
+            content = generate_from_IR_julia(comp, IRtypes);
+            
+            init_lines *=    "# $vecname[$row_index] = 0; # Uncomment if this is the first one.\n";
+            compute_lines *= "$vecname[$row_index] += $content;\n";
+        end
+        
+        # content = generate_from_IR_julia(IR.args[5], IRtypes);
+        code = "
+@inbounds begin
+for row=1:nodes_per_element
+$init_lines
+for face_col=1:nodes_per_face
+col = refel.face2local[face_refel_ind][face_col];
+$compute_lines
+end
+end
+end";
+
     elseif op === :LINALG_TDM
         # Tcode = generate_from_IR_julia(IR.args[2], IRtypes) * "[i + (row-1)*qnodes_per_element]";
         # Mcode = generate_from_IR_julia(IR.args[4], IRtypes) * "[i + (col-1)*qnodes_per_element]";
@@ -747,8 +836,13 @@ end";
         i_index = :row;
         j_index = :col;
         k_index = :i;
+        if length(IR.args) > 4
+            k_alt = :face_i;
+        else
+            k_alt = k_index;
+        end
         
-        code = generate_from_IR_julia(generate_linalg_TDM_product(IR.args[2], IR.args[3], IR.args[4], i_index, j_index, k_index), IRtypes);
+        code = generate_from_IR_julia(generate_linalg_TDM_product(IR.args[2], IR.args[3], IR.args[4], i_index, j_index, k_index, k_alt), IRtypes);
             
     elseif op === :LINALG_Tv
         # Tcode = generate_from_IR_julia(IR.args[2], IRtypes) * "[col + (row-1)*qnodes_per_element]";
@@ -757,8 +851,13 @@ end";
         
         i_index = :row;
         j_index = :col;
+        if length(IR.args) > 3
+            j_alt = :face_col;
+        else
+            j_alt = j_index;
+        end
         
-        code = generate_from_IR_julia(generate_linalg_Tv_product(IR.args[2], IR.args[3], i_index, j_index), IRtypes);
+        code = generate_from_IR_julia(generate_linalg_Tv_product(IR.args[2], IR.args[3], i_index, j_index, j_alt), IRtypes);
     end
     
     return code;

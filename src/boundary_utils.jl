@@ -2,7 +2,8 @@
 Utilities used by the generated solve() functions for handling boundary conditions.
 =#
 
-# Returns the matrix operator for norm dot grad for each face node (other rows are zero)
+# Returns the matrix operator for dot(grad(u), normal) for each face node (other rows are zero)
+# This is used by strongly enforced Neumann boundaries. Not weak dot(grad(u), normal)*v.
 # For edge/vertex nodes, the bid assigned to the node determines the face, but if
 # the bid matches multiple faces, the choice is not guaranteed.
 function get_norm_dot_grad(eid::Int, grid::Grid, refel::Refel, geometric_factors::GeometricFactors)
@@ -460,6 +461,7 @@ function apply_boundary_conditions_elemental(var::Vector{Variable{FT}}, eid::Int
                             # elvec row is value
                             elvec[row_index] = evaluate_at_node(prob.bc_func[var[vi].index, node_bid][compo], node_id, face_id, t, grid, indices);
                         end
+                        
                     elseif bc_type == ROBIN
                         printerr("Robin BCs not ready.");
                     else

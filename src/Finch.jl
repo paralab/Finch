@@ -226,7 +226,7 @@ function add_mesh(state::FinchState, mesh; partitions=0)
     else
         constantJ = false;
     end
-    do_faces = false;
+    do_faces = true; # need for surface integrals
     do_vol = false;
     if state.config.solver_type == DG || state.config.solver_type == FV || state.config.solver_type == MIXED
         do_faces = true;
@@ -261,6 +261,61 @@ function add_mesh(state::FinchState, mesh; partitions=0)
         
     else
         log_entry("Full grid has "*string(size(state.grid_data.allnodes,2))*" nodes.", 2);
+    end
+end
+
+# Add a Subdomain and carve out the existing mesh if needed
+function add_Subdomain(state::FinchState, subdomain::Subdomain, carve::Bool, keep_cuts::Bool)
+    push!(state.subdomains, subdomain);
+    if carve
+        @timeit state.timer_output "make subdomain" begin
+            state.grid_data = carve_grid(state.grid_data, subdomain, keep_cuts);
+            state.fv_grid = state.grid_data;
+            
+            # Redo geometric factors and such
+            # regular parallel sided elements or simplexes have constant Jacobians, so only store one value per element.
+            if ((state.config.geometry == SQUARE && state.config.mesh_type == UNIFORM_GRID) ||
+                state.config.dimension == 1 ||
+                (state.config.dimension == 2 && state.refel.Nfaces == 3) ||
+                (state.config.dimension == 3 && state.refel.Nfaces == 4) )
+                constantJ = true;
+            else
+                constantJ = false;
+            end
+            do_faces = true;
+            do_vol = false;
+            if state.config.solver_type == DG || state.config.solver_type == FV || state.config.solver_type == MIXED
+                do_faces = true;
+            end
+            if state.config.solver_type == FV || state.config.solver_type == MIXED
+                do_vol = true;
+            end
+            
+            # FE version is always made?
+            state.geo_factors = build_geometric_factors(state.refel, state.grid_data, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
+            if state.needed_grid_types[3] # FV
+                if state.refel.Np == state.fv_refel.Np
+                    state.fv_geo_factors = state.geo_factors;
+                else
+                    state.fv_geo_factors = build_geometric_factors(state.fv_refel, state.fv_grid, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
+                end
+                state.fv_info = build_FV_info(state.fv_grid);
+            end
+            
+            log_entry("Carved subdomain with "*string(state.grid_data.nel_global)*" elements.", 1);
+            np = state.config.num_partitions;
+            if np > 1
+                e_count = zeros(Int, np);
+                for ei=1:length(epart)
+                    e_count[epart[ei]+1] += 1;
+                end
+                log_entry("Number of elements in each partition: "*string(e_count), 2);
+                log_entry("Full subdomain has "*string(length(state.grid_data.global_bdry_index))*" nodes.", 2);
+                
+            else
+                log_entry("Full subdomain has "*string(size(state.grid_data.allnodes,2))*" nodes.", 2);
+            end
+        end # timer
     end
 end
 

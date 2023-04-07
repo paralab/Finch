@@ -20,7 +20,8 @@ function arithmetic_expr_to_IR(ex)
         end
         # These are special symbols that don't need any modifiers
         specials = ["ELEMENTDIAMETER", "ELEMENTVOLUME", "BOUNDARYVALUE", "FACENORMAL1", "FACENORMAL2", "TRUENORMAL", "DIST2BDRY"];
-        
+        scalar_specials = ["ELEMENTDIAMETER", "ELEMENTVOLUME", "FACENORMAL1", "FACENORMAL2", "TRUENORMAL"];
+        is_array = true;
         # It is a named coefficient
         tag = "";
         type_label = "value_";
@@ -37,6 +38,9 @@ function arithmetic_expr_to_IR(ex)
         
         if string(ex.name) in specials
             str = string(ex.name);
+            if string(ex.name) in scalar_specials
+                is_array = false;
+            end
         else
             str = type_label*tag*"_"*string(ex.name);
         end
@@ -50,7 +54,11 @@ function arithmetic_expr_to_IR(ex)
             end
         end
         
-        return IR_data_node(IRtypes.float_data, Symbol(str), [1], []);
+        if is_array
+            return IR_data_node(IRtypes.float_data, Symbol(str), [:?], []);
+        else
+            return IR_data_node(IRtypes.float_data, Symbol(str), [], []);
+        end
         
     elseif typeof(ex) == Expr && ex.head === :call
         args = [];

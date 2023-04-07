@@ -694,6 +694,17 @@ function replace_symbols(ex)
                 return cname;
             end
         end
+        # coordinate x,y,z,t
+        if string(ex) == "x"
+            return [symbols("COORDINATEX")];
+        elseif string(ex) == "y"
+            return [symbols("COORDINATEY")];
+        elseif string(ex) == "z"
+            return [symbols("COORDINATEZ")];
+        elseif string(ex) == "t"
+            return [symbols("COORDINATET")];
+        end
+        
         # none of them? just return as is
         return ex;
     elseif typeof(ex) == Expr && length(ex.args) > 0

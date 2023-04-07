@@ -19,8 +19,11 @@ end
 # return the IR for A[k,i] * b[k] * C[k,j]
 # A,b,C are symbols or IR_data_node
 # i,j,k are symbols, numbers, IR_part
-function generate_linalg_TDM_product(A, b, C, i, j, k)
+function generate_linalg_TDM_product(A, b, C, i, j, k, alt_k=nothing)
     IRtypes = IR_entry_types();
+    if alt_k===nothing
+        alt_k = k;
+    end
     if typeof(A) == IR_data_node
         A_part = IR_data_node(IRtypes.float_data, A.label, [:?,:?], [k,i]);
     elseif typeof(A) <: IR_part
@@ -29,11 +32,15 @@ function generate_linalg_TDM_product(A, b, C, i, j, k)
         A_part = IR_data_node(IRtypes.float_data, A, [:?,:?], [k,i]);
     end
     if typeof(b) == IR_data_node
-        b_part = IR_data_node(IRtypes.float_data, b.label, [:?], [k]);
+        if length(b.size) > 0
+            b_part = IR_data_node(IRtypes.float_data, b.label, [:?], [alt_k]);
+        else
+            b_part = b;
+        end
     elseif typeof(b) <: IR_part
-        b_part = apply_indexed_access(b, [k], IRtypes);
+        b_part = apply_indexed_access(b, [alt_k], IRtypes);
     else
-        b_part = IR_data_node(IRtypes.float_data, b, [:?], [k]);
+        b_part = b; #IR_data_node(IRtypes.float_data, b, [:?], [k]);
     end
     if typeof(C) == IR_data_node
         C_part = IR_data_node(IRtypes.float_data, C.label, [:?,:?], [k,j]);
@@ -51,8 +58,11 @@ end
 # return the IR for A[j,i] * b[k]
 # A,b are symbols or IR_data_node
 # i,j are symbols, numbers, IR_parts
-function generate_linalg_Tv_product(A, b, i, j)
+function generate_linalg_Tv_product(A, b, i, j, alt_j=nothing)
     IRtypes = IR_entry_types();
+    if alt_j===nothing
+        alt_j = j;
+    end
     if typeof(A) == IR_data_node
         A_part = IR_data_node(IRtypes.float_data, A.label, [:?,:?], [j,i]);
     elseif typeof(A) <: IR_part
@@ -61,11 +71,15 @@ function generate_linalg_Tv_product(A, b, i, j)
         A_part = IR_data_node(IRtypes.float_data, A, [:?,:?], [j,i]);
     end
     if typeof(b) == IR_data_node
-        b_part = IR_data_node(IRtypes.float_data, b.label, [:?], [j]);
+        if length(b.size) > 0
+            b_part = IR_data_node(IRtypes.float_data, b.label, [:?], [alt_j]);
+        else
+            b_part = b;
+        end
     elseif typeof(b) <: IR_part
-        b_part = apply_indexed_access(b, [j], IRtypes);
+        b_part = apply_indexed_access(b, [alt_j], IRtypes);
     else
-        b_part = IR_data_node(IRtypes.float_data, b, [:?], [j]);
+        b_part = b; #IR_data_node(IRtypes.float_data, b, [:?], [alt_j]);
     end
     
     return IR_operation_node(IRtypes.math_op, [:*, A_part, b_part]);

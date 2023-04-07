@@ -498,6 +498,19 @@ struct Grid{T<:AbstractFloat}
     )
 end
 
+# Information about a sub-domain that could be used, for example, 
+# for shifted-boundary method.
+mutable struct Subdomain
+    # The sub-domain can be defined by a function or a mesh.
+    # This is either a mesh name or string describing the geometry
+    geometry
+    # Function that takes a point and returns whether inside or out
+    inside
+    # SBM requires a way to compute the vector from a point to
+    # the nearest point on the geometry.
+    displacement
+end
+
 mutable struct Refel{T<:AbstractFloat}
     dim::Int                # Dimension
     N::Int                  # Order of polynomials
@@ -673,6 +686,9 @@ mutable struct FinchState{T<:AbstractFloat}
     fv_geo_factors::GeometricFactors{T} # Simplified version for FV
     fv_refel::Refel{T} # Simplified version for FV
     fv_info::FVInfo{T} # FV specific data
+    subdomains::Vector{Subdomain} # sub-domain definitions
+    use_sbm::Bool # use shifted boundary method
+    sbm_penalty::Float64 # penalty for sbm
     
     # Entities
     variables::Vector{Variable{T}}
@@ -733,6 +749,7 @@ mutable struct FinchState{T<:AbstractFloat}
         GeometricFactors{T}([],zeros(0,0),[],[],[]),
         Refel(T,1,1,0,0,[1,1]),
         FVInfo{T}(1,zeros(0,0),zeros(0,0),ParentMaps()),
+        [],false,0.0,
         
         [], [], [], [], [], [], [],
         

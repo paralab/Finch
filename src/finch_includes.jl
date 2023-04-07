@@ -16,6 +16,7 @@ include("mesh_read.jl");
 include("mesh_write.jl")
 include("grid.jl");
 include("grid_parent_child.jl");
+include("subdomain.jl");
 include("simple_mesh.jl");
 include("recursive_ordering.jl");
 include("tiled_ordering.jl");

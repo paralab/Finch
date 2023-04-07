@@ -4,7 +4,7 @@ This file contains all of the common interface functions.
 export initFinch, generateFor, useLog, indexDataType, floatDataType,
         domain, solverType, functionSpace, finiteVolumeOrder,
         nodeType, timeStepper, setSteps, linAlgOptions, usePetsc, useCUDA, customOperator, customOperatorFile,
-        mesh, exportMesh, exportMeshGraph,
+        mesh, exportMesh, exportMeshGraph, subdomain, useSBM,
         variable, coefficient, parameter, testSymbol, index, boundary, addBoundaryID,
         referencePoint, timeInterval, initial, preStepFunction, postStepFunction, callbackFunction,
         variableTransform, transformVariable,
@@ -238,6 +238,9 @@ function linAlgOptions(;matrixFree::Bool=false, iterative::Bool=false, method::S
                     pc::String="ILU", maxiter::Int=0, abstol=0, reltol=1e-8, 
                     gmresRestart::Int=0, verbose::Bool=false)
     finch_state.config.linalg_matrixfree = matrixFree;
+    if matrixFree
+        iterative = true; # must be true for matfree
+    end
     finch_state.config.linalg_iterative = iterative;
     finch_state.config.linalg_iterative_method = method;
     finch_state.config.linalg_iterative_pc = pc;
@@ -538,6 +541,37 @@ function exportMeshGraph(filename)
     log_entry("Writing mesh graph file: "*filename);
     write_mesh_graph(mfile, finch_state.mesh_data);
     close(mfile);
+end
+
+"""
+    subDomain(geometry, insideTest, displacementVector, carveMesh=true, includeCuts=true)
+
+Define a sub-domain that has a geometry defined by a function or mesh.
+geometry is the mesh name or string describing the geometry.
+Two additional functions must be provided.
+The insideTest function will take x,y,z coordinates and return true 
+if a point lies inside the sub-domain. The displacementVector
+function will give the vector between specified coordinates and the
+nearest point on the geometry.
+
+If carveMesh is true, the existing mesh will be modified to only include
+elements inside the geometry. If includeCuts is true, elements that have at
+least one vertex inside will be kept.
+
+Note: Only function-defined geometry is currently supported.
+"""
+function subdomain(geometry, insideTest, displacementVector, carveMesh=true, includeCuts=true)
+    add_Subdomain(finch_state, Subdomain(geometry, insideTest, displacementVector), carveMesh, includeCuts);
+end
+
+"""
+    useSBM(penalty)
+
+Use Shifted Boundary Method with the given penalty parameter.
+"""
+function useSBM(penalty)
+    finch_state.use_sbm = true;
+    finch_state.sbm_penalty = Float64(penalty);
 end
 
 """
@@ -900,6 +934,23 @@ function weakForm(var, wf)
     end
     for vi=1:length(var)
         push!(wfvars, var[vi].symbol);
+        
+        # SBM modification########
+        if finch_state.use_sbm
+            alpha = finch_state.sbm_penalty;
+            u = var[vi].symbol;
+            v = finch_state.test_functions[1].symbol; # TODO multiple test functions
+            sbmpart = " + dirichletBoundary("*
+                            "-dot(grad($u), normal()) * $v - "*
+                            "dot(grad($v), normal()) * ($u + dot(grad($u), distanceToBoundary()) - dirichletValue()) + "*
+                            "$alpha / elementDiameter() * ($u + dot(grad($u), distanceToBoundary()) - dirichletValue()) * ($v + dot(grad($v), distanceToBoundary()))"*
+                        ") + neumannBoundary("*
+                            "dot(normal(), trueNormal()) * (neumannValue() + dot(grad($u), trueNormal())) * $v - "*
+                            "dot(grad($u), normal()) * $v)";
+            wf[vi] = wf[vi]*sbmpart;
+        end
+        ##########################
+        
         push!(wfex, Meta.parse((wf)[vi]));
     end
     solver_type = var[1].discretization;

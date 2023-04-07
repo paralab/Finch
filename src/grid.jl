@@ -396,15 +396,15 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
                 faceNodesA[di,fpi] = allnodes[di, f2glb[fpi,1,fi]];
             end
         end
-        for fi=1:refel.Nfaces
+        for fj=1:refel.Nfaces
             for fpi=1:Nfp
                 for di=1:dim
-                    faceNodesB[di,fpi] = allnodes[di, loc2glb[refel.face2local[fi][fpi], eL]];
+                    faceNodesB[di,fpi] = allnodes[di, loc2glb[refel.face2local[fj][fpi], eL]];
                 end
             end
             
             if is_same_face(faceNodesA, faceNodesB, dim, tol, vertex_dist_scale[eL])
-                faceRefelInd[1,fi] = fi;
+                faceRefelInd[1,fi] = fj;
                 break;
             end
         end
@@ -412,15 +412,15 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
         # Then do the same things for the other side of the face
         if eR > 0
             # Check f2glb against the face2local in refel
-            for fi=1:refel.Nfaces
+            for fj=1:refel.Nfaces
                 for fpi=1:Nfp
                     for di=1:dim
-                        faceNodesB[di,fpi] = allnodes[di, loc2glb[refel.face2local[fi][fpi], eR]];
+                        faceNodesB[di,fpi] = allnodes[di, loc2glb[refel.face2local[fj][fpi], eR]];
                     end
                 end
                 
                 if is_same_face(faceNodesA, faceNodesB, dim, tol, vertex_dist_scale[eL])
-                    faceRefelInd[2,fi] = fi;
+                    faceRefelInd[2,fi] = fj;
                     break;
                 end
             end

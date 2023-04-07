@@ -20,7 +20,7 @@ macro import_finch_symbols()
         
         #Structs
         :FinchState, :Variable, :Coefficient, :GenFunction, :CallbackFunction, :Indexer, :Grid, 
-        :Refel, :FinchProblem, :GeometricFactors, :VariableTransform,
+        :Refel, :FinchProblem, :GeometricFactors, :VariableTransform, :Subdomain,
         :SymExpression, :SymEntity, :SymOperator, :CacheSim, :FVInfo, :ParentMaps,
         
         #Functions

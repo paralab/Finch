@@ -1581,24 +1581,19 @@ class $(project_name)Equation : public TALYFEMLIB::CEquation<$(project_name)Node
     }
     ///////////////////////////////////////////////////////////////////////////////////////////
     
-    // Volume integrals //////////////////////////////////////////////////////////////////////
-    /*
-    This is called once for each quadrature point (1D???)
-    Computes every element of Ae for one quadrature point.
+    /* Volume integrals //////////////////////////////////////////////////////////////////////
+    This is called once for each quadrature point
     Will be inside this loop:
     while (fe.next_itg_pt()) {
         Integrands_Ae(fe, Ae);
     }
-    
-    Why do it this way?
     */
     void Integrands_Ae(const TALYFEMLIB::FEMElm &fe, TALYFEMLIB::ZeroMatrix<double> &Ae) {
         using namespace TALYFEMLIB;
         // # of dimensions: 1, 2, or 3
-        // const int n_dimensions = fe.nsd(); // <- config.dimension
-        const int n_dimensions = """*string(config.dimension)*""";
+        const int n_dimensions = """*string(config.dimension)*"""; // <- config.dimension
         // # of basis functions
-        const int n_basis_functions = fe.nbf(); // <- refel.Np ?
+        const int n_basis_functions = fe.nbf(); // <- refel.Np
         
         // (determinant of J) cross W
         const double wdetj = fe.detJxW();
