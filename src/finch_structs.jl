@@ -394,7 +394,8 @@ struct MeshData
     face2element::Array{Int,2}  # Indices of elements on each side of the face. If 0, it is a boundary face. (size is (2,Nfaces))
     element2face::Array{Int,2}  # Indices of faces on each side of the element. (size is (NfacesPerElement, nel))
     normals::Array{Float64,2}   # Normal vectors for each face pointing from first to second in face2element order (size is (dim, Nfaces))
-    bdryID::Array{Int,1};       # Boundary ID for each face (0=interior face)
+    bdryID::Array{Int,1}        # Boundary ID for each face (0=interior face)
+    mixed_elements::Bool        # Are there mixed element types
     
     # The minimal constructor needs to build the optional information.
     # Note: Must uncomment to build.
@@ -411,16 +412,18 @@ struct MeshData
         (face2v, face2e, e2face) = build_faces(ne, el, et);
         norms = find_normals(face2v, x);
         bdry = find_boundaries(face2e);
-        new(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry);
+        ismixed = maximum(et) > minimum(et);
+        new(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry, ismixed);
     )
     # The complete constructor
     MeshData(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry) = (
-        new(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry);
+        ismixed = maximum(et) > minimum(et);
+        new(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry, ismixed);
     )
     # An empty mesh
     MeshData() = new(
         0, zeros(0,0), zeros(Int,0), 0, zeros(0,0), zeros(Int,0), zeros(Int,0), zeros(Int,0),
-        zeros(Int,0,0), zeros(Int,0,0), zeros(Int,0,0), zeros(0,0), zeros(Int,0)
+        zeros(Int,0,0), zeros(Int,0,0), zeros(Int,0,0), zeros(0,0), zeros(Int,0), false
     )
 end
 
@@ -447,6 +450,9 @@ struct Grid{T<:AbstractFloat}
     faceRefelInd::Matrix{Int}        # Index for face within the refel for each side
     facebid::Vector{Int}             # BID of each face (0=interior face)
     
+    mixed_elements::Bool            # are there mixed element types
+    el_type::Vector{Int}            # element type for each element or empty
+    
     # When partitioning the grid, this stores the ghost info.
     # Items specifying (for solver type) will be empty/0 for other types.
     is_subgrid::Bool            # Is this a partition of a greater grid?
@@ -470,19 +476,21 @@ struct Grid{T<:AbstractFloat}
     ghost_index::Vector{Matrix{Int}}     # Lists of ghost elements to send/recv for each neighbor (for FV)
     
     # constructors
+    # up to facebid only: not partitioned
     Grid(T::DataType, allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
-         face2element, facenormals, faceRefelInd, facebid) = 
+         face2element, facenormals, faceRefelInd, facebid, ismixed, eltypes) = 
      new{T}(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
-         face2element, facenormals, faceRefelInd, facebid, 
+         face2element, facenormals, faceRefelInd, facebid, ismixed, eltypes,
          false, Array(1:size(loc2glb,2)), size(loc2glb,2), size(loc2glb,2), 0,size(face2element,2), 0, 0, 0, zeros(Int,0), zeros(Int,0), 
-         zeros(Int,0), zeros(Int,0), zeros(Int8,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]); # up to facebid only
-     
+         zeros(Int,0), zeros(Int,0), zeros(Int8,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]);
+    
+    # full: partitioned
     Grid(T::DataType, allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
-         face2element, facenormals, faceRefelInd, facebid, 
+         face2element, facenormals, faceRefelInd, facebid, ismixed, eltypes,
          ispartitioned, el_order, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
          node_owner, partition2global_element, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
      new{T}(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
-         face2element, facenormals, faceRefelInd, facebid, 
+         face2element, facenormals, faceRefelInd, facebid, ismixed, eltypes,
          ispartitioned, el_order, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
          node_owner, partition2global_element, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
          
@@ -493,6 +501,7 @@ struct Grid{T<:AbstractFloat}
         zeros(Int,0,0,0),
         zeros(Int,0,0), zeros(Int,0,0), zeros(T,0,0), zeros(Int,0,0),
         zeros(Int,0),
+        false, [],
         false,zeros(Int,0),0,0,0,0,0,0,0,zeros(Int,0),zeros(Int,0),zeros(Int,0),zeros(Int,0),zeros(Int8,0),
         0,zeros(Int,0),zeros(Int,0),[zeros(Int,0,0)]
     )
@@ -683,8 +692,11 @@ mutable struct FinchState{T<:AbstractFloat}
     needed_grid_types::Vector{Bool}
     geo_factors::GeometricFactors{T} # Precomputed geometric factors for each element
     refel::Refel{T} # Reference element
+    refels::Vector{Refel{T}} # List of reference elements for mixed element mesh
+    mixed_elements::Bool # True when using mixed elements
     fv_geo_factors::GeometricFactors{T} # Simplified version for FV
     fv_refel::Refel{T} # Simplified version for FV
+    fv_refels::Vector{Refel{T}} # For mixed element types
     fv_info::FVInfo{T} # FV specific data
     subdomains::Vector{Subdomain} # sub-domain definitions
     use_sbm::Bool # use shifted boundary method
@@ -746,8 +758,10 @@ mutable struct FinchState{T<:AbstractFloat}
         [false,false,false],
         GeometricFactors{T}([],zeros(0,0),[],[],[]),
         Refel(T,1,1,0,0,[1,1]),
+        [], false,
         GeometricFactors{T}([],zeros(0,0),[],[],[]),
         Refel(T,1,1,0,0,[1,1]),
+        [],
         FVInfo{T}(1,zeros(0,0),zeros(0,0),ParentMaps()),
         [],false,0.0,
         

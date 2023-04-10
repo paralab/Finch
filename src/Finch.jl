@@ -175,43 +175,86 @@ function add_mesh(state::FinchState, mesh; partitions=0)
         
         # Each proc will build a subgrid containing only their elements and ghost neighbors.
         # Make a Grid struct for each needed type
-        if state.needed_grid_types[1] # CG
-            (state.refel, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=CG, order=state.config.basis_order_min);
-        end
-        if state.needed_grid_types[2] # DG
-            if state.needed_grid_types[1] # CG also needed
-                (state.refel, state.dg_grid) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=state.config.basis_order_min);
-            else
-                (state.refel, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=state.config.basis_order_min);
+        if state.mesh_data.mixed_elements
+            if state.needed_grid_types[1] # CG
+                (state.refels, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=CG, order=state.config.basis_order_min);
             end
-        end
-        if state.needed_grid_types[3] # FV
-            (state.fv_refel, state.fv_grid) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=FV, order=1);
-            # If only FV is used, also set grid_data and refel to this. Just in case.
-            if !(state.needed_grid_types[1] || state.needed_grid_types[2])
-                state.grid_data = state.fv_grid;
-                state.refel = state.fv_refel;
+            if state.needed_grid_types[2] # DG
+                if state.needed_grid_types[1] # CG also needed
+                    (state.refels, state.dg_grid) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=state.config.basis_order_min);
+                else
+                    (state.refels, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=state.config.basis_order_min);
+                end
+            end
+            if state.needed_grid_types[3] # FV
+                (state.fv_refels, state.fv_grid) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=FV, order=1);
+                # If only FV is used, also set grid_data and refel to this. Just in case.
+                if !(state.needed_grid_types[1] || state.needed_grid_types[2])
+                    state.grid_data = state.fv_grid;
+                    state.refels = state.fv_refels;
+                end
+            end
+        else # one element type
+            if state.needed_grid_types[1] # CG
+                (state.refel, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=CG, order=state.config.basis_order_min);
+            end
+            if state.needed_grid_types[2] # DG
+                if state.needed_grid_types[1] # CG also needed
+                    (state.refel, state.dg_grid) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=state.config.basis_order_min);
+                else
+                    (state.refel, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=state.config.basis_order_min);
+                end
+            end
+            if state.needed_grid_types[3] # FV
+                (state.fv_refel, state.fv_grid) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=FV, order=1);
+                # If only FV is used, also set grid_data and refel to this. Just in case.
+                if !(state.needed_grid_types[1] || state.needed_grid_types[2])
+                    state.grid_data = state.fv_grid;
+                    state.refel = state.fv_refel;
+                end
             end
         end
         
     else
         # Make a Grid struct for each needed type
-        if state.needed_grid_types[1] # CG
-            (state.refel, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=CG, order=state.config.basis_order_min);
-        end
-        if state.needed_grid_types[2] # DG
-            if state.needed_grid_types[1] # CG also needed
-                (state.refel, state.dg_grid) = grid_from_mesh(state.mesh_data, grid_type=DG, order=state.config.basis_order_min);
-            else
-                (state.refel, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=DG, order=state.config.basis_order_min);
+        # refels for mixed type
+        if state.mesh_data.mixed_elements
+            if state.needed_grid_types[1] # CG
+                (state.refels, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=CG, order=state.config.basis_order_min);
             end
-        end
-        if state.needed_grid_types[3] # FV
-            (state.fv_refel, state.fv_grid) = grid_from_mesh(state.mesh_data, grid_type=FV, order=1);
-            # If only FV is used, also set grid_data and refel to this. Just in case.
-            if !(state.needed_grid_types[1] || state.needed_grid_types[2])
-                state.grid_data = state.fv_grid;
-                state.refel = state.fv_refel;
+            if state.needed_grid_types[2] # DG
+                if state.needed_grid_types[1] # CG also needed
+                    (state.refels, state.dg_grid) = grid_from_mesh(state.mesh_data, grid_type=DG, order=state.config.basis_order_min);
+                else
+                    (state.refels, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=DG, order=state.config.basis_order_min);
+                end
+            end
+            if state.needed_grid_types[3] # FV
+                (state.fv_refels, state.fv_grid) = grid_from_mesh(state.mesh_data, grid_type=FV, order=1);
+                # If only FV is used, also set grid_data and refel to this. Just in case.
+                if !(state.needed_grid_types[1] || state.needed_grid_types[2])
+                    state.grid_data = state.fv_grid;
+                    state.refels = state.fv_refels;
+                end
+            end
+        else # one element type
+            if state.needed_grid_types[1] # CG
+                (state.refel, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=CG, order=state.config.basis_order_min);
+            end
+            if state.needed_grid_types[2] # DG
+                if state.needed_grid_types[1] # CG also needed
+                    (state.refel, state.dg_grid) = grid_from_mesh(state.mesh_data, grid_type=DG, order=state.config.basis_order_min);
+                else
+                    (state.refel, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=DG, order=state.config.basis_order_min);
+                end
+            end
+            if state.needed_grid_types[3] # FV
+                (state.fv_refel, state.fv_grid) = grid_from_mesh(state.mesh_data, grid_type=FV, order=1);
+                # If only FV is used, also set grid_data and refel to this. Just in case.
+                if !(state.needed_grid_types[1] || state.needed_grid_types[2])
+                    state.grid_data = state.fv_grid;
+                    state.refel = state.fv_refel;
+                end
             end
         end
     end

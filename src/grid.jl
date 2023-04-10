@@ -74,7 +74,10 @@
 
 # Build a grid from a mesh
 # This is for full grids. For partitioned grids see partitioned_grid_from_mesh()
-function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
+# grid_type can be CG, DG, FV
+# order can be an integer or an array of order for each element
+# mixed grids contain more than one type of element
+function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
     etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices for each type
     etypetodim= [1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3]; # dimension of each type
     etypetonf = [2, 3, 4, 4, 6, 5, 5, 2, 3, 4, 4, 6, 5, 5, 1, 4, 6, 5, 5]; # number of faces for element types
@@ -85,6 +88,8 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
     t_grid_from_mesh = Base.Libc.time();
     int_type = config.index_type;
     float_type = config.float_type;
+    # This tolerance is for determining if two nodes are the same.
+    # They will be scaled by the element size.
     if float_type==Float64
         tol = 1e-8;
     elseif float_type==Float32
@@ -94,20 +99,65 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
     end
     
     dim = config.dimension;
-    ord = order;
-    nfaces = etypetonf[mesh.etypes[1]];
-    #totalfaces = nfaces*mesh.nel;
     totalfaces = size(mesh.normals,2);
     nel = mesh.nel;
+    
+    if mixed # element types
+        nfaces = zeros(Int, nel);
+        found_etypes = fill(false, 19);
+        etype_order_pairs = [(mesh.etypes[1], order[1])];
+        etypes = zeros(Int8, nel);
+        refel_ind = zeros(Int, nel);
+        npairs = 1;
+        for i=1:nel
+            etypes[i] = mesh.etypes[i];
+            nfaces[i] = etypetonf[mesh.etypes[i]];
+            found_etypes[mesh.etypes[i]] = true;
+            for j=1:npairs
+                if mesh.etypes[i] == etype_order_pairs[j][1] && order[i] == etype_order_pairs[j][2]
+                    refel_ind[i] = j;
+                    break;
+                elseif j == npairs
+                    # a new one was found
+                    push!(etype_order_pairs, (mesh.etypes[i], order[i]));
+                    npairs += 1;
+                    refel_ind[i] = npairs;
+                end
+            end
+        end
+    else # one element type
+        nfaces = etypetonf[mesh.etypes[1]];
+    end
+    
     if dim == 1
         facenvtx = 1
-    else
-        facenvtx = etypetonv[etypetoftype[mesh.etypes[1]]]; # Assumes one element type
+    elseif mixed # element types
+        facenvtx = zeros(Int, totalfaces);
+        for i=1:totalfaces
+            facenvtx[i] = etypetonv[mesh.ftypes[i]];
+        end
+    else # one element type
+        facenvtx = etypetonv[etypetoftype[mesh.etypes[1]]];
     end
-    nvtx = etypetonv[mesh.etypes[1]]; # Assumes one element type
+    if mixed # element types
+        nvtx = zeros(Int, nel);
+        for i=1:nel
+            nvtx[i] = etypetonv[mesh.etypes[i]];
+        end
+    else # one element type
+        nvtx = etypetonv[mesh.etypes[1]];
+    end
     
-    log_entry("Building reference element: "*string(dim)*"D, order="*string(ord)*", nfaces="*string(nfaces), 3);
-    refel::Refel = build_refel(dim, ord, nfaces, config.elemental_nodes);
+    if mixed # element types
+        log_entry("Building $(npairs) reference elements: $(dim)-D, (el_type, order) = "*string(etype_order_pairs), 2);
+        refels::Vector{Refel} = [];
+        for i=1:npairs
+            push!(refel, build_refel(dim, etype_order_pairs[i][2], etypetonf[etype_order_pairs[i][1]], config.elemental_nodes));
+        end
+    else # one element type
+        log_entry("Building reference element: "*string(dim)*"D, order="*string(order)*", nfaces="*string(nfaces), 2);
+        refel::Refel = build_refel(dim, order, nfaces, config.elemental_nodes);
+    end
     
     if grid_type == DG
         Gness = 2;
@@ -117,7 +167,31 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
     
     vertex_dist_scale = zeros(float_type, nel); # a scale for relative tolerance
     
-    Np = refel.Np;                      # number of nodes per element
+    # maximal values to make arrays big enough
+    max_Np = 0;
+    max_nvtx = 0;
+    max_Nfp = 0;
+    max_Nfv = 0;
+    max_nfaces = 0;
+    dg_node_count = 0;
+    if mixed # element types
+        for i=1:nel
+            max_Np = max(max_Np, refels[refel_ind[i]].Np);
+            max_nvtx = max(max_nvtx, nvtx[i]);
+            max_Nfp = max(max_Nfp, maximum(refels[refel_ind[i]].Nfp));
+            max_Nfv = max(max_Nfv, facenvtx[i]);
+            max_nfaces = max(max_Nfaces, nfaces[i]);
+            dg_node_count += refels[refel_ind].Np;
+        end
+    else # one element type
+        max_Np = refel.Np;
+        max_nvtx = nvtx;
+        max_Nfp = maximum(refel.Nfp);
+        max_Nfv = facenvtx;
+        max_nfaces = nfaces;
+        dg_node_count = max_Np * nel;
+    end
+    
     bdry = Vector{Vector{int_type}}(undef,0);       # index(in x) of boundary nodes for each BID
     bdryfc = Vector{Vector{int_type}}(undef,0);     # index of faces touching each BID
     bdrynorm = Vector{Matrix{float_type}}(undef,0); # normal at boundary nodes
@@ -128,10 +202,10 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
         push!(bdryfc, zeros(int_type,0));
         push!(bdrynorm, zeros(float_type, config.dimension,0));
     end
-    loc2glb = zeros(int_type, Np, nel)       # local to global index map for each element's nodes
-    glbvertex = zeros(int_type, nvtx, nel);     # local to global for vertices
-    f2glb = zeros(int_type, refel.Nfp[1], Gness, totalfaces);  # face node local to global
-    element2face = zeros(int_type, nfaces, nel);  # element to face map
+    loc2glb = zeros(int_type, max_Np, nel)       # local to global index map for each element's nodes
+    glbvertex = zeros(int_type, max_nvtx, nel);     # local to global for vertices
+    f2glb = zeros(int_type, max_Nfp, Gness, totalfaces);  # face node local to global
+    element2face = zeros(int_type, max_nfaces, nel);  # element to face map
     face2element = zeros(int_type, 2, size(mesh.face2element,2));  # face to element map
     facenormals = zeros(float_type, dim, totalfaces); # normal vectors for every face
     faceRefelInd = zeros(int_type, 2, totalfaces); # Index in refel for this face for elements on both sides
@@ -139,16 +213,25 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
     
     t_nodes1 = Base.Libc.time();
     
-    tmpallnodes = zeros(float_type, dim, mesh.nel*refel.Np);
-    n_vert = etypetonv[mesh.etypes[1]]; # Assumes one element type
-    e_vert = zeros(dim, n_vert); # Assumes one element type
-    e_x = zeros(float_type, refel.Np);
-    e_y = zeros(float_type, refel.Np);
-    e_z = zeros(float_type, refel.Np);
+    tmpallnodes = zeros(float_type, dim, dg_node_count);
+    e_vert = zeros(dim, max_nvtx);
+    e_x = zeros(float_type, max_Np);
+    e_y = zeros(float_type, max_Np);
+    e_z = zeros(float_type, max_Np);
     
     for ei=1:nel
         # Find this element's nodes
-        # n_vert = etypetonv[mesh.etypes[ei]];
+        if mixed # element types
+            n_vert = nvtx[ei];
+            refeli = refels[ei];
+            nfacesi = nfaces[ei];
+            Npi = refels[ei].Np;
+        else # one element type
+            n_vert = nvtx;
+            refeli = refel;
+            nfacesi = nfaces;
+            Npi = refel.Np;
+        end
         # e_vert = mesh.nodes[1:dim, mesh.elements[1:n_vert, ei]];
         for ni=1:n_vert
             for di=1:dim
@@ -167,35 +250,35 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
         vertex_dist_scale[ei] /= (n_vert-1);
         
         if dim == 1
-            e_x = line_refel_to_x(refel.r[:,1], e_vert);
+            e_x = line_refel_to_x(refeli.r[:,1], e_vert);
         elseif dim == 2
-            if nfaces == 3 # triangles
-                (e_x, e_y) = triangle_refel_to_xy_(refel.r[:,1], refel.r[:,2], e_vert);
+            if n_vert == 3 # triangles
+                (e_x, e_y) = triangle_refel_to_xy_(refeli.r[:,1], refeli.r[:,2], e_vert);
             else # quads
-                (e_x, e_y) = quad_refel_to_xy(refel.r[:,1], refel.r[:,2], e_vert);
+                (e_x, e_y) = quad_refel_to_xy(refeli.r[:,1], refeli.r[:,2], e_vert);
             end
         elseif dim == 3
-            if nvtx == 8 # hexes
-                (e_x, e_y, e_z) = hex_refel_to_xyz(refel.r[:,1], refel.r[:,2], refel.r[:,3], e_vert);
+            if n_vert == 8 # hexes
+                (e_x, e_y, e_z) = hex_refel_to_xyz(refeli.r[:,1], refeli.r[:,2], refeli.r[:,3], e_vert);
             else # tets
                 # (e_x, e_y, e_z) = tetrahedron_refel_to_xyz(refel.r[:,1], refel.r[:,2], refel.r[:,3], e_vert);
-                tetrahedron_refel_to_xyz!(refel.r, e_vert, e_x, e_y, e_z);
+                tetrahedron_refel_to_xyz!(refeli.r, e_vert, e_x, e_y, e_z);
             end
         end
         
         # Add them to the tmp global nodes
-        tmpallnodes[1, ((ei-1)*Np+1):(ei*Np)] .= e_x;
+        tmpallnodes[1, ((ei-1)*Npi+1):(ei*Npi)] .= e_x;
         if dim > 1
-            tmpallnodes[2, ((ei-1)*Np+1):(ei*Np)] .= e_y;
+            tmpallnodes[2, ((ei-1)*Npi+1):(ei*Npi)] .= e_y;
             if dim > 2
-                tmpallnodes[3, ((ei-1)*Np+1):(ei*Np)] .= e_z;
+                tmpallnodes[3, ((ei-1)*Npi+1):(ei*Npi)] .= e_z;
             end
         end
         
         # temporary mapping
         # loc2glb[:,ei] = ((ei-1)*Np+1):(ei*Np);
-        for ni=1:Np
-            loc2glb[ni,ei] = (ei-1)*Np+ni;
+        for ni=1:Npi
+            loc2glb[ni,ei] = (ei-1)*Npi+ni;
         end
     end
     t_nodes1 = Base.Libc.time() - t_nodes1;
@@ -218,20 +301,28 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
     # vertices, faces and boundary
     t_faces1 = Base.Libc.time();
     
-    mfids = zeros(Int, nfaces);
-    normals = zeros(dim, nfaces);
+    mfids = zeros(Int, max_nfaces);
+    normals = zeros(dim, max_nfaces);
     el_center = zeros(float_type, dim);
-    Nfp = refel.Nfp[1];
-    Nfv = facenvtx;
-    tmpf2glb = zeros(Int, Nfp);
-    faceNodesA = zeros(dim, Nfp);
-    faceNodesB = zeros(dim, Nfv);
+    tmpf2glb = zeros(Int, max_Nfp);
+    faceNodesA = zeros(dim, max_Nfp);
+    faceNodesB = zeros(dim, max_Nfv);
     
     for ei=1:nel
-        n_vert = etypetonv[mesh.etypes[ei]];
+        if mixed # element types
+            n_vert = nvtx[ei];
+            refeli = refels[ei];
+            nfacesi = nfaces[ei];
+        else # one element type
+            n_vert = nvtx;
+            refeli = refel;
+            nfacesi = nfaces;
+        end
+        Npi = refeli.Np;
+        
         # mfids = mesh.element2face[:,ei];
         # normals = mesh.normals[:,mfids];
-        for fi=1:nfaces
+        for fi=1:nfacesi
             mfids[fi] = mesh.element2face[fi, ei];
             for di=1:dim
                 normals[di,fi] = mesh.normals[di, mfids[fi]];
@@ -240,7 +331,7 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
         
         # vertices and center
         el_center .= 0.0;
-        for ni=1:Np
+        for ni=1:Npi
             for di=1:dim
                 el_center[di] += allnodes[di, loc2glb[ni,ei]];
             end
@@ -254,7 +345,7 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
                 end
             end
         end
-        el_center ./= Np;
+        el_center ./= Npi;
         
         # f2glb has duplicates. Compare to mesh faces and keep same ordering as mesh.
         # Copy normals and bdry info.
@@ -269,20 +360,22 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
             # test_same_face = is_same_face_center; # doesn't always work?
         end
         
-        for gfi=1:nfaces
-            for fpi=1:Nfp
-                tmpf2glb[fpi] = loc2glb[refel.face2local[gfi][fpi], ei];
+        for gfi=1:nfacesi
+            Nfpi = refeli.Nfp[gfi];
+            for fpi=1:Nfpi
+                tmpf2glb[fpi] = loc2glb[refeli.face2local[gfi][fpi], ei];
                 for di=1:dim
                     faceNodesA[di,fpi] = allnodes[di, tmpf2glb[fpi]];
                 end
             end
             
-            for mfi=1:nfaces
+            for mfi=1:nfacesi
                 thisfaceind = mesh.element2face[mfi, ei];
-                for fpi=1:Nfv
-                    tmp_nodeid = mesh.face2vertex[fpi,thisfaceind];
+                Nfpj = refeli.Nfp[mfi];
+                for fpj=1:Nfpj
+                    tmp_nodeid = mesh.face2vertex[fpj,thisfaceind];
                     for di=1:dim
-                        faceNodesB[di,fpi] = mesh.nodes[di, tmp_nodeid];
+                        faceNodesB[di,fpj] = mesh.nodes[di, tmp_nodeid];
                     end
                 end
                 if test_same_face(faceNodesB, faceNodesA, tol, vertex_dist_scale[ei])
@@ -291,7 +384,7 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
                     # Move the f2glb[:,1,ind] to f2glb[:,2,ind] first if DG (Gness==2)
                     # Set element2face according to gfi(not mfi)
                     # Move face2element[1] to face2element[2] and put this one in [1]
-                    for fpi=1:Nfp
+                    for fpi=1:Nfpi
                         if (Gness == 2) f2glb[fpi, 2, thisfaceind] = f2glb[fpi, 1, thisfaceind]; end
                         f2glb[fpi, 1, thisfaceind] = tmpf2glb[fpi];
                     end
@@ -303,10 +396,10 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
                     # Note that the normal stored in mesh_data could be pointing either way.
                     thisnormal = normals[:, mfi];
                     f_center = zeros(float_type, dim);
-                    for ni=1:Nfp
+                    for ni=1:Nfpi
                         f_center += faceNodesA[:, ni];
                     end
-                    f_center ./= Nfp
+                    f_center ./= Nfpi
                     d1 = norm(f_center + thisnormal - el_center);
                     d2 = norm(f_center - thisnormal - el_center);
                     fdotn = sum((f_center-el_center) .* thisnormal);
@@ -326,8 +419,8 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
                         push!(bdryfc[gbid], thisfaceind);
                         facebid[thisfaceind] = gbid;
                         thisnormal = normals[:, mfi];
-                        normchunk = zeros(float_type, config.dimension, Nfp);
-                        for ni=1:Nfp
+                        normchunk = zeros(float_type, config.dimension, max_Nfp);
+                        for ni=1:Nfpi
                             normchunk[:,ni] = thisnormal;
                         end
                         bdrynorm[gbid] = hcat(bdrynorm[gbid], normchunk);
@@ -385,25 +478,37 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
     log_entry("Remove duplicate bdry nodes: "*string(t_faces1), 3);
     
     # Refel index for each face
-    faceNodesB = zeros(dim, Nfp);
+    faceNodesB = zeros(dim, max_Nfp);
     for fi=1:totalfaces
         eL = face2element[1,fi];
         eR = face2element[2,fi];
+        this_Nfp = 0;
         
         # Check f2glb against the face2local in refel
-        for fpi=1:Nfp
-            for di=1:dim
-                faceNodesA[di,fpi] = allnodes[di, f2glb[fpi,1,fi]];
+        for fpi=1:max_Nfp
+            if f2glb[fpi, 1, fi] > 0
+                this_Nfp += 1;
+                for di=1:dim
+                    faceNodesA[di,fpi] = allnodes[di, f2glb[fpi,1,fi]];
+                end
             end
         end
-        for fj=1:refel.Nfaces
-            for fpi=1:Nfp
-                for di=1:dim
-                    faceNodesB[di,fpi] = allnodes[di, loc2glb[refel.face2local[fj][fpi], eL]];
+        if mixed # element types
+            refeli = refels[refel_ind[eL]];
+        else # one element type
+            refeli = refel;
+        end
+        
+        for fj=1:refeli.Nfaces
+            for fpi=1:this_Nfp
+                if refeli.face2local[fj][fpi] > 0
+                    for di=1:dim
+                        faceNodesB[di,fpi] = allnodes[di, loc2glb[refeli.face2local[fj][fpi], eL]];
+                    end
                 end
             end
             
-            if is_same_face(faceNodesA, faceNodesB, dim, tol, vertex_dist_scale[eL])
+            if is_same_face(faceNodesA, faceNodesB, dim, tol, vertex_dist_scale[eL], this_Nfp)
                 faceRefelInd[1,fi] = fj;
                 break;
             end
@@ -411,15 +516,22 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
         
         # Then do the same things for the other side of the face
         if eR > 0
+            if mixed # element types
+                refeli = refels[refel_ind[eR]];
+            else # one element type
+                refeli = refel;
+            end
             # Check f2glb against the face2local in refel
-            for fj=1:refel.Nfaces
-                for fpi=1:Nfp
-                    for di=1:dim
-                        faceNodesB[di,fpi] = allnodes[di, loc2glb[refel.face2local[fj][fpi], eR]];
+            for fj=1:refeli.Nfaces
+                for fpi=1:this_Nfp
+                    if refeli.face2local[fj][fpi] > 0
+                        for di=1:dim
+                            faceNodesB[di,fpi] = allnodes[di, loc2glb[refeli.face2local[fj][fpi], eR]];
+                        end
                     end
                 end
                 
-                if is_same_face(faceNodesA, faceNodesB, dim, tol, vertex_dist_scale[eL])
+                if is_same_face(faceNodesA, faceNodesB, dim, tol, vertex_dist_scale[eL], this_Nfp)
                     faceRefelInd[2,fi] = fj;
                     break;
                 end
@@ -429,9 +541,14 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1)
     
     t_grid_from_mesh = Base.Libc.time() - t_grid_from_mesh;
     log_entry("Total grid building time: "*string(t_grid_from_mesh), 2);
+    if mixed # element types
+        return (refels, Grid(finch_state.config.float_type, allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, 
+                        element2face, face2element, facenormals, faceRefelInd, facebid, true, etypes));
+    else # one element type
+        return (refel, Grid(finch_state.config.float_type, allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, 
+                        element2face, face2element, facenormals, faceRefelInd, facebid, false, zeros(Int8, 0)));
+    end
     
-    return (refel, Grid(finch_state.config.float_type, allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, 
-                        element2face, face2element, facenormals, faceRefelInd, facebid));
 end
 
 #######################################################################################################
@@ -477,7 +594,6 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     end
     
     dim = config.dimension;
-    ord = order;
     nfaces = etypetonf[mesh.etypes[1]]; # faces per elements
     nnodes_global = mesh.nx; # This will be updated for FE, but correct for FV
     
@@ -620,8 +736,8 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     end
     nvtx = etypetonv[mesh.etypes[1]]; # Assumes one element type
     
-    log_entry("Building reference element: "*string(dim)*"D, order="*string(ord)*", nfaces="*string(nfaces), 3);
-    refel = build_refel(dim, ord, nfaces, config.elemental_nodes);
+    log_entry("Building reference element: "*string(dim)*"D, order="*string(order)*", nfaces="*string(nfaces), 3);
+    refel = build_refel(dim, order, nfaces, config.elemental_nodes);
     
     if grid_type == DG
         Gness = 2;
@@ -1333,12 +1449,12 @@ function partitioned_grid_from_mesh(mesh, epart; grid_type=CG, order=1)
     
     if grid_type == FV
         return (refel, Grid(finch_state.config.float_type, allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, 
-            face2element, facenormals, faceRefelInd, facebid, 
+            face2element, facenormals, faceRefelInd, facebid, false, zeros(Int8, 0),
             true, Array(1:nel_owned), nel_global, nel_owned, nel_face_ghost, owned_faces, ghost_faces, nnodes_global, 0, element_owners, zeros(int_type,0), partition2global_element, zeros(int_type,0), 
             zeros(Int8, 0), num_neighbors, neighbor_ids, ghost_counts, ghost_inds));
     else
         return (refel, Grid(finch_state.config.float_type, allnodes, bdry, bdryfc, bdrynorm, bids, node_bids, loc2glb, glbvertex, f2glb, element2face, 
-            face2element, facenormals, faceRefelInd, facebid, 
+            face2element, facenormals, faceRefelInd, facebid, false, zeros(Int8, 0),
             true, Array(1:nel_owned), nel_global, nel_owned, 0, owned_faces, 0, nnodes_global, nnodes_borrowed, zeros(int_type,0), node_owner_index, partition2global_element, partition2global, 
             global_bdry_flag, num_neighbors, neighbor_ids, zeros(int_type,0), [zeros(int_type,0,0)]));
     end
@@ -2053,10 +2169,16 @@ function is_same_line(l1, l2, tol, scale=1)
 end
 
 # Returns true if the two node lists have at least three of the same nodes.
-function is_same_plane(p1, p2, tol, scale=1)
+function is_same_plane(p1, p2, tol, scale=1, nfp=-1)
     found = 0;
-    n1 = size(p1,2);
-    n2 = size(p2,2);
+    if nfp > 0
+        n1 = min(nfp, size(p1,2));
+        n2 = min(nfp, size(p2,2));
+    else
+        n1 = size(p1,2);
+        n2 = size(p2,2);
+    end
+    
     for i=1:n1
         for j=1:n2
             if is_same_node_3d(tol, scale, p1[1,i], p2[1,j], p1[2,i], p2[2,j], p1[3,i], p2[3,j])# is_same_node(p1[:,i], p2[:,j], tol, scale)
@@ -2085,13 +2207,13 @@ function which_refel_face(f2glb, nodes, refel, elem, tol, scale)
     printerr("Couldn't match face when building grid (see which_refel_face() in grid.jl)");
 end
 
-function is_same_face(f1, f2, dim, tol, scale=1)
+function is_same_face(f1, f2, dim, tol, scale=1, nfp=-1)
     if dim == 1 # one point
         return is_same_node_1d(tol, scale, f1[1], f2[1]);
     elseif dim == 2 # same line(two same points)
         return is_same_line(f1, f2, tol, scale);
     elseif dim == 3 # same plane(three same points)
-        return is_same_plane(f1, f2, tol, scale);
+        return is_same_plane(f1, f2, tol, scale, nfp);
     end
 end
 
