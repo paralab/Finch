@@ -673,37 +673,47 @@ function eval_initial_conditions(state::FinchState)
                     this_refel = state.refel;
                 end
                 
-                # Evaluate at nodes
-                nodal_values = zeros(state.config.float_type, length(state.prob.initial[vind]), size(this_grid_data.allnodes,2));
-                for ci=1:length(state.prob.initial[vind])
-                    for ni=1:size(this_grid_data.allnodes,2)
-                        if typeof(state.prob.initial[vind][ci]) <: Number
-                            nodal_values[ci,ni] = state.prob.initial[vind][ci];
-                        elseif dim == 1
-                            nodal_values[ci,ni] = state.prob.initial[vind][ci].func(this_grid_data.allnodes[ni],0.0,0.0,0.0, 0,0,zeros(Int,0));
-                        elseif dim == 2
-                            nodal_values[ci,ni] = state.prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],0.0,0.0, 0,0,zeros(Int,0));
-                        elseif dim == 3
-                            nodal_values[ci,ni] = state.prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],this_grid_data.allnodes[3,ni],0.0, 0,0,zeros(Int,0));
-                        end
-                    end
-                end
-                
                 # compute cell averages using nodal values if needed
                 if state.variables[vind].location == CELL
                     nel = size(this_grid_data.loc2glb, 2);
                     for ei=1:nel
-                        e = ei;
-                        glb = this_grid_data.loc2glb[:,e];
-                        vol = this_geo_factors.volume[e];
-                        detj = this_geo_factors.detJ[e];
+                        ### Just use an average of nodal values
+                        nnodes = size(this_grid_data.loc2glb,1); # assumes one element type
                         
                         for ci=1:length(state.prob.initial[vind])
-                            state.variables[vind].values[ci,e] = detj / vol * (this_refel.wg' * this_refel.Q * (nodal_values[ci,glb][:]))[1];
+                            state.variables[vind].values[ci,ei] = 0.0;
+                            for ni=1:nnodes
+                                nid = this_grid_data.loc2glb[ni,ei];
+                                if typeof(state.prob.initial[vind][ci]) <: Number
+                                    tmpval = state.prob.initial[vind][ci];
+                                elseif dim == 1
+                                    tmpval = state.prob.initial[vind][ci].func(this_grid_data.allnodes[nid],0.0,0.0,0.0, 0,0,zeros(Int,0));
+                                elseif dim == 2
+                                    tmpval = state.prob.initial[vind][ci].func(this_grid_data.allnodes[1,nid],this_grid_data.allnodes[2,nid],0.0,0.0, 0,0,zeros(Int,0));
+                                elseif dim == 3
+                                    tmpval = state.prob.initial[vind][ci].func(this_grid_data.allnodes[1,nid],this_grid_data.allnodes[2,nid],this_grid_data.allnodes[3,nid],0.0, 0,0,zeros(Int,0));
+                                end
+                                
+                                state.variables[vind].values[ci,ei] += tmpval/nnodes;
+                            end
                         end
                     end
-                else
-                    state.variables[vind].values = nodal_values;
+                    
+                else # nodal dofs
+                    # Evaluate at nodes
+                    for ci=1:length(state.prob.initial[vind])
+                        for ni=1:size(this_grid_data.allnodes,2)
+                            if typeof(state.prob.initial[vind][ci]) <: Number
+                                state.variables[vind].values[ci,ni] = state.prob.initial[vind][ci];
+                            elseif dim == 1
+                                state.variables[vind].values[ci,ni] = state.prob.initial[vind][ci].func(this_grid_data.allnodes[ni],0.0,0.0,0.0, 0,0,zeros(Int,0));
+                            elseif dim == 2
+                                state.variables[vind].values[ci,ni] = state.prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],0.0,0.0, 0,0,zeros(Int,0));
+                            elseif dim == 3
+                                state.variables[vind].values[ci,ni] = state.prob.initial[vind][ci].func(this_grid_data.allnodes[1,ni],this_grid_data.allnodes[2,ni],this_grid_data.allnodes[3,ni],0.0, 0,0,zeros(Int,0));
+                            end
+                        end
+                    end
                 end
                 
                 state.variables[vind].ready = true;
