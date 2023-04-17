@@ -140,7 +140,7 @@ postStepFunction(post_step);
 # Dt(int(Iij dx)) = int((Io-Iij)*beta dx) ) - vg * int(Iij * Si.n ds)
 conservationForm(I, "(Io[band] - I[direction,band]) * beta[band] + surface(vg[band] * upwind([Sx[direction];Sy[direction]] , I[direction,band]))")
 
-# exportCode("bte2dgpucode") # uncomment to export generated code to a file
+exportCode("bte2d-gpucode") # uncomment to export generated code to a file
 # importCode("bte2dgpucodein") # uncomment to import code from a file
 
 # The fortran version does something odd with volumes
