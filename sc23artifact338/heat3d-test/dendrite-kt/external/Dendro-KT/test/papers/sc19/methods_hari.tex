@@ -1,0 +1,309 @@
+In this section, we describe our $4D$ adaptive FEM framework with a focus on the challenges and the design choices that needed to handle the scalability challenges for the next generation of architectures and simulations. 
+
+\subsection{Generating $4d$ Trees}
+
+%\hl{Basics about 4D trees, orderings and data-structures. Also talk about construction and balancing here.}
+
+The essential component for this project is the ability to adaptively subdivide higher dimensional spaces, specifically $4D$ spacetime. The challenge is to do so in an efficient and scalable manner that also enables subsequent scalable FEM computations. In this section, we discuss the choice of data-structures and algorithms for generating balanced $4D$-trees or {\em sedectrees}\footnote{$4D$ counterpart of quadtrees and octrees}. By extending from quadtrees and octrees, we can define the basic node of a \stri\ to be a \stra\ i.e., a $4D$ hypercube with a corners at $0$ and $1$ along each of the $x,y,z,t$ axis. A simple illustration is presented in Figure~\ref{fig:sedecant}. As is common with tree codes, we intend to store these as a linear tree--that is only storing the leaf nodes--with each \stra\ represented by one of its corners, say $(x_0, y_0, z_0, t_0)$. The \stri\ is then represented as a list of $4D$ coordinates. The maximum depth of the tree is limited to $l_{max}$ and the coordinates are stored as integers in the range $[0,2^{l_{max}})$.    We will  extend our adaptive meshing library, \dendro\ to support $4D$ trees, in addition to the currently supported $2D$ and $3D$ trees. The ordering of the coordinates is performed using space filling curves (SFC) in \dendro\ using either the Morton or Hilbert curve. {\it The appropriate choice of the SFC in $4D$ is an open question and one that will be addressed by this proposal}. We believe the Hilbert ordering provides the best localization properties. However, it might be beneficial in certain cases to have a linear ordering in time (the $4$th dimension) along with Hilbert ordering in space. The choice of the ordering will determine the performance of subsequent computations, as it affects the data-access pattern and communication costs in parallel. In addition, this also affects the structure of the resulting FE matrices, so it is extremely important. We also note that the parallelization in time strategy is different based on the choice of SFC. We will implement both variants to determine which SFC is better for $4D$, especially in parallel. 
+
+\subsubsection{Construction} 
+
+Construction of an adaptive \stri\ over a given domain $\Omega$ can be considered as the initial step of discretization. Adaptivity over the domain can be determined by user specified functions or specific constraint. Without loss of generality, we will assume that the adaptivity is defined by a function, $\fint$, that takes the element/\stra\ and returns \texttt{true} if the element needs to be refined and \texttt{false} otherwise. Starting with the root \stra\ (the bounding box for the domain) we recursively subdivide the element based on the value of $\fint$. This is similar to the classical top-down octree construction. We stop refining an element when $\fint$ is \texttt{false} or we reach the maximum depth allowed, $l_{max}$. Once the \stri is constructed, we only retain the coordinates of the corners\footnote{Assuming linear FEM. We discuss high-order elements in \S\ref{s:high-order}.} as the coordinates of the degrees of freedom. Note that \stri\ construction exhibits fine grained parallelism as at each level, we only consider one element independent of others and decide whether to divide it or not. There are no data dependencies or indirect memory accesses. 
+
+In recent work \cite{FernandoDuplyakinSundar17}, we demonstrated the similarity of the top-down octree construction with the most significant digit Radix sort, and how this can be efficiently implemented sequentially and in parallel. In addition, the Radix sort implementation can incorporate ordering of elements according to space filling curves (SFCs) such as Morton or Hilbert ordering, enabling good locality and making partitioning trivial. This is easily extensible to the $4D$ case by considering the additional $t$ coordinate. An illustration of the algorithm (in 2D) is shown in Figure~\ref{fig:cons} for the case where $\fint$ returns \texttt{true} if the element contains more than one point.
+% At the level at which the inter-process partition is determined, the algorithm also produces the inter-process communication scatter map, i.e., the information on which dofs need to exhanged between processes.
+
+\begin{figure}
+	\begin{tikzpicture}[scale=0.38,every node/.style={scale=0.6}]
+		
+	% \draw[gray, very thin] (0,0) grid +(8,8);
+	 	
+	\draw (0,0) rectangle +(8,8);
+	\draw[fill=cpu3] (0.5,7.5) circle (0.2);
+	\draw[fill=cpu4] (1.5,6.5) circle (0.2);
+	\draw[fill=cpu1] (4.5,2.5) circle (0.2);
+	\draw[fill=cpu2] (5.5,3.5) circle (0.2);
+	\draw[fill=cpu5] (7.5,0.5) circle (0.2);
+	
+	\begin{scope}[shift={(11,0)}]
+	\draw[step=4] (0,0) grid +(8,8);\\
+	\draw[cyan,thick] (0,0) rectangle +(4,4);
+	\draw[cyan,thick] (4,4) rectangle +(4,4);
+	\draw[fill=cpu3] (0.5,7.5) circle (0.2);
+	\draw[fill=cpu4] (1.5,6.5) circle (0.2);
+	\draw[fill=cpu1] (4.5,2.5) circle (0.2);
+	\draw[fill=cpu2] (5.5,3.5) circle (0.2);
+	\draw[fill=cpu5] (7.5,0.5) circle (0.2);
+	
+	\node at (-1,7.5) {$\mathbf{1}$\textcolor{cpu3}{$\mathbf{1 1}$}};
+	\node at (-1,6.5) {$\mathbf{1}$\textcolor{cpu4}{$\mathbf{1 0}$}};
+	\node at (-1,3.5) {$\mathbf{0}$\textcolor{cpu2}{$\mathbf{1 1}$}};
+	\node at (-1,2.5) {$\mathbf{0}$\textcolor{cpu1}{$\mathbf{1 0}$}};
+	\node at (-1,0.5) {$\mathbf{0}$\textcolor{cpu5}{$\mathbf{0 0}$}};
+	
+	\node[rotate=-90] at (0.5,-1) {$\mathbf{0}$\textcolor{cpu3}{$\mathbf{0 0}$}};
+	\node[rotate=-90] at (1.5,-1) {$\mathbf{0}$\textcolor{cpu4}{$\mathbf{0 1}$}};
+	\node[rotate=-90] at (5.5,-1) {$\mathbf{1}$\textcolor{cpu2}{$\mathbf{0 1}$}};
+	\node[rotate=-90] at (4.5,-1) {$\mathbf{1}$\textcolor{cpu1}{$\mathbf{0 0}$}};
+	\node[rotate=-90] at (7.5,-1) {$\mathbf{1}$\textcolor{cpu5}{$\mathbf{1 1}$}};
+	\end{scope}
+	
+	\begin{scope}[shift={(22,0)}]
+	\draw[step=4] (0,0) grid +(8,8);
+	\draw[step=2] (4,0) grid +(4,4);
+	\draw[step=2] (0,4) grid +(4,4);
+	
+	\draw[cyan,thick] (0,0) rectangle +(4,4);
+	\draw[cyan,thick] (4,4) rectangle +(4,4);
+
+	\draw[red,thick] (0,4) rectangle +(2,2);
+	\draw[red,thick] (2,4) rectangle +(2,2);
+	\draw[red,thick] (2,6) rectangle +(2,2);
+
+	\draw[red,thick] (4,0) rectangle +(2,2);
+	\draw[red,thick] (6,2) rectangle +(2,2);
+	\draw[red,thick] (6,0) rectangle +(2,2);
+	
+	\draw[fill=cpu3] (0.5,7.5) circle (0.2);
+	\draw[fill=cpu4] (1.5,6.5) circle (0.2);
+	\draw[fill=cpu1] (4.5,2.5) circle (0.2);
+	\draw[fill=cpu2] (5.5,3.5) circle (0.2);
+	\draw[fill=cpu5] (7.5,0.5) circle (0.2);
+	
+	\node at (-1,7.5) {$\mathbf{11}$\textcolor{cpu3}{$\mathbf{1}$}};
+	\node at (-1,6.5) {$\mathbf{11}$\textcolor{cpu4}{$\mathbf{0}$}};
+	\node at (-1,3.5) {$\mathbf{01}$\textcolor{cpu2}{$\mathbf{1}$}};
+	\node at (-1,2.5) {$\mathbf{01}$\textcolor{cpu1}{$\mathbf{0}$}};
+	\node at (-1,0.5) {$\mathbf{00}$\textcolor{cpu5}{$\mathbf{0}$}};
+	
+	\node[rotate=-90] at (0.5,-1) {$\mathbf{00}$\textcolor{cpu3}{$\mathbf{0}$}};
+	\node[rotate=-90] at (1.5,-1) {$\mathbf{00}$\textcolor{cpu4}{$\mathbf{1}$}};
+	\node[rotate=-90] at (5.5,-1) {$\mathbf{10}$\textcolor{cpu2}{$\mathbf{1}$}};
+	\node[rotate=-90] at (4.5,-1) {$\mathbf{10}$\textcolor{cpu1}{$\mathbf{0}$}};
+	\node[rotate=-90] at (7.5,-1) {$\mathbf{11}$\textcolor{cpu5}{$\mathbf{1}$}};
+	\end{scope}
+	
+	\begin{scope}[shift={(33,0)}]
+	\draw[step=4] (0,0) grid +(8,8);
+	\draw[step=2] (4,0) grid +(4,4);
+	\draw[step=2] (0,4) grid +(4,4);
+	\draw[green,thick] (0,6) grid +(2,2);
+	\draw[green,thick] (4,2) grid +(2,2);
+	
+	\draw[cyan,thick] (0,0) rectangle +(4,4);
+	\draw[cyan,thick] (4,4) rectangle +(4,4);
+
+	\draw[red,thick] (0,4) rectangle +(2,2);
+	\draw[red,thick] (2,4) rectangle +(2,2);
+	\draw[red,thick] (2,6) rectangle +(2,2);
+
+	\draw[red,thick] (4,0) rectangle +(2,2);
+	\draw[red,thick] (6,2) rectangle +(2,2);
+	\draw[red,thick] (6,0) rectangle +(2,2);	
+	 	
+	\draw[fill=cpu3] (0.5,7.5) circle (0.2);
+	\draw[fill=cpu4] (1.5,6.5) circle (0.2);
+	\draw[fill=cpu1] (4.5,2.5) circle (0.2);
+	\draw[fill=cpu2] (5.5,3.5) circle (0.2);
+	\draw[fill=cpu5] (7.5,0.5) circle (0.2);
+	
+	\node at (-1,7.5) {$\mathbf{111}$};
+	\node at (-1,6.5) {$\mathbf{110}$};
+	\node at (-1,3.5) {$\mathbf{011}$};
+	\node at (-1,2.5) {$\mathbf{010}$};
+	\node at (-1,0.5) {$\mathbf{000}$};
+	
+	\node[rotate=-90] at (0.5,-1) {$\mathbf{000}$};
+	\node[rotate=-90] at (1.5,-1) {$\mathbf{001}$};
+	\node[rotate=-90] at (5.5,-1) {$\mathbf{101}$};
+	\node[rotate=-90] at (4.5,-1) {$\mathbf{100}$};
+	\node[rotate=-90] at (7.5,-1) {$\mathbf{111}$};
+	
+	\end{scope}
+	
+	\node at (-1,7.5) {\textcolor{cpu3}{$\mathbf{1 1 1}$}};
+	\node at (-1,6.5) {\textcolor{cpu4}{$\mathbf{1 1 0}$}};
+	\node at (-1,3.5) {\textcolor{cpu2}{$\mathbf{0 1 1}$}};
+	\node at (-1,2.5) {\textcolor{cpu1}{$\mathbf{0 1 0}$}};
+	\node at (-1,0.5) {\textcolor{cpu5}{$\mathbf{0 0 0}$}};
+
+	\node[rotate=-90] at (0.5,-1) {\textcolor{cpu3}{$\mathbf{0 0 0}$}};
+	\node[rotate=-90] at (1.5,-1) {\textcolor{cpu4}{$\mathbf{0 0 1}$}};
+	\node[rotate=-90] at (5.5,-1) {\textcolor{cpu2}{$\mathbf{1 0 1}$}};
+	\node[rotate=-90] at (4.5,-1) {\textcolor{cpu1}{$\mathbf{1 0 0}$}};
+	\node[rotate=-90] at (7.5,-1) {\textcolor{cpu5}{$\mathbf{1 1 1}$}};
+	
+%	\node at (12,-1) {$\mathbf{0}$};
+%	\node at (16,-1) {$\mathbf{1}$};
+%	
+%	\node at (9,2) {$\mathbf{0}$};
+%	\node at (9,6) {$\mathbf{1}$};
+	
+	\end{tikzpicture}
+	\caption{\label{fig:cons} \small (Please view in color) Equivalence of the MSD Radix sort with top-down quadtree construction when ordered according to space filling curves. Each color-coded point is represented by its $x$ and $y$ coordinates. From the MSD-Radix perspective, we start with the most-significant bit for both the $x$ and $y$ coordinates and progressively bucket (order) the points based on these. The bits are colored based on the points and turn black as they get used to (partially) order the points.Note that (\textcolor{cyan}{$\blacksquare$}) denotes octants added at level $1$, (\textcolor{red}{$\blacksquare$}) denotes octants added at level $2$, and (\textcolor{green}{$\blacksquare$}) denotes octants added at level $3$.}
+\end{figure}
+
+\subsubsection{2:1 Balancing}
+
+In applications involving octree/\stri\ meshes, it is desirable to impose a restriction on the relative sizes of adjacent octants \cite{SundarSampathAdavaniEtAl07,BursteddeWilcoxGhattas11}. By enforcing a balance constraint on \stri s we limit the number of neighbors an element can have and this also affects the conditioning of resulting FE matrices. The balance condition can be easily enforced by generating balancing \stra s and sorting and removing duplicates using the top-down sorting algorithm. More details on the balancing algorithm can be found in \cite{SundarSampathAdavaniEtAl07,SundarSampathBiros08,FernandoDuplyakinSundar17}. 
+
+After balancing, we will only store the coordinates of all dofs (nodes) in order to perform all FEM computations. Traditional FEM codes would store at least one lookup table for mapping from element-to-nodes in addition to the node coordinates. In our case, since these are in the discretized domain\footnote{Due to the \stri\ representation.}, we store the coordinates as an integer (\texttt{unsigned int}) for each coordinate. Note that this is sufficient for meshes with potentially $>2^{120}$ elements. This coordinate information is the only data besides the unknowns that is stored and used for computations. This helps keep the memory footprint of our codes minimal.
+
+\begin{figure}
+    \centering
+    \begin{tikzpicture}
+        \draw[thick](2,2,0)--(0,2,0)--(0,2,2)--(2,2,2)--(2,2,0)--(2,0,0)--(2,0,2)--(0,0,2)--(0,2,2);
+        \draw[thick](2,2,2)--(2,0,2);
+        \draw[gray](2,0,0)--(0,0,0)--(0,2,0);
+        \draw[gray](0,0,0)--(0,0,2);
+        \draw(1,1,2) node{$t_0$};
+        \begin{scope}[shift={(4,0)}]
+        \draw[thick](2,2,0)--(0,2,0)--(0,2,2)--(2,2,2)--(2,2,0)--(2,0,0)--(2,0,2)--(0,0,2)--(0,2,2);
+        \draw[thick](2,2,2)--(2,0,2);
+        \draw[gray](2,0,0)--(0,0,0)--(0,2,0);
+        \draw[gray](0,0,0)--(0,0,2);
+        \draw(1,1,2) node{$t_1$};
+        \end{scope}
+        
+        \draw[thick,dotted] (2,0,2) to[out=-20,in=-70] (6,0,2);
+        \draw[thick,dotted] (0,0,2) to[out=-20,in=-70] (4,0,2);
+        
+        \draw[gray,dotted] (0,0,0) to[out=-20,in=-70] (4,0,0);
+        \draw[gray,dotted] (2,0,0) to[out=-20,in=-70] (6,0,0);
+        
+        \draw[gray,dotted] (2,2,0) to[out=60,in=120] (6,2,0);
+        \draw[gray,dotted] (0,2,0) to[out=60,in=120] (4,2,0);
+        
+        \draw[thick,dotted] (2,2,2) to[out=60,in=120] (6,2,2);
+        \draw[thick,dotted] (0,2,2) to[out=60,in=120] (4,2,2);
+        
+        \draw[thick, -latex'] (2,3,0) -- (4,3,0) node[above] {$time$};
+        
+    \end{tikzpicture}
+    \caption{Illustration of a \stra. A simple interpretation is that of an octant (in space) represented at two time points, $t_0$ and $t_1$. 
+    \label{fig:sedecant}}
+\end{figure}
+
+\subsection{Matrix-free implementation on $4D$ meshes}
+\label{s:mvec}
+
+As mentioned in the previous section, we will only store the $4D$ coordinates and not any additional maps (typically element to node maps). There are two major reasons for this. Firstly, these maps are very expensive to construct and will have a large memory footprint for $4D$ meshes. Secondly, the variables of interest are accessed and updated using such maps during FEM computations and as such amount to indirect memory access. For large $4D$ meshes in particular, such indirect memory access is likely to be extremely inefficient on modern architectures with high levels of paralellelism and deep memory hierarchies. To this effect, we propose a {\em mesh-free} approach that makes use of the quasi-structured nature of \stri s and enables direct access to data. We explain this approach in detail and provide preliminary evidence for the feasibility of this approach.  
+
+We will use a simple system (1-dof) system, say corresponding to the heat equation. 
+We will illustrate a \texttt{matvec} with the transient diffusion operator ($\frac{\partial}{\partial t} + \nabla^2$), given in a discrete form as $K = K_1+K_2$, i.e., we will compute $v=K u$. Here $u$ is the scalar unknown defined over our spacetime domain, i.e., there is one unknown per node (coordinate point). Therefore the input to our \texttt{matvec} will be the \texttt{real} vector $u$ and another vector of points $\mathbf{p}=(x,y,z,t)$ ($4\times$ \texttt{unsigned int}). The output will be the vector $v$, the same size as $u$ such that $v=K u$. Unlike conventional FEM codes, we will evaluate $v$ without requiring indirect memory accesses to $u,v$ or $\mathbf{p}$. Note that our approach becomes significantly more effective for systems with multiple dofs per spatio-temporal point, as these all will use the same coordinate information. This will be especially useful for both the Navier-Stokes equations (with 4 dofs per point), and the Poisson-Nerst-Plank equations ($\geq 3$ dofs per point).
+
+Since we do not have a mesh, we will have to extract the required information on the fly. Similar to the \stri\ construction, (Figure~\ref{fig:cons}), we proceed in a top-down fashion using the radix sort. This is particularly efficient since we have the $x,y,z$ and $t$ coordinates as \texttt{unsinged int}s. Also, since the coordinates and the unknowns are arranged using space filling curves, there is high locality. In MSD radix, we use the bits--from most to least significant--to bucket the data. In our case, at each level we use one bit each from the $x,y,z$ and $t$ coordinates to bucket the points ($\mathbf{p}$) and unknowns $u$. We then recurse within each bucket. This happens in a depth-first fashion that in combination with the locality of space filling curves, make the overall data-access amenable to modern deep memory hierarchies. Bucketing within radix sort involves only direct memory in a streaming fashion and requires one cache-line for accessing the input and one each for each bucket. 
+%Based on the architecture, one can decide to bucket two levels simultaneously ($64$ buckets) using $2$ bits each from $x,y$ and $z$.
+
+\begin{figure}
+	\begin{minipage}{0.55\textwidth}
+		%\begin{verbatim}
+	 \begin{minted}[frame=lines]{python}
+v = {0} 
+n = num_non_zero_basis_per_element		
+
+def matvec(u, x, v, l): # compute v = Ku 
+ (U, X, V) = scatter_to_buckets(u, x, v, l)
+ for (ui, xi, vi) in (U, X, V):
+   if len(xi) == n: # leaf
+     for i in [0,n):
+       for j in [0,n):
+         vi[j] += K_e[i,j] * ui[i];
+   else:
+     matvec(ui, xi, vi, l-1) # recurse
+
+   gather_from_buckets(vi, x, v, l) 
+.
+	\end{minted}
+	%\end{verbatim}
+ \end{minipage}
+	\begin{minipage}{0.45\textwidth}
+		\begin{minted}[frame=lines]{python}
+nb = num_buckets;
+def U,X = scatter_to_buckets(u, x, l):
+ cnt = zeros[nb+1] 
+ for _x in x: 
+   cnt[_x & (1 << l) + 1]++  
+ for (_u, _x) in (u, x):  
+   idx = cnt[_x & (1<<l)]++
+   U[idx] = _u  
+	 X[idx] = _x
+
+def gather_from_buckets(u, x, v, l):
+  ... 
+  for i in [0,len(x)):  
+    idx = cnt[x[i] & (1<<l)]++
+    v[i] += u[idx]    
+		\end{minted}	
+	\end{minipage}
+	\caption{\label{fig:matvec} \small The pseudocode for the mesh-free $4D$ FEM \texttt{matvec}. Here we compute $v = Ku$ where $u,v$ are specified at coordinates $x,~t$ and $l$ is the level of the \stri, typically $30$. Note that the recursion can terminate early on hitting a leaf node. 
+	Note that while access might appear indirect within \texttt{scatter\_to\_bucket} and \texttt{gather\_from\_buckets}, these indices are the bucket numbers and typically small, and $u$ and $v$ are still accessed sequentially, as \texttt{idx} is incremented. 
+	While the mesh-free code appears complex, in preliminary tests (see Table~\ref{tab:results}), 
+	it is approximately $5\times$ faster for scalar PDEs, with the speedup 
+	increasing for problems with larger dofs.
+	}
+\end{figure}
+
+Bucketing for the \texttt{matvec} is a bit more involved as we need to bucket to the interior faces and the interior corner as well (see Figure~\ref{fig:matvec}). Since we bucket recursively, it is sufficient to consider the bucketing from one octant to its children. We need to bucket the edges (faces in 3D) and the interior corner as these dofs need to be replicated across octants. Once replicated, the octants are independent of each other and can recurse independently. This expresses a very fine-grained parallelism not possible with traditional FEM \texttt{matvec}s. On reaching a leaf node--when all dofs correspond to the nodes of a single element--we can apply the elemental operator\footnote{We skip details as either a precomputed elemental matrix or numerical quadrature can be performed and does not affect overall scalability or performance.} to compute $v_e = K_e u_e$. On the return, the results in $v$ are accumulated. This is the opposite of the duplication of $u$ prior to the recursion. The simplified pseudocode for the \texttt{matvec} is presented in Figure~\ref{fig:matvec}. For clarity of presentation, we have skipped data-interpolations that are needed by both the traditional as well as mesh-free approaches while working with adaptively refined meshes, such as octrees or \stri s. This does not affect any of the algorithms, and interpolations in both cases happen from parent to child, only when we reach a leaf node. While we have used the recursive formulation for clarity of presentation, the actual implementation will use an iterative variant as that is more efficient. 
+
+%\hs{data-first, no indirect, fine-grained parallelism.} 
+The mesh-free \texttt{matvec} approaches the computation in a data-first fashion and is structured based on the data dependencies and the associated data movement. Note that in the distributed memory setting, we follow a similar principle and exchange ghost or halo regions, albeit using additional lookup tables. Since the mesh-free approach exposes such parallelism in a hierarchical fashion (due to the tree structure), the same basic algorithm holds for the distributed memory cases as well, except that the bucketing at the inter-process level will require {\textsc MPI} communication. Again, unlike traditional codes, this can be done without any additional lookup tables (scatter maps). Also note that the resulting code does not have any indirect memory accesses to the large data arrays $u$ and $v$. This makes implementations simple and easy enough for modern compilers to optimize (such as prefetching, vectorization, etc.) without special architecture specific tuning of the code. In Table~\ref{tab:results}, we present preliminary results using our current $3D$ octree framework, \dendro, as empirical evidence in support of the mesh-free approach. Please note that this code is a very simple proof-of-concept demonstration of the core ideas and performance and scalability can be significantly improved.  Additional evidence can be seen in our recent work on partitioning \cite{FernandoDuplyakinSundar17} where a similar reorganization of the algorithm for partitioning resulted in significant speedup.   
+
+\begin{table}
+	\centering
+	\begin{tabular}{|l|l|l|l|l|l|l|}
+		\hline
+		procs & 1 & 2 & 4 & 8 & 16 & 32 \\
+		\hline
+		mesh based & 1.48667 & 1.49376 & 2.59631 & 5.33152 &  9.45840 &  19.50330 \\
+		\hline
+		mesh free & 0.48258 &  0.51289  & 0.56752 &  1.52277 &  2.68926 &  4.10774 \\
+		\hline
+	\end{tabular}
+	\caption{\label{tab:results} \small Preliminary results for the speed up in Matvec runtime. These are shared-memory results using OpenMP. Note the mesh-free code has not been optimized (for example vectorization/prefetching) and better performance can be expected. Both implementations perform the same computations and the results were compared to be within machine precision. All runs were done using an $3D$ octree-refined mesh of a Sphere within a unit cube with approximately $10^9$ unknowns solving the Poisson equation. on a 2x 16 core Intel Broadwell processor. }
+\end{table}
+
+Some additional aspects that might affect performance will be studied to arrive at the right choices. For example, an important decision in the way the design of data structures here is whether to store $u$ and $x$ as arrays of structs or as a struct of array. The performance implications of this choice will be carefully studied on different architectures. 
+
+\subsection{$hp$ adaptivity in space and time}
+\label{s:high-order}
+
+High-order FEM and spectral element methods are popular as they can get equivalent accuracy using fewer dofs, thereby minimizing the memory footprint and increasing the computational intensity of the computations as well. In $4d$ these benefits extend to high-order timestepping as well (as shown in Fig.~\ref{fig:ST_conv}). These advantages are attractive on modern architectures. Higher-order FEM use higher-order basis functions within the elements resulting in additional dofs within the element. i.e., there are additional nodes inside the element and within the faces and edges as well, as opposed to the sixteen corners of the \stra. 
+This does not affect our mesh-free \texttt{matvec}, as we bucket the dofs as before, except now the buckets correspond to the (interior) faces, edges and interior. One advantage of using the mesh-free abstraction is that it is possible to design efficient preconditioners based on collocated matrices \cite{sundar2015comparison} as compared to approaches that use meshes, as the order can be changed on the fly in the mesh-free approach. In general, the mesh-free abstraction provides a very efficient re-interpretaion of the mesh in $hp$ finite elements. We will add support for variable $p$ that in conjunction with our \stri\ ($h$) adaptivity provides true $hp$ adaptivity in space and time. 
+
+An added advantage of not storing the mesh explicitly, and simply as node coordinates, is that the cost of adaptive mesh refinement is greatly reduced. Refinenement and coarsening can both be performed locally, by adding or removing points. This is particularly attractive for applications requiring multiple remeshing, such as our target applications. Note that the $4D$ formulation gives us adaptive as well as variable order timestepping.
+
+\paragraph{Designing {\it a posteriori} error estimates for the target problems} 
+Rigorously identifying which \stri~to refine is important both for resolving the physics of the problem, and also for computational efficacy. We propose to build {\it a posteriori} error estimates for the spacetime equations of our target problem. We have recently formulated and implemented a space-time based a posterior error indicator based adaptive framework for the diffusion equation~\cite{dyja2018parallel}. We will focus on constructing {\it a posteriori} space-time error estimates for the linear diffusion, quasi-linear diffusion and Allen-Cahn equations. Some analysis of these equations exist in spacetime~\cite{verfurth2013posteriori}, and we have preliminary results that builds upon these estimates. Following this, we will construct spacetime error estimates for teh incompresisble Navier-Stokes, and Poisson-Nerst-Plank equations. We will limit ourselves to canonical boundary conditions that are relevent to our target applications. We also anticipate exploring goal-oriented error estimators for this class of problems. The formulation of goal-oriented error naturally follows due to the fact that our space-time
+formulation will enable straightforward solutions of the reverse-in-time adjoint (or dual) system. We will primarily focus on goal-oriented error estimates for the diffusion equations.
+
+\subsection{Solver realizations}
+\label{s:solver}
+
+In many simulations, the discretized (and linearized) system needs to be solved. While iterative solvers are popular for large-scale parallel systems, several popular iterative solvers and preconditioners rely on mesh information. This is an essential part of our framework and we now discuss how these can be efficiently realized within our mesh-free $4D$ abstraction. We start with the simple Jacobi preconditioner, and then discuss blocked preconditioners and finally geometric Multigrid. %We also include a brief discussion on developing mesh-free multigrid methods for assymmetric operators, such as for the Navier-Stokes problem (\S\ref{s:target_problem}).
+
+\paragraph{Jacobi}
+The Jacobi preconditioner requires the diagonal of the assembled matrix. This can be difficult to obtain in matrix-free approaches. While one can perform multiple \texttt{matvec}s with a vector with only a single entry set to $1$ and the rest zeros, this is very inefficient for large matrices. Our mesh-free \texttt{matvec} (\S\ref{s:mvec}) can be easily modified to return the diagonal (vector) of the matrix. At the leaf-nodes, we simply return the diagonal of $K_e$ in place of $v$ and accumulate the results similar to how we accumulated $v$. This is independent of the dimensionality of the tree.
+
+\paragraph{Blocked}
+
+Blocked preconditioners are popular for large-scale parallel systems, and rely on solving small blocks within the large matrix. Within our mesh-free abstraction, blocked behaviour can be easily accommodated by stopping the recursion early and assembling the sub-matrix instead. The sub-matrix can then be solved or inverted depending on the specific requirements of the application.
+
+\paragraph{Geometric Multigrid}
+Multigrid is a fairly complex solver and preconditioner and discussing all details are beyond the scope of this proposal. However, we will present the key ideas that make it fairly straightforward to implement multigrid within our mesh-free framework. The two critical components for geometric multigrid are generating the coarse meshes and performing inter-grid transfers (restriction and prolongation). Smoothing is typically built on using iterative relaxation schemes, so \texttt{matvec} is sufficient. Note that in the mesh-free abstraction, the domain is represented simply using the coordinates, and the coarser nodes are by definition contained within the set of fine-grid coordinates. Therefore it is sufficient to identify an additional variable with each coordinate that captures the deepest level at which this coordinate is present. Given that our meshes are at most $30$ levels deep, only $5$ bits are sufficient to store this information. Due to the mesh-free nature, all grids can be stored together and the coarse-grid \texttt{matvec} can be performed efficiently. We have experience in doing this in $3D$, details of which are available at \cite{SampathSundarAdavaniEtAl08,SundarBirosBurstedde12}.
+
+Similarly, for performing intergrid transfers, say between grids at level $l$ and $l+1$, we will simply interpolate/restrict between the coordinates at those levels, again identified easily using the stored bits. The structure of this computation allows us to perform this in a streaming fashion similar to the \texttt{matvec} without requiring any indirect memory accesses. 
+
+
+%While this discussion on solver realizations in intended primarily to illustrate the power of the proposed mesh-free abstractions, we will implement simple versions of all three solver realizations to allow other researchers to build on our work.  
+
+
+
+\subsection{Parallelism and Scalability}
+
+When performed in parallel, there is an additional challenge of ensuring that the degrees-of-freedom are load-balanced across processors, i.e., uniformly partitioned. In recent work \cite{FernandoDuplyakinSundar17}, we demonstrated the similarity of the top-down octree construction with the most significant digit Radix sort, and how this can be efficiently implemented sequentially and in parallel. In addition, the Radix sort implementation can incorporate ordering of elements according to space filling curves (SFCs) such as Morton or Hilbert ordering, enabling good locality and making partitioning trivial. In \cite{FernandoDuplyakinSundar17}, we improved on traditional SFC-based partitioning to achieve $\sim 22\%$ reduction in communication costs by incorporating machine characteristics during partitioning. An illustration of this is shown in Figure~\ref{fig:cons} for the case where $\fint$ returns \texttt{true} if the element contains more than one point. At the level at which the inter-process partition is determined, the algorithm also produces the inter-process communication scatter map, i.e., the information on which dofs need to exhanged between processes. This can either be cached, or computed on the fly. We will explore the advantages of the two approaches. Finally, by avoiding indirect memory access, we simplify the task of porting our codes to heterogeneous architectures.  
+In addition, the new abstractions will enable code portability, for both CPU and GPU architectures. Our goal is to evaluate using x64, Intel Xeon Phi, Power8/9 and
+nVidia GPUs. In addition, since several linear solvers–such as geometric multigrid–depend on mesh information, we will develop solver realizations for our mesh-free abstractions.
+% \subsection{Extensibility}
+
+% How to make sure the framework is easy to extend for other problems and architectures. 

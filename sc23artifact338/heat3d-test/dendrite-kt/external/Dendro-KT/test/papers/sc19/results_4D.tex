@@ -1,0 +1,69 @@
+\begin{figure}[tbh]
+  \centering
+  \begin{tikzpicture}
+  \begin{axis}[
+  ybar stacked, bar width=5pt,    
+  xlabel={number of cores $\rightarrow$},
+  ylabel={time(s) $\rightarrow$ },symbolic x coords={2,4,8,16,32,64,128},width=9cm,height=5cm,
+  xtick = data, 
+  x tick label style={rotate=45, anchor=east, align=right},legend pos=north west,grid=major,ymin=0,ymax=2.5e-4,legend style={at={(0.55,1.0)},
+		anchor=south,legend columns=3}]
+  \addplot [fill=div_d1] [bar shift=-.125cm] table[x={npes} , y expr={\thisrow{topdown(max)}/(\thisrow{matvecNumNodes}/\thisrow{npes})} ]{dat/stampede2_ws_ele1.dat};
+  \addplot [fill=div_d2] [bar shift=-.125cm]  table[x={npes}, y expr={\thisrow{bottomup(max)}/(\thisrow{matvecNumNodes}/\thisrow{npes})} ]{dat/stampede2_ws_ele1.dat};
+  \addplot [fill=div_d3] [bar shift=-.125cm]  table[x={npes}, y expr={\thisrow{elemental(max)}/(\thisrow{matvecNumNodes}/\thisrow{npes})} ]{dat/stampede2_ws_ele1.dat};
+  \addplot [fill=div_d4] [bar shift=-.125cm]  table[x={npes}, y expr={(\thisrow{matvec(max)}-\thisrow{elemental(max)}-\thisrow{bottomup(max)}-\thisrow{topdown(max)})/(\thisrow{matvecNumNodes}/\thisrow{npes})} ]{dat/stampede2_ws_ele1.dat};
+  \addplot [fill=div_d5] [bar shift=-.125cm] table[x={npes}, y expr={\thisrow{ghostexchange(max)}/(\thisrow{matvecNumNodes}/\thisrow{npes})} ]{dat/stampede2_ws_ele1.dat};
+  \resetstackedplotsSix
+  \addplot [fill=div_d1] [bar shift=+.125cm] table[x={npes} , y expr={\thisrow{topdown(max)}/(\thisrow{matvecNumNodes}/\thisrow{npes})} ]{dat/stampede2_ws_ele2.dat};
+  \addplot [fill=div_d2] [bar shift=+.125cm]  table[x={npes}, y expr={\thisrow{bottomup(max)}/(\thisrow{matvecNumNodes}/\thisrow{npes})} ]{dat/stampede2_ws_ele2.dat};
+  \addplot [fill=div_d3] [bar shift=+.125cm]  table[x={npes}, y expr={\thisrow{elemental(max)}/(\thisrow{matvecNumNodes}/\thisrow{npes})} ]{dat/stampede2_ws_ele2.dat};
+  \addplot [fill=div_d4] [bar shift=+.125cm]  table[x={npes}, y expr={(\thisrow{matvec(max)}-\thisrow{elemental(max)}-\thisrow{bottomup(max)}-\thisrow{topdown(max)})/(\thisrow{matvecNumNodes}/\thisrow{npes})} ]{dat/stampede2_ws_ele2.dat};
+  \addplot [fill=div_d5] [bar shift=+.125cm] table[x={npes}, y expr={\thisrow{ghostexchange(max)}/(\thisrow{matvecNumNodes}/\thisrow{npes})} ]{dat/stampede2_ws_ele2.dat};
+  \legend{\small top-down, bottom-up, leaf \mvec, malloc, communication}
+  \end{axis}
+  \begin{axis}[ axis y line=none,axis x line = none,symbolic x coords={2,4,8,16,32,64,128},width=9cm,height=5cm,
+        xtick = data,ymin=0,ymax=2.5e-4,legend pos={north west}] %second axis, function 
+      \addplot[sq_b1,thin]  table[x={npes}, y expr={(\thisrow{matvec(max)} + \thisrow{ghostexchange(max)}) /(\thisrow{matvecNumNodes}/\thisrow{npes})} ]{dat/stampede2_ws_ele1.dat};
+      \addplot[sq_r1,thin,dashed]  table[x={npes}, y expr={(\thisrow{matvec(max)} + \thisrow{ghostexchange(max)}) /(\thisrow{matvecNumNodes}/\thisrow{npes})} ]{dat/stampede2_ws_ele2.dat};
+      \legend{linear,quadratic}
+  \end{axis}  
+ \end{tikzpicture}
+\caption{Weak scaling results \textit{mesh-free,matrix-free} FEM \mvec~ on an adaptive $4D$ tree on TACC's Stampede across 128 cores with linear and quadratic basis functions. Note that due to lack of explicit control over the grid size, runtime for the \mvec is reported per degree of freedom per core.}
+\label{fig:ws_stampede2}
+\end{figure}
+
+
+
+\begin{figure}[tbh]
+  \centering
+  \begin{tikzpicture}
+  \begin{axis}[
+  ybar stacked, bar width=5pt,    
+  xlabel={number of cores $\rightarrow$},
+  ylabel={time(s) $\rightarrow$ },symbolic x coords={2,4,8,16,32,64,128},width=9cm,height=5cm,
+  xtick = data, 
+  x tick label style={rotate=45, anchor=east, align=right},legend pos=north west,grid=major,legend style={at={(0.55,1.0)},
+		anchor=south,legend columns=3}]
+  \addplot [fill=div_d1] [bar shift=-.125cm] table[x={npes} , y expr={\thisrow{topdown(max)}/\thisrow{matvecNumNodes}} ]{dat/stampede2_ss_ele1.dat};
+  \addplot [fill=div_d2] [bar shift=-.125cm]  table[x={npes}, y expr={\thisrow{bottomup(max)}/\thisrow{matvecNumNodes}} ]{dat/stampede2_ss_ele1.dat};
+  \addplot [fill=div_d3] [bar shift=-.125cm]  table[x={npes}, y expr={\thisrow{elemental(max)}/\thisrow{matvecNumNodes}} ]{dat/stampede2_ss_ele1.dat};
+  \addplot [fill=div_d4] [bar shift=-.125cm]  table[x={npes}, y expr={(\thisrow{matvec(max)}-\thisrow{elemental(max)}-\thisrow{bottomup(max)}-\thisrow{topdown(max)})/\thisrow{matvecNumNodes}} ]{dat/stampede2_ss_ele1.dat};
+  \addplot [fill=div_d5] [bar shift=-.125cm] table[x={npes}, y expr={\thisrow{ghostexchange(max)}/\thisrow{matvecNumNodes}} ]{dat/stampede2_ss_ele1.dat};
+  \resetstackedplotsSix
+  \addplot [fill=div_d1] [bar shift=+.125cm] table[x={npes} , y expr={\thisrow{topdown(max)}/\thisrow{matvecNumNodes}} ]{dat/stampede2_ss_ele2.dat};
+  \addplot [fill=div_d2] [bar shift=+.125cm]  table[x={npes}, y expr={\thisrow{bottomup(max)}/\thisrow{matvecNumNodes}} ]{dat/stampede2_ss_ele2.dat};
+  \addplot [fill=div_d3] [bar shift=+.125cm]  table[x={npes}, y expr={\thisrow{elemental(max)}/\thisrow{matvecNumNodes}} ]{dat/stampede2_ss_ele2.dat};
+  \addplot [fill=div_d4] [bar shift=+.125cm]  table[x={npes}, y expr={(\thisrow{matvec(max)}-\thisrow{elemental(max)}-\thisrow{bottomup(max)}-\thisrow{topdown(max)})/\thisrow{matvecNumNodes}} ]{dat/stampede2_ss_ele2.dat};
+  \addplot [fill=div_d5] [bar shift=+.125cm] table[x={npes}, y expr={\thisrow{ghostexchange(max)}/\thisrow{matvecNumNodes}} ]{dat/stampede2_ss_ele2.dat};
+  \legend{\small top-down, bottom-up, leaf \mvec, malloc, communication}
+  \end{axis}
+   \begin{axis}[ axis y line=none,axis x line = none,symbolic x coords={2,4,8,16,32,64,128},width=9cm,height=5cm,
+        xtick = data,legend pos={north east}] %second axis, function 
+      \addplot[sq_b1,thin]  table[x={npes}, y expr={(\thisrow{matvec(max)} + \thisrow{ghostexchange(max)}) /(\thisrow{matvecNumNodes})} ]{dat/stampede2_ss_ele1.dat};
+      \addplot[sq_r1,thin,dashed]  table[x={npes}, y expr={(\thisrow{matvec(max)} + \thisrow{ghostexchange(max)}) /(\thisrow{matvecNumNodes})} ]{dat/stampede2_ss_ele2.dat};
+      \legend{linear,quadratic}
+  \end{axis}  
+  \end{tikzpicture}
+ \caption{Strong scaling results for fixed problem size of $2M$ unknowns for \textit{mesh-free,matrix-free} FEM \mvec~ on an adaptive $4D$ tree on TACC's Stampede across 128 cores with linear and quadratic basis functions. Note that due to lack of explicit control over the grid size, runtime for the \mvec is reported per degree of freedom.}
+ \label{fig:ss_stampede2}
+\end{figure}

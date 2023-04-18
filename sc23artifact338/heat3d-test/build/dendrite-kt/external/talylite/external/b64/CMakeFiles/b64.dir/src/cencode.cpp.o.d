@@ -1,0 +1,4 @@
+dendrite-kt/external/talylite/external/b64/CMakeFiles/b64.dir/src/cencode.cpp.o: \
+ /work/08517/heisler/frontera/dendritenew/dendrite-kt/external/talylite/external/b64/src/cencode.cpp \
+ /usr/include/stdc-predef.h \
+ /work/08517/heisler/frontera/dendritenew/dendrite-kt/external/talylite/external/b64/include/cencode.h

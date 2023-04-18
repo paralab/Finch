@@ -1,0 +1,122 @@
+% artifact description goes here. 
+\subsection{Getting and Compiling \dendrokt~}
+
+The \dendrokt~ simulation code is freely available at GitHub (link will be disclosed after review process) under the GNU General Public License (GPL). 
+The latest version of the code can be obtained by cloning the repository
+\begin{lstlisting}[language=bash]
+$ git clone https://gitxxx.com/XVI.git
+\end{lstlisting}
+
+The following dependencies are required to compile \dendrokt~
+\begin{itemize}
+	\item C/C++ compilers with C++11 standards and OpenMP support
+	\item MPI implementation (e.g. openmpi, mvapich2 )
+	\item ZLib compression library (used to write \texttt{.vtu} files in binary format with compression enabled)
+	\item BLAS and LAPACK are optional and not needed for current version of \dendrokt~
+	\item CMake 2.8 or higher version
+\end{itemize}
+
+\textbf{Note}: We have tested the compilation and execution of \dendrokt \ with \texttt{intel}, \texttt{gcc} 4.8 or higher, \texttt{openmpi}, \texttt{mpich2} and \texttt{intelmpi} and \texttt{craympi} (in \Titan) using the linux operating systems. 
+
+To compile the code, execute these commands
+\begin{lstlisting}[language=bash]
+$ cd <path to XVI directory >
+$ mkdir build
+$ cd build
+$ ccmake ../      
+\end{lstlisting}
+The following options for \dendrokt~   can then be set in cmake:
+\begin{itemize}
+	\item \texttt{XVI\_COMPUTE\_CONSTRAINTS} : Enables the computation of Hamiltonian and momentum constraints
+	\item \texttt{XVI\_CONSEC\_COMM\_SELECT}  : If \texttt{ON} sub-communicators are selected from consecrative global ranks, otherwise sub-communicators are selected complete binary tree of global ranks (note that in this case global communicator size need to a power of 2).
+	\item \texttt{XVI\_ENABLE\_VTU\_CONSTRAINT\_OUT} : Enables constraint variable output while time-stepping 
+	\item \texttt{XVI\_ENABLE\_VTU\_OUTPUT} : Enables evolution variable output while time-stepping
+	\item \texttt{XVI\_VTK\_BINARY} : If \texttt{ON} vtu files are written in binary format, else ASCII format (binary format recommended).
+	\item \texttt{XVI\_VTK\_ZLIB\_COMPRES} : If \texttt{ON} binary format is compressed (only effective if \texttt{XVI\_VTK\_BINARY} is \texttt{ON})
+	\item \texttt{HILBERT\_ORDERING} : Hilbert SFC used if \texttt{ON}, otherwise Morton curve is used. (Hilbert curve is recommended to reduce the communication cost.)
+	\item \texttt{NUM\_NPES\_THRESHOLD} : When running in large scale set this to $\sqrt{p}$ where $p$ number of mpi tasks for better performance.
+	\item \texttt{RK\_SOLVER\_OVERLAP\_COMM\_AND\_COM} : If \texttt{ON} non blocking communication is used and enable overlapping of communication and computation \textit{unzip} (recommended option), otherwise blocking synchronized \textit{unzip} is used.  	
+\end{itemize}
+
+After configuring \dendrokt, generate the Makefile (use \texttt{c} to configure and \texttt{g} to generate). Then execute \texttt{make all} to build all the targets.
+
+\subsection{\Stampede~ compute node configuration}
+%NUMA node0 CPU(s):     0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,58,60,62,64,66,68,70,72,74,76,78,80,82,84,86,88,90,92,94
+%NUMA node1 CPU(s):     1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35,37,39,41,43,45,47,49,51,53,55,57,59,61,63,65,67,69,71,73,75,77,79,81,83,85,87,89,91,93,95
+\begin{verbatim}
+    TACC_SYSTEM=stampede2
+    Architecture:          x86_64
+    CPU op-mode(s):        32-bit, 64-bit
+    Byte Order:            Little Endian
+    CPU(s):                96
+    On-line CPU(s) list:   0-95
+    Thread(s) per core:    2
+    Core(s) per socket:    24
+    Socket(s):             2
+    NUMA node(s):          2
+    Vendor ID:             GenuineIntel
+    CPU family:            6
+    Model:                 85
+    Model name:Intel(R)Xeon(R)
+    Platinum 8160 CPU @ 2.10GHz
+    Stepping:              4
+    CPU MHz:               2100.000
+    BogoMIPS:              4200.00
+    Virtualization:        VT-x
+    L1d cache:             32K
+    L1i cache:             32K
+    L2 cache:              1024K
+    L3 cache:              33792K
+    
+    MemTotal:       196438176 kB
+    MemFree:        191589692 kB
+    MemAvailable:   190917852 kB
+    Buffers:               0 kB
+    Cached:            62136 kB
+    SwapCached:            0 kB
+    Active:           112696 kB
+    Inactive:          39060 kB
+    Active(anon):      89860 kB
+    Inactive(anon):    10816 kB
+    Active(file):      22836 kB
+    Inactive(file):    28244 kB
+    Unevictable:           0 kB
+    Mlocked:               0 kB
+    SwapTotal:             0 kB
+    SwapFree:              0 kB
+    Dirty:                24 kB
+    Writeback:             0 kB
+    AnonPages:         88792 kB
+    Mapped:            34516 kB
+    Shmem:             10892 kB
+    Slab:            1596960 kB
+    SReclaimable:     172696 kB
+    SUnreclaim:      1424264 kB
+    KernelStack:       23440 kB
+    PageTables:         6336 kB
+    NFS_Unstable:          0 kB
+    Bounce:                0 kB
+    WritebackTmp:          0 kB
+    CommitLimit:    182687500 kB
+    Committed_AS:     475580 kB
+    VmallocTotal:   34359738367 kB
+    VmallocUsed:     1826376 kB
+    VmallocChunk:   34256930848 kB
+    HardwareCorrupted:     0 kB
+    AnonHugePages:     16384 kB
+    CmaTotal:              0 kB
+    CmaFree:               0 kB
+    HugePages_Total:       0
+    HugePages_Free:        0
+    HugePages_Rsvd:        0
+    HugePages_Surp:        0
+    Hugepagesize:       2048 kB
+    DirectMap4k:      646976 kB
+    DirectMap2M:     8402944 kB
+    DirectMap1G:    192937984 kB
+\end{verbatim}
+
+
+\subsection{4D-Hilbert curve}
+\label{subsec:4d_hilbert}
+\input{AD_hilbert4d.tex}

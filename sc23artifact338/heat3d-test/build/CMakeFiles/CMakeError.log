@@ -1,0 +1,18 @@
+Determining if the function sgemm_ exists failed with the following output:
+Change Dir: /work/08517/heisler/frontera/dendritenew/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/gmake -f Makefile cmTC_2c21e/fast && /usr/bin/gmake  -f CMakeFiles/cmTC_2c21e.dir/build.make CMakeFiles/cmTC_2c21e.dir/build
+gmake[1]: Entering directory `/work2/08517/heisler/frontera/dendritenew/build/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_2c21e.dir/CheckFunctionExists.c.o
+/opt/intel/compilers_and_libraries_2020.4.304/linux/mpi/intel64/bin/mpiicc   -qopenmp -DCHECK_FUNCTION_EXISTS=sgemm_ -MD -MT CMakeFiles/cmTC_2c21e.dir/CheckFunctionExists.c.o -MF CMakeFiles/cmTC_2c21e.dir/CheckFunctionExists.c.o.d -o CMakeFiles/cmTC_2c21e.dir/CheckFunctionExists.c.o -c /opt/apps/cmake/3.24.2/share/cmake-3.24/Modules/CheckFunctionExists.c
+Linking C executable cmTC_2c21e
+/opt/apps/cmake/3.24.2/bin/cmake -E cmake_link_script CMakeFiles/cmTC_2c21e.dir/link.txt --verbose=1
+/opt/intel/compilers_and_libraries_2020.4.304/linux/mpi/intel64/bin/mpiicc  -qopenmp -DCHECK_FUNCTION_EXISTS=sgemm_ -rdynamic CMakeFiles/cmTC_2c21e.dir/CheckFunctionExists.c.o -o cmTC_2c21e 
+/opt/apps/gcc/8.3.0/bin/ld: CMakeFiles/cmTC_2c21e.dir/CheckFunctionExists.c.o: in function `main':
+CheckFunctionExists.c:(.text+0x40): undefined reference to `sgemm_'
+gmake[1]: *** [cmTC_2c21e] Error 1
+gmake[1]: Leaving directory `/work2/08517/heisler/frontera/dendritenew/build/CMakeFiles/CMakeTmp'
+gmake: *** [cmTC_2c21e/fast] Error 2
+
+
+

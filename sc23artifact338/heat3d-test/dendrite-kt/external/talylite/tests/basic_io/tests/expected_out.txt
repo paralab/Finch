@@ -1,0 +1,196 @@
+*****Using default values for all (should all print)
+(cout) These items go to default streams
+[INFO] I'm INFO number 1 printed on default
+[LOG] I'm LOG number 1 printed on default
+[STAT] I'm STATUS number 1 printed on default
+
+(cout) These items go to std::cout streams
+[ERROR] I'm ERROR number 2 printed on cout
+[INFO] I'm INFO number 2 printed on cout
+[LOG] I'm LOG number 2 printed on cout
+[STAT] I'm STATUS number 2 printed on cout
+[WARNING] I'm WARNING number 2 printed on cout
+
+(cout) These items go to std::cerr streams
+
+(cout) Labeled blanks on default streams:
+[INFO] 
+[LOG] 
+[STAT] 
+(cout) These items go to default streams (added spaces)
+[INFO] I'm INFO number  4  printed on cerr
+[LOG] I'm LOG number  4  printed on cerr
+[STAT] I'm STATUS number  4  printed on cerr
+
+[INFO] next are items of different types to test the templating and variadic arguments.
+[INFO] an int: 12, a double: 34.56, a string: I'm a string!, a c style string: I'm a c string!, a boolean: 1, a simple object (a date): 11/5/2013, a new line: 
+
+[INFO] Use comma as separator for list.
+[WARNING] 1,2,3,4,5
+*****Turning off ERROR (should have no effect and be same as above)
+(cout) These items go to default streams
+[INFO] I'm INFO number 1 printed on default
+[LOG] I'm LOG number 1 printed on default
+[STAT] I'm STATUS number 1 printed on default
+
+(cout) These items go to std::cout streams
+[ERROR] I'm ERROR number 2 printed on cout
+[INFO] I'm INFO number 2 printed on cout
+[LOG] I'm LOG number 2 printed on cout
+[STAT] I'm STATUS number 2 printed on cout
+[WARNING] I'm WARNING number 2 printed on cout
+
+(cout) These items go to std::cerr streams
+
+(cout) Labeled blanks on default streams:
+[INFO] 
+[LOG] 
+[STAT] 
+(cout) These items go to default streams (added spaces)
+[INFO] I'm INFO number  4  printed on cerr
+[LOG] I'm LOG number  4  printed on cerr
+[STAT] I'm STATUS number  4  printed on cerr
+
+[INFO] next are items of different types to test the templating and variadic arguments.
+[INFO] an int: 12, a double: 34.56, a string: I'm a string!, a c style string: I'm a c string!, a boolean: 1, a simple object (a date): 11/5/2013, a new line: 
+
+[INFO] Use comma as separator for list.
+[WARNING] 1,2,3,4,5
+*****Turning on everything (should be same as above, except input echo)
+(cout) These items go to default streams
+[INFO] I'm INFO number 1 printed on default
+[LOG] I'm LOG number 1 printed on default
+[STAT] I'm STATUS number 1 printed on default
+
+(cout) These items go to std::cout streams
+[ERROR] I'm ERROR number 2 printed on cout
+[INFO] I'm INFO number 2 printed on cout
+[LOG] I'm LOG number 2 printed on cout
+[STAT] I'm STATUS number 2 printed on cout
+[WARNING] I'm WARNING number 2 printed on cout
+
+(cout) These items go to std::cerr streams
+
+(cout) Labeled blanks on default streams:
+[INFO] 
+[LOG] 
+[STAT] 
+(cout) These items go to default streams (added spaces)
+[INFO] I'm INFO number  4  printed on cerr
+[LOG] I'm LOG number  4  printed on cerr
+[STAT] I'm STATUS number  4  printed on cerr
+
+[INFO] next are items of different types to test the templating and variadic arguments.
+[INFO] an int: 12, a double: 34.56, a string: I'm a string!, a c style string: I'm a c string!, a boolean: 1, a simple object (a date): 11/5/2013, a new line: 
+
+[INFO] Use comma as separator for list.
+[WARNING] 1,2,3,4,5
+*****Turning off INFO
+(cout) These items go to default streams
+[LOG] I'm LOG number 1 printed on default
+[STAT] I'm STATUS number 1 printed on default
+
+(cout) These items go to std::cout streams
+[ERROR] I'm ERROR number 2 printed on cout
+[LOG] I'm LOG number 2 printed on cout
+[STAT] I'm STATUS number 2 printed on cout
+[WARNING] I'm WARNING number 2 printed on cout
+
+(cout) These items go to std::cerr streams
+
+(cout) Labeled blanks on default streams:
+[LOG] 
+[STAT] 
+(cout) These items go to default streams (added spaces)
+[LOG] I'm LOG number  4  printed on cerr
+[STAT] I'm STATUS number  4  printed on cerr
+
+[WARNING] 1,2,3,4,5
+*****Turning off LOG
+(cout) These items go to default streams
+[INFO] I'm INFO number 1 printed on default
+[STAT] I'm STATUS number 1 printed on default
+
+(cout) These items go to std::cout streams
+[ERROR] I'm ERROR number 2 printed on cout
+[INFO] I'm INFO number 2 printed on cout
+[STAT] I'm STATUS number 2 printed on cout
+[WARNING] I'm WARNING number 2 printed on cout
+
+(cout) These items go to std::cerr streams
+
+(cout) Labeled blanks on default streams:
+[INFO] 
+[STAT] 
+(cout) These items go to default streams (added spaces)
+[INFO] I'm INFO number  4  printed on cerr
+[STAT] I'm STATUS number  4  printed on cerr
+
+[INFO] next are items of different types to test the templating and variadic arguments.
+[INFO] an int: 12, a double: 34.56, a string: I'm a string!, a c style string: I'm a c string!, a boolean: 1, a simple object (a date): 11/5/2013, a new line: 
+
+[INFO] Use comma as separator for list.
+[WARNING] 1,2,3,4,5
+*****Turning off STAT
+(cout) These items go to default streams
+[INFO] I'm INFO number 1 printed on default
+[LOG] I'm LOG number 1 printed on default
+
+(cout) These items go to std::cout streams
+[ERROR] I'm ERROR number 2 printed on cout
+[INFO] I'm INFO number 2 printed on cout
+[LOG] I'm LOG number 2 printed on cout
+[WARNING] I'm WARNING number 2 printed on cout
+
+(cout) These items go to std::cerr streams
+
+(cout) Labeled blanks on default streams:
+[INFO] 
+[LOG] 
+(cout) These items go to default streams (added spaces)
+[INFO] I'm INFO number  4  printed on cerr
+[LOG] I'm LOG number  4  printed on cerr
+
+[INFO] next are items of different types to test the templating and variadic arguments.
+[INFO] an int: 12, a double: 34.56, a string: I'm a string!, a c style string: I'm a c string!, a boolean: 1, a simple object (a date): 11/5/2013, a new line: 
+
+[INFO] Use comma as separator for list.
+[WARNING] 1,2,3,4,5
+*****Turning off WARN
+(cout) These items go to default streams
+[INFO] I'm INFO number 1 printed on default
+[LOG] I'm LOG number 1 printed on default
+[STAT] I'm STATUS number 1 printed on default
+
+(cout) These items go to std::cout streams
+[ERROR] I'm ERROR number 2 printed on cout
+[INFO] I'm INFO number 2 printed on cout
+[LOG] I'm LOG number 2 printed on cout
+[STAT] I'm STATUS number 2 printed on cout
+
+(cout) These items go to std::cerr streams
+
+(cout) Labeled blanks on default streams:
+[INFO] 
+[LOG] 
+[STAT] 
+(cout) These items go to default streams (added spaces)
+[INFO] I'm INFO number  4  printed on cerr
+[LOG] I'm LOG number  4  printed on cerr
+[STAT] I'm STATUS number  4  printed on cerr
+
+[INFO] next are items of different types to test the templating and variadic arguments.
+[INFO] an int: 12, a double: 34.56, a string: I'm a string!, a c style string: I'm a c string!, a boolean: 1, a simple object (a date): 11/5/2013, a new line: 
+
+[INFO] Use comma as separator for list.
+*****Turning off everything (only ERROR and (cout)/(cerr) should print)
+(cout) These items go to default streams
+
+(cout) These items go to std::cout streams
+[ERROR] I'm ERROR number 2 printed on cout
+
+(cout) These items go to std::cerr streams
+
+(cout) Labeled blanks on default streams:
+(cout) These items go to default streams (added spaces)
+

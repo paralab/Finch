@@ -1,0 +1,17 @@
+## general options
+ifPrintStat = False
+ifDD = False
+
+## FEM options
+basisFunction = "quadratic"
+basisRelativeOrder = 0
+
+## optimization options
+use_elemental_assembly = True
+
+Nelemy = 20
+Nelemx = 20
+Nelemz = 20
+Lz = 1
+Lx = 1
+Ly = 1

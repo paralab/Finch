@@ -1,0 +1,94 @@
+
+dt = 0.01
+nSteps = 1
+totalT = 0.01
+
+timeStepper="BDF2"
+solverType = "rbvms"
+matrixFree = false
+
+# The full background mesh
+elemOrder = 1
+background_mesh = {
+    refineLevel = 5
+    refineLevel_channel_wall = 5
+    min = [0.0, 0.0, 0.0]
+    max = [1.0, 0.775294, 0.985516]
+    refine_walls = [false, false, false, false, false, false]
+}
+
+# penalty
+Cb_e = 200
+
+### Carved out sub-mesh
+geometries = (
+    {
+    mesh_path = "bunny.stl"
+    name = "bunny"
+    type = "meshobject"
+    position = [0.0, 0.0, 0.0]
+    refineLevel = 9
+    bc_type_V = ["sbm"]
+    bid_V = [1]
+    outer_boundary = true
+    is_static = true
+    }
+
+)
+
+### wall BCs
+boundary = ( # whole domain
+  {
+    side = "x-"
+    bc_type = "sbm"
+    ifRefine = true
+  },
+  {
+    side = "x+"
+    bc_type = "sbm"
+    ifRefine = true
+  },
+  {
+    side = "y-"
+    bc_type = "sbm"
+    ifRefine = true
+  },
+  {
+    side = "y+"
+    bc_type = "sbm"
+    ifRefine = true
+  },
+  {
+    side = "z-"
+    bc_type = "sbm"
+    ifRefine = true
+  },
+  {
+    side = "z+"
+    bc_type = "sbm"
+    ifRefine = true
+  }
+)
+
+# This may be used later
+region_refine = (
+
+)
+
+# Output
+OutputStartTime = 0
+OutputInterval = 1
+SurfaceMonitor = [2]
+
+#################### solver setting ####################
+solver_options = {
+    ksp_max_it = 1000
+    ksp_type = "bcgs"
+    pc_type = "bjacobi"
+    ksp_atol = 1e-8
+    ksp_rtol = 1e-8
+    ksp_monitor = ""
+    ksp_converged_reason = ""
+}
+    
+

@@ -5,27 +5,28 @@ using Plots
 pyplot();
 
 # number of processes/GPUs
-cpu_np = [55,40,20,10,5,2,1];
-gpu_np = [8,4,2,1];
+np = [512,256,128,64,32,16,8,4,2,1];
 
 # solve time read from file
-cpu_time = zeros(7);
-gpu_time = zeros(4);
-file = open("solvetime.txt", "r")
+time = zeros(10);
+ideal = zeros(10);
+file = open("heat3d-test/solvetime.txt", "r")
 lines = readlines(file);
-for i=1:7
-    cpu_time[i] = parse(Float64, lines[i])
-end
-for i=1:4
-    gpu_time[i] = parse(Float64, lines[i+7])
+for i=1:10
+    time[i] = parse(Float64, lines[i]);
 end
 close(file);
 
+ideal[10] = time[10];
+for i=9:-1:1
+    ideal[i] = ideal[i+1]/2;
+end
+
 # Create plot
-p1 = plot([cpu_np, gpu_np], [cpu_time, gpu_time], shape=[:circle :utriangle], ms=[6 6], 
-            xticks=([1,2,4,8,16,32,64],["1","2","4","8","16","32","64"]), xscale=:log2, yscale=:log2,
-            label=["CPU-only" "GPU"])
-xlabel!("Number of processes/GPUs")
-ylabel!("Solve time(s)")
+p1 = plot(np, [time ideal], shape=[:circle :circle], ms=[6 3], 
+            xticks=([1,2,4,8,16,32,64,128,256,512],["1","2","4","8","16","32","64","128","256","512"]), xscale=:log2, yscale=:log2,
+            label=["time" "ideal"])
+xlabel!("Number of processes")
+ylabel!("Execution time(s)")
 
 png(p1, "results.png")

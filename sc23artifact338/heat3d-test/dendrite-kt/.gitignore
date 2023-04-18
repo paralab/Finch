@@ -1,0 +1,17 @@
+.idea/
+.vscode/
+build*/
+cmake-build*/
+io*/
+result*/
+admin/variables.sh
+run/*.plt
+run/*.dat
+*.msh
+gmshfiles/*.msh
+run/*.msh
+IO/*
+*.*vtu
+regression_tests/
+
+__pycache__

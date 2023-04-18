@@ -1,0 +1,318 @@
+\usepackage{xcolor} 
+\usepackage[noend]{algpseudocode}
+\usepackage{array}
+\usepackage{amsfonts}
+%\usepackage{graphicx}
+\usepackage{epstopdf}
+\usepackage{amssymb}
+\usepackage{tikz,pgfplots}
+\usetikzlibrary{snakes,arrows,shapes,trees}
+\usepackage[position=top,aboveskip=5pt,labelformat=empty]{subfig}
+%\usepackage{amssymb,amsmath,amsthm}
+\usepackage{amsopn}
+\usepackage{listings}
+\usepackage{adjustbox}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{minted}
+\usepackage{amssymb}
+\usepackage{pgfplots}
+\usepackage{pgfplotstable}
+\usetikzlibrary{arrows,shapes,plotmarks}
+\pgfplotsset{compat=1.8}
+\usepackage{soul}
+\usepackage{rotating}
+\usepackage{url}
+\usepackage{algorithm}
+\usepackage{enumitem}
+
+
+\newcommand{\mynote}[3]{
+	\textcolor{#2}{\fbox{\bfseries\sffamily\scriptsize#1}}
+		{\small$\blacktriangleright$\textsf{\emph{#3}}$\blacktriangleleft$}
+}
+
+\newcommand{\bg}[1]{\mynote{Baskar}{magenta}{#1}}
+\newcommand{\hs}[1]{\mynote{Hari}{olive}{#1}}
+\newcommand{\ks}[1]{\mynote{Kumar}{blue}{#1}}
+\newcommand{\bk}[1]{\mynote{Biswajit}{teal}{#1}}
+\newcommand{\mi}[1]{\mynote{Masado}{lime}{#1}}
+\newcommand{\mf}[1]{\mynote{Milinda}{brown}{#1}}
+
+\newcommand{\stri}{sedectree} 
+\newcommand{\stra}{sedecant}
+
+\newcommand{\mvec}{\textsc{matvec}}
+\newcommand{\sfcmvec}{\textsc{SFC-MATVEC}}
+\newcommand{\tsort}{\textsc{TreeSort}}
+\newcommand{\tsearch}{\textsc{TreeSearch}}
+\newcommand{\tcons}{\textsc{TreeConstruction}}
+\newcommand{\dtcons}{\textsc{DistTreeConstruction}}
+\newcommand{\taux}{\textsc{AuxiliaryOctants}}
+\newcommand{\tbal}{\textsc{TreeBalancing}}
+\newcommand{\tdbal}{\textsc{DistTreeBalancing}}
+\newcommand{\tghost}{\textsc{ComputeGhostElements}}
+\newcommand{\teToe}{\textsc{BuildE2E}}
+\newcommand{\teTon}{\textsc{BuildE2N}}
+
+\newcommand{\dendrokt}{\textsc{XVI}}
+
+\newcommand{\hilbertcurve}{\textsc{Hilbert}}
+\newcommand{\mortoncurve}{\textsc{Morton}}
+
+
+\newcommand{\tsortmodified}{\textsc{TreeSortModified}}
+\newcommand{\dtsortmodified}{\textsc{DistTreeSortModified}}
+\newcommand{\tbucket}{\textsc{SFC\_Bucketing}}
+\newcommand{\maxDepth}{\textsc{maxdepth}}
+%\newcommand{\tsort_cons}{\textsc{OctreeConstruction}}
+\newcommand{\ssort}{\textsc{SampleSort}}
+\newcommand{\dsort}{\textsc{DistTreeSort}}
+\newcommand{\note}[1]{\noindent\emph{\textcolor{purple}{hs: #1}}}
+%\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+%\algrenewcommand\algorithmicensure{\textbf{Output:}}
+%\algrenewcommand\algorithmicforall{\textbf{parallel for}}
+
+\newcommand{\Intel}{Intel\textsuperscript{\textregistered}\xspace}
+\newcommand{\snb}{Xeon\texttrademark\xspace}
+\newcommand{\xphi}{Xeon Phi\texttrademark\xspace}
+\newcommand{\Summit}{\href{https://www.olcf.ornl.gov/summit/}{Summit}}
+\newcommand{\Aurora}{\href{http://aurora.alcf.anl.gov/}{Aurora}}
+\newcommand{\Stampede}{\href{https://www.tacc.utexas.edu/systems/stampede2}{Stampede2}}
+\newcommand{\Titan}{\href{https://www.olcf.ornl.gov/titan/}{Titan}}
+\newcommand{\petsc}{\href{https://www.mcs.anl.gov/petsc/}{PETSc}}
+
+\newcommand{\octdomain}{\mathcal{N}^3}
+%%
+
+\newcommand{\Tau}{\mathcal{T}}
+
+\newdimen\HilbertLastX
+\newdimen\HilbertLastY
+\newcounter{HilbertOrder}
+
+\def\DrawToNext#1#2{%
+  \advance \HilbertLastX by #1
+  \advance \HilbertLastY by #2
+  \pgfpathlineto{\pgfqpoint{\HilbertLastX}{\HilbertLastY}}
+  % Alternative implementation using plot streams:
+  % \pgfplotstreampoint{\pgfqpoint{\HilbertLastX}{\HilbertLastY}}
+}
+
+% \Hilbert[right_x,right_y,left_x,left_x,up_x,up_y,down_x,down_y]
+\def\Hilbert[#1,#2,#3,#4,#5,#6,#7,#8] {
+  \ifnum\value{HilbertOrder} > 0%
+  \addtocounter{HilbertOrder}{-1}
+  \Hilbert[#5,#6,#7,#8,#1,#2,#3,#4]
+  \DrawToNext {#1} {#2}
+  \Hilbert[#1,#2,#3,#4,#5,#6,#7,#8]
+  \DrawToNext {#5} {#6}
+  \Hilbert[#1,#2,#3,#4,#5,#6,#7,#8]
+  \DrawToNext {#3} {#4}
+  \Hilbert[#7,#8,#5,#6,#3,#4,#1,#2]
+  \addtocounter{HilbertOrder}{1}
+  \fi
+}
+
+% \hilbert((x,y),order)
+\def\hilbert((#1,#2),#3){%
+  \advance \HilbertLastX by #1
+  \advance \HilbertLastY by #2
+  \pgfpathmoveto{\pgfqpoint{\HilbertLastX}{\HilbertLastY}}
+  % Alternative implementation using plot streams:
+  % \pgfplothandlerlineto
+  % \pgfplotstreamstart
+  % \pgfplotstreampoint{\pgfqpoint{\HilbertLastX}{\HilbertLastY}}
+  \setcounter{HilbertOrder}{#3}
+  \Hilbert[1mm,0mm,-1mm,0mm,0mm,1mm,0mm,-1mm]
+  \pgfusepath{stroke}%
+}
+
+
+\ifpdf
+  \DeclareGraphicsExtensions{.eps,.pdf,.png,.jpg}
+\else
+  \DeclareGraphicsExtensions{.eps}
+\fi
+
+%strongly recommended
+%\numberwithin{theorem}{section}
+
+\definecolor{cpu3}{HTML}{F44336}
+\definecolor{cpu4}{HTML}{2196F3}
+\definecolor{cpu1}{HTML}{4CAF50}
+\definecolor{cpu2}{HTML}{FFC107}
+\definecolor{gpu3}{HTML}{EF9A9A}
+\definecolor{gpu4}{HTML}{90CAF9}
+\definecolor{gpu1}{HTML}{A5D6A7}
+\definecolor{gpu2}{HTML}{FFE082}
+
+\definecolor{cpu5}{HTML}{9932CC}
+
+\definecolor{sq_b1}{RGB}{37,52,148}
+\definecolor{sq_b2}{RGB}{44,127,184}
+\definecolor{sq_b3}{RGB}{65,182,196}
+\definecolor{sq_b4}{RGB}{127,205,187}
+\definecolor{sq_b5}{RGB}{199,233,180}
+\definecolor{sq_b6}{RGB}{255,255,204}
+
+\definecolor{sq_r1}{RGB}{189,0,38}
+\definecolor{sq_r2}{RGB}{240,59,32}
+\definecolor{sq_r3}{RGB}{253,141,60}
+\definecolor{sq_r4}{RGB}{254,178,76}
+\definecolor{sq_r5}{RGB}{254,217,118}
+\definecolor{sq_r6}{RGB}{255,255,178}
+
+\definecolor{sq_g1}{RGB}{0,104,55}
+\definecolor{sq_g2}{RGB}{49,163,84}
+\definecolor{sq_g3}{RGB}{120,198,121}
+\definecolor{sq_g4}{RGB}{173,221,142}
+\definecolor{sq_g5}{RGB}{217,240,163}
+\definecolor{sq_g6}{RGB}{255,255,204}
+
+
+\definecolor{div_c1}{RGB}{230,171,2}
+\definecolor{div_c2}{RGB}{102,166,30}
+\definecolor{div_c3}{RGB}{231,41,138}
+\definecolor{div_c4}{RGB}{117,112,179}
+\definecolor{div_c5}{RGB}{217,95,2}
+\definecolor{div_c6}{RGB}{27,158,119}
+\definecolor{div_c7}{RGB}{215,48,39}
+
+\definecolor{div_d1}{RGB}{215,25,28}
+\definecolor{div_d2}{RGB}{253,174,97}
+\definecolor{div_d3}{RGB}{255,255,191}
+\definecolor{div_d4}{RGB}{171,217,233}
+\definecolor{div_d5}{RGB}{44,123,182}
+
+
+
+
+\definecolor{lineclr}{RGB}{0,0,0}
+\definecolor{utorange}{RGB}{0,0,255}
+\definecolor{utsecblue}{RGB}{255,255,0}
+\definecolor{utsecgreen}{RGB}{255,0,0}
+\definecolor{red!15}{RGB}{0,255,255}
+\definecolor{fillclr5}{RGB}{0,255,0}
+\definecolor{fillclr6}{RGB}{255,0,255}
+\definecolor{fillclr7}{RGB}{255,255,255}
+\definecolor{fillclr8}{RGB}{0,0,0}
+
+
+
+
+
+\def\drawcubeI(#1,#2,#3,#4,#5){ % x,y,z,sz,line color
+\coordinate (O) at (#1,#2,#3);
+\coordinate (A) at (#1,#2+#4,#3);
+\coordinate (B) at (#1,#2+#4,#3+#4);
+\coordinate (C) at (#1,#2,#3+#4);
+\coordinate (D) at (#1+#4,#2,#3);
+\coordinate (E) at (#1+#4,#2+#4,#3);
+\coordinate (F) at (#1+#4,#2+#4,#3+#4);
+\coordinate (G) at (#1+#4,#2,#3+#4);
+\draw[#5] (O) -- (C) -- (G) -- (D) -- cycle;% Bottom Face
+\draw[#5] (O) -- (A) -- (E) -- (D) -- cycle;% Back Face
+\draw[#5] (O) -- (A) -- (B) -- (C) -- cycle;% Left Face
+\draw[#5] (D) -- (E) -- (F) -- (G) -- cycle;% Right Face
+\draw[#5] (C) -- (B) -- (F) -- (G) -- cycle;% Front Face
+\draw[#5] (A) -- (B) -- (F) -- (E) -- cycle;% Top Face
+}
+
+
+\def\drawcubeII(#1,#2,#3,#4,#5,#6,#7){ % x,y,z,sz,line color,fill color,opacity
+\coordinate (O) at (#1,#2,#3);
+\coordinate (A) at (#1,#2+#4,#3);
+\coordinate (B) at (#1,#2+#4,#3+#4);
+\coordinate (C) at (#1,#2,#3+#4);
+\coordinate (D) at (#1+#4,#2,#3);
+\coordinate (E) at (#1+#4,#2+#4,#3);
+\coordinate (F) at (#1+#4,#2+#4,#3+#4);
+\coordinate (G) at (#1+#4,#2,#3+#4);
+\draw[#5,fill=#6,opacity=#7] (O) -- (C) -- (G) -- (D) -- cycle;% Bottom Face
+\draw[#5,fill=#6,opacity=#7] (O) -- (A) -- (E) -- (D) -- cycle;% Back Face
+\draw[#5,fill=#6,opacity=#7] (O) -- (A) -- (B) -- (C) -- cycle;% Left Face
+\draw[#5,fill=#6,opacity=#7] (D) -- (E) -- (F) -- (G) -- cycle;% Right Face
+\draw[#5,fill=#6,opacity=#7] (C) -- (B) -- (F) -- (G) -- cycle;% Front Face
+\draw[#5,fill=#6,opacity=#7] (A) -- (B) -- (F) -- (E) -- cycle;% Top Face
+}
+
+
+
+
+\def\drawNodes(#1,#2,#3,#4,#5,#6,#7){ % x_min,x_max,y_min,y_max,z_min,z_max,min+stepSz
+\foreach \x in {#1,#7,...,#2}{
+	\foreach \y in {#3,#7,...,#4}{
+		\foreach \z in {#5,#7,...,#6}{
+				\draw[fill=red!60] (\x,\y,\z) circle (0.15);
+				}
+			}
+	}				
+		
+}
+
+
+\makeatletter
+\newcommand\resetstackedplots{
+\makeatletter
+\pgfplots@stacked@isfirstplottrue
+\makeatother
+\addplot [forget plot,draw=none] coordinates{(16,0) (32,0) (64,0) (128,0) (256,0) (512,0) (1024,0) (2048,0) (4096,0) (8192,0) (16384,0) (32768,0) (65536,0) (131072,0) (262144,0)};
+}
+\makeatother
+
+\makeatletter
+\newcommand\resetstackedplotsOne{
+\makeatletter
+\pgfplots@stacked@isfirstplottrue
+\makeatother
+\addplot [forget plot,draw=none] coordinates{(16,0) (32,0) (64,0) (128,0) (256,0) (512,0) (1024,0) (2048,0) (4096,0)};
+}
+\makeatother
+
+\makeatletter
+\newcommand\resetstackedplotsTwo{
+\makeatletter
+\pgfplots@stacked@isfirstplottrue
+\makeatother
+\addplot [forget plot,draw=none] coordinates{(16,0) (32,0) (64,0) (128,0) (256,0) (512,0) (1024,0) (2048,0) (4096,0) (8192,0) (16384,0) (32768,0)};
+}
+\makeatother
+
+
+\makeatletter
+\newcommand\resetstackedplotsThree{
+\makeatletter
+\pgfplots@stacked@isfirstplottrue
+\makeatother
+\addplot [forget plot,draw=none] coordinates{(2,0) (4,0) (8,0) (16,0) (32,0) (64,0)};
+}
+\makeatother
+
+
+\makeatletter
+\newcommand\resetstackedplotsFour{
+\makeatletter
+\pgfplots@stacked@isfirstplottrue
+\makeatother
+\addplot [forget plot,draw=none] coordinates{(4,0) (8,0) (16,0) (32,0) (64,0)};
+}
+\makeatother
+
+\makeatletter
+\newcommand\resetstackedplotsFive{
+\makeatletter
+\pgfplots@stacked@isfirstplottrue
+\makeatother
+\addplot [forget plot,draw=none] coordinates{(1,0) (2,0) (4,0) (8,0) (16,0) (32,0) (64,0) (128,0)};
+}
+\makeatother
+
+\makeatletter
+\newcommand\resetstackedplotsSix{
+\makeatletter
+\pgfplots@stacked@isfirstplottrue
+\makeatother
+\addplot [forget plot,draw=none] coordinates{(2,0) (4,0) (8,0) (16,0) (32,0) (64,0) (128,0)};
+}
+\makeatother

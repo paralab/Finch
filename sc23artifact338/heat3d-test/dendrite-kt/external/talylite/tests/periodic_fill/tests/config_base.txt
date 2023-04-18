@@ -1,0 +1,22 @@
+ifPrintStat = False
+ifPrintInfo = True
+ifBoxGrid = True
+orderOfBF = 1
+ifDD = False
+Lx = 1
+Nelemx = 3
+Ly = 1
+Nelemy = 3
+Lz = 1
+Nelemz = 3
+typeOfIC = 1
+
+#nsd = 3
+#nDoF = 5
+#nPerBounds = 2
+#nPerVars = 3
+#perBounds1 = 2
+#perBounds2 = 6
+#perVars1 = 2
+#perVars2 = 0
+#perVars3 = 4

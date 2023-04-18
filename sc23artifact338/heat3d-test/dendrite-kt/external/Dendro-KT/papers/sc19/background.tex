@@ -1,0 +1,77 @@
+% background goes here. 
+
+We present here a brief mathematical formulation of our canonical problem - the time dependent linear heat diffusion equation - in the space-time setting. We define our spatial domain as $U \in \mathbb{R}^n$, where $U$ is an open and bounded domain, with $n = 1, 2, \text{or} 3$. We consider the time horizon $I_{_T} = (0,T\in \mathbb{R^+})$ is a bounded time interval. Then we define the space-time domain as the Cartesian product of these two domains, $\Omega = U \times I_{_T} = U\times(0,T)$. Denote the overall boundary of this space-time domain as $\Gamma = \partial \Omega$. In particular, the spatial domain boundary is defined as $\Gamma_{_U} = \partial U \times (0,T)$ and the time boundaries are defined as $\Gamma_{_0} = U\times\{0\}$ and $\Gamma_{_T} = U\times\{T\}$ which are the initial and final time boundaries respectively. Note that $\Gamma = \Gamma_{_U}\cup\Gamma_{_0}\cup\Gamma_{_T}$. Finally we also define the closure of $\Omega$ as $\bar{\Omega} = \Omega \cup \Gamma$
+
+The canonical equation we are interested is the following equation for the scalar space-time field $u: \Omega \rightarrow \mathbb{R}$:
+\begin{subequations}\label{eq:linearheat}
+\begin{align}
+    \partial_t u - \nabla\cdot(\kappa\nabla u) &=f \quad \textrm{in}\quad\Omega\\
+u&=0\quad \textrm{on}\quad\Gamma_U\\
+u(\cdot,t_0)&=u_0\quad \textrm{on}\quad \Gamma_{0}
+\end{align}
+\end{subequations}
+where $f: \Omega \rightarrow \mathbb{R}$ is a smooth forcing function, $\kappa > 0$ has no dependence on $u$, and $\nabla$ denotes the spatial gradient operator. We assume that Dirichlet conditions are imposed on the boundary $\Gamma_U$. 
+%Also, $\nabla$ denotes the spatial gradient operator in $\mathbb{R}^n$, e.g., for $n=3$ we have,
+%\begin{equation}
+%    \nabla = \frac{\partial}{\partial x} +
+%    \frac{\partial}{\partial y} +
+%    \frac{\partial}{\partial z}
+%\end{equation}
+
+Next we define suitable function spaces for the trial and test functions used in the variational formulation. We define the space of the trial functions as $V_u = \left\{u\in H^1(\Omega): u|_{\Gamma_{_U}} = 0, u|_{_{\Gamma_0}} = u_0 \right\}$ and the space of the test functions as $V_v = \left\{v\in H^1(\Omega): v|_{\Gamma_{_U}\cup\Gamma_0} = 0\right\}$. The continuous variational problem problem is posed as follows: find $u\in V_u$ such that,
+\begin{equation}\label{eq:continuous-variational-form}
+    a(u, v) = l(v)\quad \forall v \in V_v
+\end{equation}
+where,
+\begin{align}\label{def:continuous-bilinear-form}
+    a(u,v) &= (\partial_t u, v) + (\kappa \nabla u, \nabla v)\\
+    l(v) &= (f,v)
+\end{align}
+Here $(\cdot,\cdot)$ denotes the usual inner product in $L^2(\Omega)$. Note that the inner product is over the space-time domain, $(a,b) = \int_0^T \int_U a.b dx dt$. The finite dimensional approximation of these spaces are denoted as $V^h_u$ and $V^h_v$, and 
+\begin{multline}
+    V^h_u := \{u^h \mid u^h \in H^1(\Omega), \quad u^h\in P(\Omega ^K) \quad \forall K,\\
+    \quad u^h|_{\Gamma_{_U}} = 0 \qquad\textrm{and}\quad u^h|_{\Gamma_{0}} = u_{0}\}
+\end{multline}
+\begin{align}
+    V^h_v := \{v^h \mid v^h \in H^1(\Omega), \quad v^h\in P(\Omega^K) \quad \forall K, \quad v^h|_{\Gamma_{_0}\cup\Gamma_{_U}} = 0\}
+\end{align}
+where $P(\Omega ^K)$ being the space of the standard polynomial finite element shape functions on element $\Omega^K$. 
+
+Numerical solutions to Equation~\ref{eq:linearheat} can exhibit numerical instabilities because the bilinear form $a(u,v)$ in Equation~\ref{eq:continuous-variational-form} is not strongly coercive in $V_u$. Therefore, following~\cite{langer2016space}, we add a correction term to the bilinear form making the the modified bilinear form stable. The discrete variational problem along with this stabilization is given by,
+\begin{equation}\label{eq:discrete-variational-form}
+    a(u^h, v^h) = l(v^h)\quad \forall v \in V_v
+\end{equation}
+\begin{multline}\label{def:discrete-bilinear-form}
+    a^h(u^h,v^h) = (\partial_t u^h, v^h) + \delta (\partial_t u^h, \partial_t v^h) + (\kappa \nabla u, \nabla v) \\
+     + \delta (\nabla u^h,\nabla \partial_t v^h)
+\end{multline}
+\begin{align}\label{def:discrete-linear-form}
+    l^h(v^h) &= (f,v^h) + \delta(f,\partial_t v^h)
+\end{align}
+for all $v^h \in V^h_v$. $\delta$ is a mesh dependent parameter proportional to the mesh size $h$.
+
+This discrete bilinear form is bounded and also coercive on $V^h_v$ with respect to the norm
+\begin{align}
+    \|u^h\|_{V_{u}} = \left[ \nabla u^h\|^2_{L^2(\Omega)} + \delta\|\partial_t u^h\|^2_{L^2(\Omega)} + \frac{1}{2}\|u^h\|^2_{L^2(\Gamma_{_T})} \right]
+\end{align}
+Since the linear form given by Equation~\ref{def:discrete-linear-form} is also bounded, the generalized Lax-Milgram Lemma guarantees a unique solution. 
+
+Denoting the solution to Equation~\ref{eq:continuous-variational-form} by $u$ and the solution to Equation~\ref{eq:discrete-variational-form} by $u^h$, we derive the \textit{a priori} error estimate as
+\begin{align}\label{estimate:a-priori}
+    \|u - u^h\|_{V^h_u} \leq Ch^{p+1}\|u\|_{H^{p+1}(\Omega)}
+\end{align}
+where $p$ is the highest degree of the polynomial space to which $u^h$ belongs, $h$ is the size of the space-time element, and some constant $C$. Note that this estimate guarantees high order temporal accuracy (essentially, equivalent to a $p+1$-th order time stepper) when using a $p^{th}$ order basis function. We numerically illustrate this powerful result in Fig.~\ref{fig:ST_conv}, where we solve a problem with a rotating heat source with an analytically known solution. We plot the $L_2$ error (over the space-time domain) between the analytical solution and the computed solution using different order of basis functions. The mesh convergence plots clearly illustrate the expected change in slope from linear to quadratic to cubic basis functions. This is equivalent to a sequential time stepper, specifically a multi-step Runge Kutta methods of order 2, 3 and 4, respectively.
+
+%[BG] Why is this statement needed? Note that, in all the numerical examples in this paper, the forcing function $f\in C^{\infty}(\Omega)$ , therefore $u\in C^{\infty}(\Omega)$ for the continuous problem.
+
+Finally, based on the calculated solution $u^h$, we can formulate an \textit{a posteriori} error estimate. We use the residual based approach~\cite{ainsworth_oden, verfurth2013} that associates an error estimate with each space-time element in the 4D tree. This error estimate will inform adaptive space-time refinement of the domain. The residual based \textit{a posteriori} error estimator for a space-time element $K$ is given by:
+\begin{align}
+    \eta_{_K}=\left\{h_K^2 \left\| \bar{f}_K+\nabla\cdot\kappa\nabla u_h - {\partial_t u_h}\right\|_K^2+\frac{1}{2}\sum_{E\in\mathcal{E}_{K}}h_E\left\|\mathbb{J}_E(\mathbf{n}_E\cdot\nabla u_h)\right\|_E^2\right\}^\frac{1}{2}
+\end{align}
+where $\mathcal{E}$ denotes the set of all edges of element $K$, $\mathbb{J}$ denotes the jump in the gradient of the solution $u^h$ across those edges and $\bar{f}_K$ denotes the average force value in the element $K$. This \textit{a posteriori} error is calculated elementwise and a suitable refinement strategy is adopted (see next section) for space-time mesh refinement. 
+
+We emphasize that while the conceptual formulation of a PDE solution strategy in space-time blocks is not new, the rigorous formulation of both {\it a priori} and {\it a posteriori} error estimates is a novel contribution. In particular, the {\it a priori} error estimates provide theoretical guarantees of enhanced convergence which serve as rigorous tests of our numerical implementation.
+
+%\hs{Please review this paragraph}
+In what follows, the finite element mesh is generated through a $kD$-tree based locally regular octant (for 3D) or \stra~(for 4D) objects (leaves in the $kD$-tree as explained later). This mesh is
+not explicitly saved as explained in the next section, and the mesh information is deduced on-the-fly. This is a very efficient way of implementing the continuous Galerkin method through a locally structured mesh. Each of the leaves in the $kD$-tree embodies a finite element which can then be projected onto a isoparametric space through an affine transformation. All calculations for the domain integration are performed in this isoparametric space and then transformed back to the physical space.  

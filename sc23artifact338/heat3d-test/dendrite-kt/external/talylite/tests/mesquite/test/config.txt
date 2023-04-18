@@ -1,0 +1,9 @@
+nsd = 2
+Nelemx = 40
+Nelemy = 40
+Lx = 1
+Ly = 1
+ifBoxGrid = False
+inputFilenameGrid = "hole_in_square.msh"
+ifDD = False
+ifLoadNodeIndicators = True

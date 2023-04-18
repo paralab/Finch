@@ -1,0 +1,3 @@
+# Hashes of file build rules.
+e116c9cc469db12fbc0f6a4ca1112084 dendrite-kt/external/talylite/CMakeFiles/talyfem-docs
+a3bb2cf79261760af71ae2c405258ac8 dendrite-kt/external/talylite/build_info_talyfem.h

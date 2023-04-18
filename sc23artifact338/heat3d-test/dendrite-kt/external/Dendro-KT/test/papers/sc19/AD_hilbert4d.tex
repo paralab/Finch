@@ -1,0 +1,27 @@
+A recursive definition of the Hilbert curve specifies a traversal of the unit hypercube in terms of sub-traversals of each child orthant.
+
+The recurrence rule must do two things. It must specify the order in which children are traversed; and it must also specify the orientations of the children's coordinate frames relative to the parent. Depending on these two specifications, various SFCs may be produced. Some of them can be considered valid extensions of the Hilbert curve. Exactly one of them, according to Haverkort, produces an interdimensionally consistent family of extensions to the Hilbert curve.
+
+To set the stage, assume a coordinate system for the unit $K$-cube, with axes numbered $i \in \{0,\dots,K-1\}$ and origin at the center of the $K$-cube. Magnitudes are irrelevant; we are concerned with the signs of coordinates only. We represent a coordinate tuple as a bit string, $x \in \mathbb{B}^K$, where $\mathbb{B} \equiv \{0,1\}$, `1' meaning `+' and `0' meaning `-'. Each child orthant has a unique coordinate string, relative to the parent frame, that, as an integer, is precisely the child number in lexicographic order: $c = \sum_i 2^{x_i}$.
+
+As for the traversal order, the Hilbert curve follows the ``reflected Gray code'' \cite{haverkort2012harmonious}. In our implementation, the $r^\text{th}$ visited child is
+\begin{equation*}
+  c \leftarrow (r >> 1) \textrm{ XOR } r
+\end{equation*}
+where ``>{}>'' is the bit-wise right shift operator and ``XOR'' is the bit-wise XOR operator.
+
+The orientation of the $r^\text{th}$ visited child is described by a permutation of, followed by reflections of, the parent coordinate axes. The axis permutation depends on the parity of $r$ and the coloring of axes as $r$ is read as a bit string. Starting from a reverse ordering of axes, if $r$ is even, then even-colored axes are collected in the back, but if $r$ is odd then odd-colored axes are collected in the back. The reflection $m$ of axes (a bit string, `1' meaning reflect) can be defined in terms of $c$ and $r$:
+\begin{equation*}
+  m \leftarrow ((r-1) >> 1) \textrm{ XOR } (r-1);
+\end{equation*}
+\begin{equation*}
+  m \leftarrow (m \textrm{ AND } -2) \textrm{ OR } ((\textrm{ NOT } c) \textrm{ AND } 1);
+\end{equation*}
+
+The above recurrence rule characterizes the SFC relative to a local coordinate frame. The final lookup table must describe the various orientations of the recurrence rule in terms of an absolute coordinate frame.
+
+To generate such a table we define a multiplication operator that transforms the recurrence rule to another coordinate frame, and then we fill out the group closure until all recurrence rules are defined in terms of previously computed recurrence rules. The base case is to take the absolute frame as the local frame, that is, the unmodified definition. The multiplication operator is
+\begin{equation*}
+  (MA)(ma) = MAm(A^{-1})(A)a = M(AmA^{-1})(Aa)
+\end{equation*}
+where $a$ and $A$ are axis permutations and $m$ and $M$ are axis reflections.

@@ -1,0 +1,6 @@
+[submodule "external/talylite"]
+	path = external/talylite	
+	url = https://bitbucket.org/baskargroup/talylite.git
+[submodule "external/ray_tracing"]
+	path = external/ray_tracing	
+	url = https://bitbucket.org/baskargroup/ray_tracing.git

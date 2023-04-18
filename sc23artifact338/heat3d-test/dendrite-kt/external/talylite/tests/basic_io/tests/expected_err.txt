@@ -1,0 +1,161 @@
+*****Using default values for all (should all print)
+(cerr) These items go to default streams
+[ERROR] I'm ERROR number 1 printed on default
+[WARNING] I'm WARNING number 1 printed on default
+
+(cerr) These items go to std::cout streams
+
+(cerr) These items go to std::cerr streams
+[ERROR] I'm ERROR number 3 printed on cerr
+[INFO] I'm INFO number 3 printed on cerr
+[LOG] I'm LOG number 3 printed on cerr
+[STAT] I'm STATUS number 3 printed on cerr
+[WARNING] I'm WARNING number 3 printed on cerr
+
+(cerr) Labeled blanks on default streams:
+[ERROR] 
+[WARNING] 
+(cerr) These items go to default streams (added spaces)
+[ERROR] I'm ERROR number  4  printed on cerr
+[WARNING] I'm WARNING number  4  printed on cerr
+
+*****Turning off ERROR (should have no effect and be same as above)
+(cerr) These items go to default streams
+[ERROR] I'm ERROR number 1 printed on default
+[WARNING] I'm WARNING number 1 printed on default
+
+(cerr) These items go to std::cout streams
+
+(cerr) These items go to std::cerr streams
+[ERROR] I'm ERROR number 3 printed on cerr
+[INFO] I'm INFO number 3 printed on cerr
+[LOG] I'm LOG number 3 printed on cerr
+[STAT] I'm STATUS number 3 printed on cerr
+[WARNING] I'm WARNING number 3 printed on cerr
+
+(cerr) Labeled blanks on default streams:
+[ERROR] 
+[WARNING] 
+(cerr) These items go to default streams (added spaces)
+[ERROR] I'm ERROR number  4  printed on cerr
+[WARNING] I'm WARNING number  4  printed on cerr
+
+*****Turning on everything (should be same as above, except input echo)
+[STAT] ifPrintStat: 1
+[STAT] ifPrintLog: 1
+[STAT] ifPrintInfo: 1
+[STAT] ifPrintWarn: 1
+(cerr) These items go to default streams
+[ERROR] I'm ERROR number 1 printed on default
+[WARNING] I'm WARNING number 1 printed on default
+
+(cerr) These items go to std::cout streams
+
+(cerr) These items go to std::cerr streams
+[ERROR] I'm ERROR number 3 printed on cerr
+[INFO] I'm INFO number 3 printed on cerr
+[LOG] I'm LOG number 3 printed on cerr
+[STAT] I'm STATUS number 3 printed on cerr
+[WARNING] I'm WARNING number 3 printed on cerr
+
+(cerr) Labeled blanks on default streams:
+[ERROR] 
+[WARNING] 
+(cerr) These items go to default streams (added spaces)
+[ERROR] I'm ERROR number  4  printed on cerr
+[WARNING] I'm WARNING number  4  printed on cerr
+
+*****Turning off INFO
+[STAT] ifPrintInfo: 0
+(cerr) These items go to default streams
+[ERROR] I'm ERROR number 1 printed on default
+[WARNING] I'm WARNING number 1 printed on default
+
+(cerr) These items go to std::cout streams
+
+(cerr) These items go to std::cerr streams
+[ERROR] I'm ERROR number 3 printed on cerr
+[LOG] I'm LOG number 3 printed on cerr
+[STAT] I'm STATUS number 3 printed on cerr
+[WARNING] I'm WARNING number 3 printed on cerr
+
+(cerr) Labeled blanks on default streams:
+[ERROR] 
+[WARNING] 
+(cerr) These items go to default streams (added spaces)
+[ERROR] I'm ERROR number  4  printed on cerr
+[WARNING] I'm WARNING number  4  printed on cerr
+
+*****Turning off LOG
+[STAT] ifPrintLog: 0
+(cerr) These items go to default streams
+[ERROR] I'm ERROR number 1 printed on default
+[WARNING] I'm WARNING number 1 printed on default
+
+(cerr) These items go to std::cout streams
+
+(cerr) These items go to std::cerr streams
+[ERROR] I'm ERROR number 3 printed on cerr
+[INFO] I'm INFO number 3 printed on cerr
+[STAT] I'm STATUS number 3 printed on cerr
+[WARNING] I'm WARNING number 3 printed on cerr
+
+(cerr) Labeled blanks on default streams:
+[ERROR] 
+[WARNING] 
+(cerr) These items go to default streams (added spaces)
+[ERROR] I'm ERROR number  4  printed on cerr
+[WARNING] I'm WARNING number  4  printed on cerr
+
+*****Turning off STAT
+(cerr) These items go to default streams
+[ERROR] I'm ERROR number 1 printed on default
+[WARNING] I'm WARNING number 1 printed on default
+
+(cerr) These items go to std::cout streams
+
+(cerr) These items go to std::cerr streams
+[ERROR] I'm ERROR number 3 printed on cerr
+[INFO] I'm INFO number 3 printed on cerr
+[LOG] I'm LOG number 3 printed on cerr
+[WARNING] I'm WARNING number 3 printed on cerr
+
+(cerr) Labeled blanks on default streams:
+[ERROR] 
+[WARNING] 
+(cerr) These items go to default streams (added spaces)
+[ERROR] I'm ERROR number  4  printed on cerr
+[WARNING] I'm WARNING number  4  printed on cerr
+
+*****Turning off WARN
+[STAT] ifPrintWarn: 0
+(cerr) These items go to default streams
+[ERROR] I'm ERROR number 1 printed on default
+
+(cerr) These items go to std::cout streams
+
+(cerr) These items go to std::cerr streams
+[ERROR] I'm ERROR number 3 printed on cerr
+[INFO] I'm INFO number 3 printed on cerr
+[LOG] I'm LOG number 3 printed on cerr
+[STAT] I'm STATUS number 3 printed on cerr
+
+(cerr) Labeled blanks on default streams:
+[ERROR] 
+(cerr) These items go to default streams (added spaces)
+[ERROR] I'm ERROR number  4  printed on cerr
+
+*****Turning off everything (only ERROR and (cout)/(cerr) should print)
+(cerr) These items go to default streams
+[ERROR] I'm ERROR number 1 printed on default
+
+(cerr) These items go to std::cout streams
+
+(cerr) These items go to std::cerr streams
+[ERROR] I'm ERROR number 3 printed on cerr
+
+(cerr) Labeled blanks on default streams:
+[ERROR] 
+(cerr) These items go to default streams (added spaces)
+[ERROR] I'm ERROR number  4  printed on cerr
+
