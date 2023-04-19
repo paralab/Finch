@@ -478,6 +478,13 @@ struct Grid{T<:AbstractFloat}
     # constructors
     # up to facebid only: not partitioned
     Grid(T::DataType, allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
+         face2element, facenormals, faceRefelInd, facebid) = 
+     new{T}(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
+         face2element, facenormals, faceRefelInd, facebid, false, zeros(Int8,0),
+         false, Array(1:size(loc2glb,2)), size(loc2glb,2), size(loc2glb,2), 0,size(face2element,2), 0, 0, 0, zeros(Int,0), zeros(Int,0), 
+         zeros(Int,0), zeros(Int,0), zeros(Int8,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]);
+         
+    Grid(T::DataType, allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, ismixed, eltypes) = 
      new{T}(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid, ismixed, eltypes,

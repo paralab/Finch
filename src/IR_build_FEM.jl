@@ -667,6 +667,18 @@ function build_IR_fem(input_exprs, var, indices, config, prob, time_stepper)
             (t_allocate, step_loop) = generate_time_stepping_loop_fem(time_stepper, rhs_assembly_loop, false);
             push!(allocate_block.parts, t_allocate);
             
+            # extract the actual loop from step_loop
+            if typeof(step_loop) == IR_loop_node
+                real_step_loop = step_loop;
+            else
+                for i=1:length(step_loop.parts)
+                    if typeof(step_loop.parts[i]) == IR_loop_node
+                        real_step_loop = step_loop.parts[i];
+                        break;
+                    end
+                end
+            end
+            
             # Pieces needed for nonlinear iteration
             nl_change_abs = IR_data_node(IRtypes.float_data, :nl_change_abs);
             nl_change_rel = IR_data_node(IRtypes.float_data, :nl_change_rel);
@@ -693,7 +705,7 @@ function build_IR_fem(input_exprs, var, indices, config, prob, time_stepper)
                     ]), 
                     IR_block_node([
                         # The body of the time step loop
-                        step_loop.body,
+                        real_step_loop.body,
                         
                         wrap_in_timer(:update_vars, IR_block_node([
                             # oldsolvec = oldsolvec + solvec (u=u+du)
@@ -708,7 +720,7 @@ function build_IR_fem(input_exprs, var, indices, config, prob, time_stepper)
             ],"nonlinear iteration")
             
             # Put the nonlinear iteration back inside the time step loop
-            step_loop.body = nonlinear_loop;
+            real_step_loop.body = nonlinear_loop;
             
             compute_block = IR_block_node([
                 IR_operation_node(IRtypes.assign_op, [:t, 0.0]),

@@ -354,11 +354,13 @@ function build_IR_fvm(input_exprs, var, indices, config, prob, time_stepper, fv_
         ]),
         # neighbor = left_el
         IR_operation_node(IRtypes.assign_op, [:neighbor, leftel]),
+        IR_operation_node(IRtypes.assign_op, [out_side, 1]),
         # if (eid == left_el && right_el > 0) (neighbor = right_el)
         IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(&&), 
                 IR_operation_node(IRtypes.math_op, [:(==), :eid, leftel]), IR_operation_node(IRtypes.math_op, [:(>), rightel, 0])]),
             IR_block_node([
-                IR_operation_node(IRtypes.assign_op, [:neighbor, rightel])
+                IR_operation_node(IRtypes.assign_op, [:neighbor, rightel]),
+                IR_operation_node(IRtypes.assign_op, [out_side, 2])
             ])
         ),
         
@@ -586,6 +588,8 @@ function prepare_coefficient_values_fvm(entities, var, dimension, counts, fv_inf
     leftel = IR_data_node(IRtypes.int_data, :left_el, [], []); # left element
     rightel = IR_data_node(IRtypes.int_data, :right_el, [], []); # right element
     neighbor = IR_data_node(IRtypes.int_data, :neighbor, [], []);
+    in_side = IR_data_node(IRtypes.int_data, :in_side, [], []);
+    out_side = IR_data_node(IRtypes.int_data, :out_side, [], []);
     
     # These parts will be returned
     vol_block = IR_block_node([]);
@@ -635,10 +639,12 @@ function prepare_coefficient_values_fvm(entities, var, dimension, counts, fv_inf
     # normal_sign = (eid == left_el) ? 1 : -1
     push!(normal_part.parts, IR_conditional_node(IR_operation_node(IRtypes.math_op, [:(==), :eid, leftel]),
         IR_block_node([
-            IR_operation_node(IRtypes.assign_op, [normal_sign, 1])
+            IR_operation_node(IRtypes.assign_op, [normal_sign, 1]),
+            IR_operation_node(IRtypes.assign_op, [in_side, 1])
         ]),
         IR_block_node([
-            IR_operation_node(IRtypes.assign_op, [normal_sign, -1])
+            IR_operation_node(IRtypes.assign_op, [normal_sign, -1]),
+            IR_operation_node(IRtypes.assign_op, [in_side, 2])
         ])
     ))
     # FACENORMAL1[1] -> FACENORMAL1_1 = mesh.facenormals[1,fid];

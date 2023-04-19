@@ -87,6 +87,7 @@ function generateFor(lang; filename=finch_state.project_name, header="", params.
     end
     
     set_codegen_parameters(finch_state, params);
+    nothing;
 end
 
 """
@@ -98,6 +99,7 @@ each step), or 3(everything).
 """
 function useLog(name=finch_state.project_name; dir=finch_state.output_dir, level=2)
     init_log(finch_state, name, dir, level);
+    nothing;
 end
 
 """
@@ -108,6 +110,7 @@ The default is Int64.
 """
 function indexDataType(type)
     printerr("indexDataType() is no longer available. Sorry")
+    nothing;
 end
 
 """
@@ -118,6 +121,7 @@ initFinch(name, type)
 """
 function floatDataType(type)
     printerr("floatDataType() is no longer available. To set float type, use initFinch(name, type).")
+    nothing;
 end
 
 """
@@ -131,6 +135,7 @@ function domain(dims; shape=SQUARE, grid=UNIFORM_GRID)
     finch_state.config.dimension = dims;
     finch_state.config.geometry = shape;
     finch_state.config.mesh_type = grid;
+    nothing;
 end
 
 """
@@ -140,6 +145,7 @@ Select between CG, DG, or FV methods.
 """
 function solverType(method)
     set_solver(finch_state, method);
+    nothing;
 end
 
 """
@@ -159,6 +165,7 @@ function functionSpace(;space=LEGENDRE, order=0, orderMin=0, orderMax=0)
         finch_state.config.basis_order_min = max(order, orderMin);
         finch_state.config.basis_order_max = max(order, orderMin);
     end
+    nothing;
 end
 
 """
@@ -169,6 +176,7 @@ The default is LOBATTO. GAUSS and UNIFORM are available, but should be used with
 """
 function nodeType(type)
     finch_state.config.elemental_nodes = type;
+    nothing;
 end
 
 """
@@ -182,6 +190,7 @@ If no CFL number is provided, one will be chosen based on the mesh and stepper t
 function timeStepper(type; cfl=0)
     finch_state.prob.time_dependent = true;
     set_stepper(finch_state, type, cfl);
+    nothing;
 end
 
 """
@@ -196,6 +205,7 @@ function timeInterval(T)
         timeStepper(EULER_IMPLICIT);
     end
     finch_state.prob.end_time = T;
+    nothing;
 end
 
 """
@@ -209,6 +219,7 @@ function setSteps(dt, steps)
         timeStepper(EULER_IMPLICIT);
     end
     set_specified_steps(finch_state, dt, steps);
+    nothing;
 end
 
 """
@@ -257,6 +268,7 @@ function linAlgOptions(;matrixFree::Bool=false, iterative::Bool=false, method::S
     else
         log_entry("Using default A\\b", 2);
     end
+    nothing;
 end
 
 """
@@ -284,6 +296,7 @@ julia> ]build PETSc", fatal=true);
     else
         printerr("Cannot use PETSc. Set up PETSc.jl manually first. Proceeding with default.")
     end
+    nothing;
 end
 
 """
@@ -295,7 +308,7 @@ If it is not available, this won't work.
 function useCUDA(useit::Bool=true)
     if !useit
         finch_state.config.use_gpu = false;
-        return;
+        return nothing;
     end
     if @isdefined(CUDA) && CUDA.functional()
         log_entry(finch_state, "CUDA is functional. Generating for GPU if possible.", 1)
@@ -303,6 +316,7 @@ function useCUDA(useit::Bool=true)
     else
         printerr("Cannot use CUDA. Either the package is not available, or CUDA.functional() is false.")
     end
+    nothing;
 end
 
 """
@@ -315,6 +329,7 @@ operator's function.
 function customOperator(name, handle)
     s = Symbol(name);
     add_custom_op(s, handle);
+    nothing;
 end
 
 """
@@ -326,6 +341,7 @@ certain elements. See an example.
 function customOperatorFile(filename)
     log_entry("Adding custom operators from file: "*string(filename), 2);
     add_custom_op_file(filename);
+    nothing;
 end
 
 # End configuration functions, begin problem definition functions
@@ -501,6 +517,7 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
     end
     
     end # timer block
+    nothing;
 end
 
 """
@@ -515,6 +532,7 @@ function exportMesh(filename, format=MSH_V2)
     log_entry("Writing mesh file: "*filename);
     output_mesh(finch_state, mfile, format);
     close(mfile);
+    nothing;
 end
 
 """
@@ -541,6 +559,7 @@ function exportMeshGraph(filename)
     log_entry("Writing mesh graph file: "*filename);
     write_mesh_graph(mfile, finch_state.mesh_data);
     close(mfile);
+    nothing;
 end
 
 """
@@ -562,6 +581,7 @@ Note: Only function-defined geometry is currently supported.
 """
 function subdomain(geometry, insideTest, displacementVector, carveMesh=true, includeCuts=true)
     add_Subdomain(finch_state, Subdomain(geometry, insideTest, displacementVector), carveMesh, includeCuts);
+    nothing;
 end
 
 """
@@ -572,6 +592,7 @@ Use Shifted Boundary Method with the given penalty parameter.
 function useSBM(penalty)
     finch_state.use_sbm = true;
     finch_state.sbm_penalty = Float64(penalty);
+    nothing;
 end
 
 """
@@ -599,6 +620,7 @@ function finiteVolumeOrder(order)
     else # order == 1
         set_parent_and_child(finch_state, nothing, finch_state.fv_grid, order);
     end
+    nothing;
 end
 
 """
@@ -702,6 +724,7 @@ Type can be SCALAR, VECTOR, TENSOR, or SYM_TENSOR.
 """
 function testSymbol(symbol; type=SCALAR)
     add_test_function(finch_state, Symbol(symbol), type);
+    nothing;
 end
 
 """
@@ -757,6 +780,7 @@ function for boundary conditions.
 """
 function transformVariable(xform::VariableTransform)
     transform_variable_values(xform);
+    nothing;
 end
 function transformVariable(var1, var2)
     # Look for a matching xform
@@ -770,6 +794,7 @@ function transformVariable(var1, var2)
             end
         end
     end
+    nothing;
 end
 
 """
@@ -817,6 +842,7 @@ function boundary(var, bid, bc_type, bc_exp=0)
     end
     
     add_boundary_condition(finch_state, var, bid, bc_type, newbc_exp, nfuns);
+    nothing;
 end
 
 """
@@ -841,6 +867,7 @@ function addBoundaryID(bid::Int, trueOnBdry)
     end
     add_boundary_ID_to_grid(bid, trueOnBdryfun, finch_state.grid_data);
     add_boundary_ID_to_problem(bid, trueOnBdrystr);
+    nothing;
 end
 
 """
@@ -853,6 +880,7 @@ will be used and it can be a boundary or interior node.
 """
 function referencePoint(var, pos, val)
     add_reference_point(finch_state, var, pos, val);
+    nothing;
 end
 
 """
@@ -866,6 +894,7 @@ evalInitialConditions(), or it will be done automatically before solving.
 function initial(var, value)
     nfuns = makeFunctions(value);
     add_initial_condition(finch_state, var.index, value, nfuns);
+    nothing;
 end
 
 """
@@ -876,6 +905,7 @@ steppers.
 """
 function preStepFunction(fun)
     finch_state.prob.pre_step_function = fun;
+    nothing;
 end
 
 """
@@ -886,6 +916,7 @@ steppers.
 """
 function postStepFunction(fun)
     finch_state.prob.post_step_function = fun;
+    nothing;
 end
 
 """
@@ -907,6 +938,7 @@ function callbackFunction(fun; name="", args=[], body="")
     add_callback_function(finch_state, CallbackFunction(name, args, body, fun));
     
     log_entry("Added callback function: "*name, 2);
+    return fun;
 end
 
 """
@@ -1063,6 +1095,7 @@ function weakForm(var, wf)
     include_string(Finch, aux_code);
     
     end # timer block
+    nothing;
 end
 
 """
@@ -1181,6 +1214,7 @@ function conservationForm(var, cf)
     include_string(Finch, aux_code);
     
     end # timer block
+    nothing;
 end
 
 """
@@ -1254,6 +1288,7 @@ function exportCode(filename)
     else
         # Should we export for other targets?
     end
+    nothing;
 end
 
 """
@@ -1329,6 +1364,7 @@ function importCode(filename)
     else
         # external code doesn't need to be imported
     end
+    nothing;
 end
 
 """
@@ -1450,6 +1486,7 @@ This is called automatically by the solve step, but can be done manually here.
 """
 function evalInitialConditions() 
     eval_initial_conditions(finch_state); 
+    nothing;
 end # Just for consistent style because this is also an internal function
 
 """
@@ -1467,6 +1504,7 @@ function nonlinear(;maxIters=100, relativeTol=1e-5, absoluteTol=1e-5, relaxation
     finch_state.prob.relative_tol = relativeTol;
     finch_state.prob.absolute_tol = absoluteTol;
     finch_state.prob.relaxation = relaxation;
+    nothing;
 end
 
 """
@@ -1648,7 +1686,7 @@ function solve(var)
     
     # At this point all of the final values for the variables in var should be placed in var.values.
     end # timer block
-    
+    nothing;
 end
 
 """
@@ -1677,6 +1715,7 @@ function cachesimSolve(var)
         
         log_entry("Generated cachesim ouput for "*varnames*".(took "*string(t)*" seconds)", 1);
     end
+    nothing;
 end
 
 """
@@ -1718,6 +1757,7 @@ function outputValues(vars, filename; format="vtk", ascii=false)
         
         close(file);
     end
+    nothing;
 end
 
 """
@@ -1753,6 +1793,7 @@ function finalizeFinch()
         close_log(finch_state);
         println("Finch has completed.");
     end
+    nothing;
 end
 
 ### Other specialized functions ###
@@ -1766,6 +1807,7 @@ If not using cachesim, don't use this function.
 function cachesim(use)
     log_entry("Using cachesim - Only cachesim output will be generated.", 1);
     finch_state.use_cachesim = use;
+    nothing;
 end
 
 """
@@ -1780,6 +1822,7 @@ griddim is an array representing the nodal grid size: like [n,n] for 2D or
 function mortonNodes(griddim)
     t = @elapsed(finch_state.grid_data = reorder_grid_recursive!(finch_state.grid_data, griddim, "morton"));
     log_entry("Reordered nodes to Morton. Took "*string(t)*" sec.", 2);
+    nothing;
 end
 
 """
@@ -1795,6 +1838,7 @@ function mortonElements(griddim)
     finch_state.grid_data.elemental_order = get_recursive_order("morton", finch_state.config.dimension, griddim);
     log_entry("Reordered elements to Morton.", 2);
     ef_nodes();
+    nothing;
 end
 
 """
@@ -1809,6 +1853,7 @@ griddim is an array representing the nodal grid size: like [n,n] for 2D or
 function hilbertNodes(griddim)
     t = @elapsed(finch_state.grid_data = reorder_grid_recursive!(finch_state.grid_data, griddim, "hilbert"));
     log_entry("Reordered nodes to Hilbert. Took "*string(t)*" sec.", 2);
+    nothing;
 end
 
 """
@@ -1824,6 +1869,7 @@ function hilbertElements(griddim)
     finch_state.grid_data.elemental_order = get_recursive_order("hilbert", finch_state.config.dimension, griddim);
     log_entry("Reordered elements to Hilbert.", 2);
     ef_nodes();
+    nothing;
 end
 
 """
@@ -1839,6 +1885,7 @@ tiledim is the desired tile dimensions such as [4,4] for a 4x4 tile in 2D.
 function tiledNodes(griddim, tiledim)
     t = @elapsed(finch_state.grid_data = reorder_grid_tiled(finch_state.grid_data, griddim, tiledim));
     log_entry("Reordered nodes to tiled. Took "*string(t)*" sec.", 2);
+    nothing;
 end
 
 """
@@ -1855,6 +1902,7 @@ function tiledElements(griddim, tiledim)
     finch_state.grid_data.elemental_order = get_tiled_order(finch_state.config.dimension, griddim, tiledim, true);
     log_entry("Reordered elements to tiled("*string(tiledim)*").", 2);
     ef_nodes();
+    nothing;
 end
 
 """
@@ -1867,6 +1915,7 @@ nodes are ordered according to the reference element.
 function elementFirstNodes()
     t = @elapsed(finch_state.grid_data = reorder_grid_element_first!(finch_state.grid_data, finch_state.config.basis_order_min));
     log_entry("Reordered nodes to EF. Took "*string(t)*" sec.", 2);
+    nothing;
 end
 
 """
@@ -1878,6 +1927,7 @@ The seed is for making results reproducible.
 function randomNodes(seed = 17)
     t = @elapsed(finch_state.grid_data = reorder_grid_random!(finch_state.grid_data, seed));
     log_entry("Reordered nodes to random. Took "*string(t)*" sec.", 2);
+    nothing;
 end
 
 """
@@ -1890,4 +1940,5 @@ function randomElements(seed = 17)
     finch_state.grid_data.elemental_order = random_order(size(finch_state.grid_data.loc2glb,2), seed);
     log_entry("Reordered elements to random.", 2);
     random_nodes(seed);
+    nothing;
 end
