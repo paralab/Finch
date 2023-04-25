@@ -865,7 +865,7 @@ function get_alsi_flux!(alsi_info, intensity)
     
     # This needs to be reduced across procs
     if np > 1
-        MPI.Allreduce!(alsi_flux, MPI.SUM, MPI.COMM_WORLD);
+        MPI.Allreduce!(alsi_info.flux, MPI.SUM, MPI.COMM_WORLD);
     end
 end
 
