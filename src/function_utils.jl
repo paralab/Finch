@@ -246,6 +246,10 @@ function replace_symbols_in_conditions(ex)
                 ex = :(Finch.finch_state.callback_functions[$cb_index].func);
             elseif ex === :normal
                 ex = :(Finch.finch_state.grid_data.facenormals[:,face_index]);
+            elseif ex === :faceID
+                ex = :face_index;
+            elseif ex === :nodeID
+                ex = :node_index;
             end
             
         end

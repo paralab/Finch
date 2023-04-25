@@ -358,6 +358,9 @@ function FV_evaluate_callback(val::CallbackFunction, eid::Int, fid::Int, facex::
             elseif r == "normal"
                 foundit = true;
                 args["normal"] = finch_state.fv_grid.facenormals[:,fid];
+            elseif r == "faceID"
+                foundit = true;
+                args["faceID"] = fid;
             else
                 for v in finch_state.variables
                     if string(v.symbol) == r
