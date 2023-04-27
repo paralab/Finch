@@ -311,10 +311,12 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
     for ei=1:nel
         if mixed # element types
             n_vert = nvtx[ei];
+            n_facevert = facenvtx[ei];
             refeli = refels[ei];
             nfacesi = nfaces[ei];
         else # one element type
             n_vert = nvtx;
+            n_facevert = facenvtx;
             refeli = refel;
             nfacesi = nfaces;
         end
@@ -361,6 +363,7 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
         end
         
         for gfi=1:nfacesi
+            # number of nodes on grid version of face
             Nfpi = refeli.Nfp[gfi];
             for fpi=1:Nfpi
                 tmpf2glb[fpi] = loc2glb[refeli.face2local[gfi][fpi], ei];
@@ -371,7 +374,8 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
             
             for mfi=1:nfacesi
                 thisfaceind = mesh.element2face[mfi, ei];
-                Nfpj = refeli.Nfp[mfi];
+                # number of vertex nodes on mesh version of face
+                Nfpj = n_facevert;
                 for fpj=1:Nfpj
                     tmp_nodeid = mesh.face2vertex[fpj,thisfaceind];
                     for di=1:dim
