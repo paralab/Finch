@@ -50,13 +50,39 @@ function get_partition_scheme(num_procs, ranges)
 end
 
 #=
+Partitions a mesh into np parts using the specified partitioning method.
+=#
+function get_element_partitions(mesh, np, partitioner)
+    if partitioner == METIS
+        return get_element_partitions_metis(mesh, np)
+    elseif partitioner == FENNEL
+        return get_element_partitions_fennel(mesh, np)
+    else
+        printerr("Unknown partitioning method: $partitioner. Using Metis as default.");
+        return get_element_partitions_metis(mesh, np)
+    end
+end
+
+#=
+Uses LocalFennelPartitioning.jl
+Returns a list of partition numbers for each element.
+=#
+function get_element_partitions_fennel(mesh, np)
+    (graph, locations) = mesh_to_graph(mesh);
+    
+    (partitions, map) = local_fennel_sim(graph, locations, np)
+    
+    return map;
+end
+
+#=
 Metis is used to partition the mesh.
 This uses METIS_jll: libmetis
 
 This is the primary function used to partition a mesh into np partitions.
 It returns a list of partition numbers for each element.
 =#
-function get_element_partitions(mesh, np)
+function get_element_partitions_metis(mesh, np)
     METIS_NOPTIONS = 40
 
     # codes returned by metis functions

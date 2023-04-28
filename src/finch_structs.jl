@@ -64,6 +64,7 @@ mutable struct FinchConfig
     num_partitions::Int     # number of mesh partitions
     partition_index::Int    # this process's partition
     use_gpu::Bool           # Use GPU?
+    partitioner::String     # The partitioning library/method to use
     
     # Data types
     index_type::Type
@@ -113,6 +114,7 @@ mutable struct FinchConfig
         1,
         0,
         false,
+        METIS,
         
         Int64,
         Float64,

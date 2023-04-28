@@ -354,7 +354,7 @@ to build a mesh with the built-in simple mesh generator, or a filename for a mes
 file. Currently GMSH files(.msh), either old or new versions, and MEDIT files(.mesh)
 are supported.
 """
-function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
+function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0, partitioner=METIS)
     
     @timeit finch_state.timer_output "Mesh" begin
     
@@ -411,6 +411,7 @@ function mesh(msh; elsperdim=5, bids=1, interval=[0,1], partitions=0)
     end # gen/read timer
     
     # Set this in Finch and build the corresponding Grid
+    finch_state.config.partitioner = partitioner;
     add_mesh(finch_state, mshdat, partitions=partitions);
     
     # If bids>1 were specified for built meshes, add them here

@@ -14,6 +14,7 @@ include("refel.jl");
 include("mesh_data.jl");
 include("mesh_read.jl");
 include("mesh_write.jl")
+include("mesh_graph.jl")
 include("grid.jl");
 include("grid_parent_child.jl");
 include("subdomain.jl");

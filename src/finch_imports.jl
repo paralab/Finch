@@ -119,6 +119,28 @@ if @isdefined(MPI)
             end
         end
     end
+    
+    try
+        using LocalFennelPartitioning
+    catch e
+        if force_package_install
+            println("LocalFennelPartitioning package is not yet installed. Installing now.");
+            using Pkg
+            Pkg.add("LocalFennelPartitioning")
+            using LocalFennelPartitioning
+            
+        else
+            println("LocalFennelPartitioning package is not yet installed. It is optional.\nWould you like to install now? y/n.");
+            response = readline();
+            if response=="Y" || response=="y"
+                using Pkg
+                Pkg.add("LocalFennelPartitioning")
+                using LocalFennelPartitioning
+            else
+                println("Continuing without LocalFennelPartitioning.")
+            end
+        end
+    end
 end
 
 try

@@ -11,7 +11,7 @@ export JULIA, CPP, MATLAB, FINCH, DENDRO, HOMG, CUSTOM_GEN_TARGET,
         DEFAULT_SOLVER, PETSC_SOLVER, CUDA_SOLVER,
         VTK, RAW_OUTPUT, CUSTOM_OUTPUT, 
         DIRICHLET, NEUMANN, ROBIN, NO_BC, FLUX,
-        MSH_V2, MSH_V4,
+        MSH_V2, MSH_V4, METIS, FENNEL,
         SCALAR, VECTOR, TENSOR, SYM_TENSOR, VAR_ARRAY,
         LHS, RHS,
         LINEMESH, QUADMESH, TRIMESH, HEXMESH
@@ -78,9 +78,11 @@ const VTK = "vtk";
 const RAW_OUTPUT = "raw";
 const CUSTOM_OUTPUT = "custom";
 
-# mesh file
+# mesh
 const MSH_V2 = "msh-2";
 const MSH_V4 = "msh-4";
+const METIS = "METIS";
+const FENNEL = "FENNEL";
 
 #BC
 const DIRICHLET = "Dirichlet";

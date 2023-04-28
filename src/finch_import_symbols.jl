@@ -13,7 +13,7 @@ macro import_finch_symbols()
         :DEFAULT_SOLVER, :PETSC_SOLVER, :CUDA_SOLVER,
         :VTK, :RAW_OUTPUT, :CUSTOM_OUTPUT, 
         :DIRICHLET, :NEUMANN, :ROBIN, :NO_BC, :FLUX, :SYMMETRIC,
-        :MSH_V2, :MSH_V4,
+        :MSH_V2, :MSH_V4, :METIS, :FENNEL,
         :SCALAR, :VECTOR, :TENSOR, :SYM_TENSOR, :VAR_ARRAY,
         :LHS, :RHS,
         :LINEMESH, :QUADMESH, :TRIMESH, :HEXMESH,

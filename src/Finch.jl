@@ -164,7 +164,7 @@ function add_mesh(state::FinchState, mesh; partitions=0)
         if state.config.proc_rank == 0
             # Partition the mesh and send the partition info to each proc to build their subgrids.
             # For now, partition into the number of procs. This will be modified in the future.
-            epart = get_element_partitions(mesh, np);
+            epart = get_element_partitions(mesh, np, state.config.partitioner);
             
         else # other ranks recieve the partition info
             epart = fill(Cint(-1), mesh.nel);
