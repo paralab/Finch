@@ -10,7 +10,8 @@ function mesh_to_graph(mesh::MeshData)
     num_elements = mesh.nel;
     faces_per_el = size(mesh.element2face, 1);
     
-    el_centers = zeros(dim, num_elements);
+    # el_centers = zeros(dim, num_elements); fennel uses [nel, dim] array
+    el_centers = zeros(num_elements, dim);
     face_neighbors = fill(zeros(Int,faces_per_el), num_elements);
     
     center = zeros(dim);
@@ -22,7 +23,7 @@ function mesh_to_graph(mesh::MeshData)
             nid = mesh.elements[ni,ei];
             center .+= mesh.nodes[:,nid];
         end
-        el_centers[:,ei] .= center ./ mesh.nv[ei];
+        el_centers[ei, :] .= center ./ mesh.nv[ei];
         
         # Find all face neighbors
         nneighbors = 0;
