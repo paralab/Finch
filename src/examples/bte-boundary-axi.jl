@@ -21,10 +21,6 @@
             result = -vg[band] * iso_intensity * insdotn;
         end
         
-        # if band == 1 && dir == 1
-        #     println("isothermal bdry sdotn $sdotn result $result")
-        # end
-        
         return result*invomega;
     end
 )

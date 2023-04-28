@@ -168,7 +168,7 @@ function post_step()
                         center_freq, delta_freq, converged, polarizations, band_parallel=true, threed=true, omega=Omega);
     update_Iplus!(Iplus.values, I.values, nphi, ntheta, nbands);
     if use_alsi
-        update_alsi_temp!(alsi_info, I.values, center_freq, delta_freq, polarizations);
+        update_alsi_temp!(alsi_info, I.values, center_freq, delta_freq, polarizations, np);
     end
 end
 postStepFunction(post_step);
@@ -195,23 +195,24 @@ solve(I)
 # if Finch.finch_state.config.proc_rank == 0
 #     println("Warm-up result:")
 #     show(Finch.finch_state.timer_output)
+#     println();
 # end
 # Finch.reset_timer!(Finch.finch_state.timer_output)
 
-# nsteps = 1000;
 # setSteps(dt, nsteps);
 
 # evalInitialConditions();
 # get_integrated_intensity!(G_last.values, I.values, ndirs, nbands);
 
 # solve(I)
-###################################################
 
-outputValues([temperature,I], "bte2daxiTemp", format="vtk");
+# outputValues(temperature, "bte2daxiTemp", format="vtk");
 
 finalizeFinch()
 
-# # Uncomment below to plot
+println("max "*string(maximum(temperature.values))*" , min "*string(minimum(temperature.values)))
+
+# display(temperature.values)
 
 # using Plots
 # pyplot();

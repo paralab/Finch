@@ -844,7 +844,7 @@ function get_alsi_info(sx, sy, isx, isy, initialT)
 end
 
 # Find flux through ALSI boundary faces
-function get_alsi_flux!(alsi_info, intensity)
+function get_alsi_flux!(alsi_info::ALSIInfo, intensity::Matrix{Float64}, np::Int)
     mesh::Finch.Grid = Finch.finch_state.grid_data;
     # Fill alsi_flux and sum over local bands
     nfaces = alsi_info.nfaces;
@@ -855,12 +855,13 @@ function get_alsi_flux!(alsi_info, intensity)
         alsi_info.flux[i] = 0.0;
         for band = 1:nband
             for dir = 1:ndir
-                dofind = dir + (band-1)*ndir;
                 if alsi_info.sdotn[dir, i] > 0
+                    dofind = dir + (band-1)*ndir;
                     alsi_info.flux[i] += alsi_info.isdotn[dir, i] * intensity[dofind, eid];
                 end
             end
         end
+        alsi_info.flux[i] = abs(alsi_info.flux[i]);
     end
     
     # This needs to be reduced across procs
@@ -871,17 +872,19 @@ end
 
 # Update ALSI transducer temp
 # This will update the values of alsi_temp
-function update_alsi_temp!(alsi_info, intensity, freq, dw, polarizations)
+function update_alsi_temp!(alsi_info, intensity, freq, dw, polarizations, np)
     # Not a single comment was in the fortran -_-
     # I have to guess what is happening.
     niter = 5;
-    t = dt;
-    qdblprime = laser_power * (1 + sin(laser_freq * alsi_info.currentT * 2 * pi))
-    qnot = qdblprime;
-    al_thickness = 6e-8;
+    Dt::Float64 = dt;
+    L_power::Float64 = laser_power
+    L_freq::Float64 = laser_freq
+    L_size::Float64 = spot_size
+    qdblprime::Float64 = L_power * (1 + sin(L_freq * alsi_info.currentT * 2 * pi))
+    A_thickness::Float64 = al_thickness;
     
     # Get flux out of faces (like jfacepos)
-    get_alsi_flux!(alsi_info, intensity);
+    get_alsi_flux!(alsi_info, intensity, np);
     
     a1 = 0.0;
     b1 = 0.0;
@@ -901,25 +904,23 @@ function update_alsi_temp!(alsi_info, intensity, freq, dw, polarizations)
     dr = abs(next_center - curr_center)
     radius = curr_center
     areaf = alsi_info.area[curr_face]
-    if (radius > spot_size)
-        qnot = 0.0
+    if (radius > L_size)
+        qdblprime = 0.0
     end
     
-    b = qnot*exp(-2.0*radius*radius/(spot_size*spot_size))
+    b = qdblprime*exp(-2.0*radius*radius/(L_size*L_size))
     
     r1 = alsi_info.noder[1, curr_face];
     r2 = alsi_info.noder[2, curr_face];
     
     d1 = G_alum * areaf  * a / k_al
-    d1 = d1 + (r2/dr) * a * al_thickness
-    c1 = -a * al_thickness * r2 / dr
-    b1 = al_thickness * areaf * alsi_info.ttopold[j] / t + G_alum * areaf  * a * alsi_info.temp[j] / k_al
+    d1 = d1 + (r2/dr) * a * A_thickness
+    c1 = -a * A_thickness * r2 / dr
+    b1 = A_thickness * areaf * alsi_info.ttopold[j] / Dt + G_alum * areaf  * a * alsi_info.temp[j] / k_al
     b1 = b1 + b * a * areaf / k_al
     
     alsi_info.ttop[j] = b1 - c1 * alsi_info.ttopold[j+1] - d1 * alsi_info.ttopold[j]
-    alsi_info.ttop[j] = alsi_info.ttop[j] * t / (al_thickness * areaf)
-    
-    # println("dr "*string(dr)*" qnot "*string(qnot)*" b "*string(b)*" t "*string(dt))
+    alsi_info.ttop[j] = alsi_info.ttop[j] * Dt / (A_thickness * areaf)
     
     for j = 2:(alsi_info.nfaces-1)
         next_face = j+1; # alsi_faces[j+1];
@@ -934,24 +935,24 @@ function update_alsi_temp!(alsi_info, intensity, freq, dw, polarizations)
         
         radius = curr_center
         areaf = alsi_info.area[curr_face]
-        if (radius > spot_size)
-            qnot = 0.0
+        if (radius > L_size)
+            qdblprime = 0.0
         end
         
-        b = qnot*exp(-2.0*radius*radius/(spot_size*spot_size))
+        b = qdblprime*exp(-2.0*radius*radius/(L_size*L_size))
         
         r1 = alsi_info.noder[1, curr_face];
         r2 = alsi_info.noder[2, curr_face];
         
         d1 =  G_alum * areaf * a / k_al
-        d1 = d1 + (r2/dr + r1/dro) * a * al_thickness
-        c1 = -a * al_thickness * r2 / dr
-        a1 = -a * al_thickness * r1 / dro
-        b1 = al_thickness * areaf * alsi_info.ttopold[j] / t + G_alum * areaf * a * alsi_info.temp[j] / k_al
+        d1 = d1 + (r2/dr + r1/dro) * a * A_thickness
+        c1 = -a * A_thickness * r2 / dr
+        a1 = -a * A_thickness * r1 / dro
+        b1 = A_thickness * areaf * alsi_info.ttopold[j] / Dt + G_alum * areaf * a * alsi_info.temp[j] / k_al
         b1 = b1 + b * a * areaf / k_al
             
         alsi_info.ttop[j] = b1 - c1 * alsi_info.ttopold[j+1] - a1 * alsi_info.ttopold[j-1] - d1 * alsi_info.ttopold[j]
-        alsi_info.ttop[j] = alsi_info.ttop[j] * t / (al_thickness * areaf)
+        alsi_info.ttop[j] = alsi_info.ttop[j] * Dt / (A_thickness * areaf)
     end
     
     j=alsi_info.nfaces
@@ -963,23 +964,23 @@ function update_alsi_temp!(alsi_info, intensity, freq, dw, polarizations)
     dro = abs(prev_center - curr_center)
     radius = curr_center
     areaf = alsi_info.area[curr_face]
-    if (radius > spot_size)
-        qnot = 0.0
+    if (radius > L_size)
+        qdblprime = 0.0
     end
     
-    b = qnot*exp(-2.0*radius*radius/(spot_size*spot_size))
+    b = qdblprime*exp(-2.0*radius*radius/(L_size*L_size))
     
     r1 = alsi_info.noder[1, curr_face];
     r2 = alsi_info.noder[2, curr_face];
     
     d1 =  G_alum * areaf * a / k_al
-    d1 = d1 + (r1/dro) * a * al_thickness
-    a1 = -a * al_thickness * r1 / dro
-    b1 = al_thickness * areaf * alsi_info.ttopold[j] / t + G_alum * areaf * a * alsi_info.temp[j] / k_al
+    d1 = d1 + (r1/dro) * a * A_thickness
+    a1 = -a * A_thickness * r1 / dro
+    b1 = A_thickness * areaf * alsi_info.ttopold[j] / Dt + G_alum * areaf * a * alsi_info.temp[j] / k_al
     b1 = b1 + b * a * areaf / k_al
     
     alsi_info.ttop[j] = b1 - a1 * alsi_info.ttopold[j-1] - d1 * alsi_info.ttopold[j] 
-    alsi_info.ttop[j] = alsi_info.ttop[j] * t / (al_thickness * areaf)
+    alsi_info.ttop[j] = alsi_info.ttop[j] * Dt / (A_thickness * areaf)
     
     # Then update alsi_temp
     for j = 1:alsi_info.nfaces
@@ -992,18 +993,18 @@ function update_alsi_temp!(alsi_info, intensity, freq, dw, polarizations)
         for itera = 1:niter
             actin = 0.0
     	    actinprime = 0.0
-    	    qnot_c = G_alum * (alsi_info.ttop[j] - ftemp)
+    	    qdblprime_c = G_alum * (alsi_info.ttop[j] - ftemp)
             for iband = 1:nbands
                 inot = equilibrium_intensity(freq[iband], dw[iband], ftemp, polarizations[iband])
                 actin = actin + inot
                 iprime = dIdT_single(freq[iband], dw[iband], ftemp, polarizations[iband])
                 actinprime = actinprime + iprime
  		    end
-   			corr = ( jin + qnot_c - (pi * actin)) / (pi* actinprime + G_alum)
+   			corr = ( jin + qdblprime_c - (pi * actin)) / (pi* actinprime + G_alum)
    			if (itera == 1)
-                resi1 = jin + qnot_c - (pi * actin)
+                resi1 = jin + qdblprime_c - (pi * actin)
             end
-            resi = jin + qnot_c - (pi * actin)
+            resi = jin + qdblprime_c - (pi * actin)
             ftemp = ftemp + corr
             if (resi1 == 0.0)
                 break;
@@ -1018,7 +1019,7 @@ function update_alsi_temp!(alsi_info, intensity, freq, dw, polarizations)
         alsi_info.ttopold[j] = alsi_info.ttop[j];
     end
     
-    alsi_info.currentT += dt;
+    alsi_info.currentT += Dt;
     
     return nothing;
 end
