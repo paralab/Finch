@@ -506,7 +506,7 @@ function element_volume(etype::Int, pts::Matrix{FT}) where FT<:AbstractFloat
     elseif etype == 3 # triangle
         if dim == 2
             # abs(Ax(By - Cy) + Bx(Cy - Ay) + Cx(Ay - By) )/2
-            return 0.5 * abs(pts[1,1]*(pts[2,2]-pts[2,3]) + pts[1,2]*(pts[2,3]-pts[2,1] + pts[1,3]*(pts[2,1]-pts[2,2])));
+            return 0.5 * abs(pts[1,1]*(pts[2,2]-pts[2,3]) + pts[1,2]*(pts[2,3]-pts[2,1]) + pts[1,3]*(pts[2,1]-pts[2,2]));
         else
             # |v1 X v2| / 2
             v1 = [pts[i,2]-pts[i,1] for i=1:3];
@@ -519,7 +519,34 @@ function element_volume(etype::Int, pts::Matrix{FT}) where FT<:AbstractFloat
         
     elseif etype == 4 # quad
         # treat as two triangles. Assume points 1 and 3 are diagonally oposite
-        return element_volume(3, pts[:,1:3]) + element_volume(3, pts[:,[1,3,4]]);
+        # Find diagonally opposite vertex from 1
+        dx2 = pts[1,2]-pts[1,1];
+        dy2 = pts[2,2]-pts[2,1];
+        dx3 = pts[1,3]-pts[1,1];
+        dy3 = pts[2,3]-pts[2,1];
+        dx4 = pts[1,4]-pts[1,1];
+        dy4 = pts[2,4]-pts[2,1];
+        
+        # Guess 3
+        s = sqrt(dx3*dx3 + dy3*dy3);
+        top2 = (-dx2*dy3/s + dy2*dx3/s) > 0;
+        top4 = (-dx4*dy3/s + dy4*dx3/s) > 0;
+        if top2 != top4
+            # It was 3
+            return element_volume(3, pts[:,[1,2,3]]) + element_volume(3, pts[:,[1,3,4]]);
+        end
+        
+        # Guess 4
+        s = sqrt(dx4*dx4 + dy4*dy4);
+        top2 = (-dx2*dy4/s + dy2*dx4/s) > 0;
+        top3 = (-dx3*dy4/s + dy3*dx4/s) > 0;
+        if top2 != top3
+            # It was 4
+            return element_volume(3, pts[:,[1,2,4]]) + element_volume(3, pts[:,[1,3,4]]);
+        end
+        
+        # It was 2
+        return element_volume(3, pts[:,[1,2,3]]) + element_volume(3, pts[:,[1,2,4]]);
         
     elseif etype == 5 # tet
         # (a X b . c)/6

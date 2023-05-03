@@ -1,14 +1,16 @@
 # Isothermal boundary assumes equilibrium intensity outside
 @callbackFunction(
-    function isothermal_bdry_axi(intensity, vg::Vector, sx::Vector, sy::Vector, isx::Vector, isy::Vector, 
-                            band::Int, dir::Int, omega::Vector, normal::Vector{Float64}, temp)
+    function isothermal_bdry_axi(intensity, vg::Vector, isx::Vector, isy::Vector, 
+        band::Int, dir::Int, omega::Vector, normal::Vector{Float64}, temp)
+    # function isothermal_bdry_axi(intensity, vg::Vector, sx::Vector, sy::Vector, isx::Vector, isy::Vector, 
+    #                         band::Int, dir::Int, omega::Vector, normal::Vector{Float64}, temp)
         #
         ndir::Int = ndirs;
-        sdotn::Float64 = sx[dir]*normal[1] + sy[dir]*normal[2];
+        #sdotn::Float64 = sx[dir]*normal[1] + sy[dir]*normal[2];
         insdotn::Float64 = isx[dir]*normal[1] + isy[dir]*normal[2];
         invomega::Float64 = 1.0/omega[dir];
         
-        if sdotn > 0 # outward
+        if insdotn > 0 # outward
             interior_intensity::Float64 = intensity[dir + (band-1)*ndir];
             result = -vg[band] * interior_intensity * insdotn;
             
@@ -27,54 +29,71 @@
 
 # Symmetric boundary assumes mirror image of boundary cells
 @callbackFunction(
-    function symmetric_bdry_axi(intensity, vg::Vector, sx::Vector, sy::Vector, sz::Vector, isx::Vector, isy::Vector, 
-                            band::Int, dir::Int, omega::Vector, normal::Vector{Float64})
+    function symmetric_bdry_axi(intensity, vg::Vector, isx::Vector, isy::Vector, 
+        band::Int, dir::Int, omega::Vector, normal::Vector{Float64})
+    # function symmetric_bdry_axi(intensity, vg::Vector, sx::Vector, sy::Vector, sz::Vector, isx::Vector, isy::Vector, 
+    #                         band::Int, dir::Int, omega::Vector, normal::Vector{Float64})
         #
-        ndir::Int = ndirs;
-        sdotn::Float64 = sx[dir]*normal[1] + sy[dir]*normal[2];
-        insdotn::Float64 = isx[dir]*normal[1] + isy[dir]*normal[2];
-        invomega::Float64 = 1.0/omega[dir];
         
-        if sdotn > 0 # outward
-            # use interior intensity
-            interior_intensity::Float64 = intensity[dir + (band-1)*ndir];
-            result = -vg[band] * interior_intensity * insdotn;
+        return 0.0;
+        
+        # ndir::Int = ndirs;
+        # #sdotn::Float64 = sx[dir]*normal[1] + sy[dir]*normal[2];
+        # insdotn::Float64 = isx[dir]*normal[1] + isy[dir]*normal[2];
+        # invomega::Float64 = 1.0/omega[dir];
+        
+        # if insdotn > 0 # outward
+        #     # use interior intensity
+        #     interior_intensity::Float64 = intensity[dir + (band-1)*ndir];
+        #     result = -vg[band] * interior_intensity * insdotn;
             
-        else # inward
-            # Find the reflection direction
-            # Reflected vector is S - 2*Sdotn*n
-            reflect_x = sx[dir] - 2*sdotn * normal[1];
-            reflect_y = sy[dir] - 2*sdotn * normal[2];
-            reflect_z = pi - sz[dir];
-            closest = 1;
-            difference = 0.0
+        # else # inward
+        #     # # Find the reflection direction
+        #     # # Reflected vector is S - 2*Sdotn*n
+        #     # reflect_x = sx[dir] - 2*sdotn * normal[1];
+        #     # reflect_y = sy[dir] - 2*sdotn * normal[2];
+        #     # reflect_z = pi - sz[dir];
+        #     # closest = 1;
+        #     # difference = 0.0
             
-            for i=1:ndir
-                tmp = sx[i]*reflect_x + sy[i]*reflect_y + sz[i]*reflect_z;
-                if tmp > difference
-                    closest = i;
-                    difference = tmp;
-                end
-            end
+        #     # for i=1:ndir
+        #     #     tmp = sx[i]*reflect_x + sy[i]*reflect_y + sz[i]*reflect_z;
+        #     #     if tmp > difference
+        #     #         closest = i;
+        #     #         difference = tmp;
+        #     #     end
+        #     # end
             
-            sym_intensity::Float64 = intensity[closest + (band-1)*ndir];
-            result = -vg[band] * sym_intensity * insdotn;
-        end
-        return result*invomega;
+        #     # # check against reflect
+        #     # ref_id::Int = reflect[dir];
+        #     # if ref_id != closest
+        #     #     println("different reflect: $closest $ref_id")
+        #     # end
+        #     # closest = ref_id;
+            
+        #     # The reflection direction
+        #     ref_id::Int = reflect[dir];
+            
+        #     sym_intensity::Float64 = intensity[ref_id + (band-1)*ndir];
+        #     result = -vg[band] * sym_intensity * insdotn;
+        # end
+        # return result*invomega;
     end
 )
 
 # ALSI boundary is essentially the same as isothermal, but temperature is from the transducer.
 @callbackFunction(
-    function alsi_bdry_axi(intensity, vg::Vector, sx::Vector, sy::Vector, isx::Vector, isy::Vector, 
-                            band::Int, dir::Int, omega::Vector, normal::Vector{Float64}, fid::Int)
+    function alsi_bdry_axi(intensity, vg::Vector, isx::Vector, isy::Vector, 
+        band::Int, dir::Int, omega::Vector, normal::Vector{Float64}, fid::Int)
+    # function alsi_bdry_axi(intensity, vg::Vector, sx::Vector, sy::Vector, isx::Vector, isy::Vector, 
+    #                         band::Int, dir::Int, omega::Vector, normal::Vector{Float64}, fid::Int)
         #
         ndir::Int = ndirs;
-        sdotn::Float64 = sx[dir]*normal[1] + sy[dir]*normal[2];
+        #sdotn::Float64 = sx[dir]*normal[1] + sy[dir]*normal[2];
         insdotn::Float64 = isx[dir]*normal[1] + isy[dir]*normal[2];
         invomega::Float64 = 1.0/omega[dir];
         
-        if sdotn > 0 # outward
+        if insdotn > 0 # outward
             interior_intensity::Float64 = intensity[dir + (band-1)*ndir];
             result = -vg[band] * interior_intensity * insdotn;
             

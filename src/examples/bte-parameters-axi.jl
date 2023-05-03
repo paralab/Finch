@@ -359,32 +359,37 @@ function equilibrium_intensity(freq::Float64, dw::Float64, temp::Union{Int, Floa
 end
 
 # The integrated intensity in each band in each cell (integrated over directions)
-function get_integrated_intensity!(int_intensity::Matrix{Float64}, intensity::Matrix{Float64}, ndirs::Int, nbands::Int)
+function get_integrated_intensity!(int_intensity::Matrix{Float64}, intensity::Matrix{Float64}, ndirs::Int, nbands::Int, omega::Vector{Float64})
     n = size(intensity,2); # num cells
-    omega = 2*pi/ndirs * 2; # angle per direction * 2 
-    # Integrate over local bands and cells
-    @inbounds begin
-    for i=1:n
-        for j=1:nbands
-            int_intensity[j,i] = 0.0;
-            for k=1:ndirs
-                int_intensity[j,i] += intensity[(j-1)*ndirs+k, i] * omega;
+    if length(omega) == 0
+        omega = 2*pi/ndirs * 2; # angle per direction * 2 
+        
+        # Integrate over local bands and cells
+        @inbounds begin
+            for i=1:n
+                for j=1:nbands
+                    int_intensity[j,i] = 0.0;
+                    for k=1:ndirs
+                        int_intensity[j,i] += intensity[(j-1)*ndirs+k, i] * omega;
+                    end
+                end
             end
-        end
-    end
-    end#inbounds
-end
-function get_integrated_intensity_3d!(int_intensity::Matrix{Float64}, intensity::Matrix{Float64}, ndirs::Int, nbands::Int, omega::Vector{Float64})
-    n = size(intensity,2); # num cells
-    # Integrate over local bands and cells
-    for i=1:n
-        for j=1:nbands
-            int_intensity[j,i] = 0.0;
-            for k=1:ndirs
-                int_intensity[j,i] += intensity[(j-1)*ndirs+k, i] * omega[k];
+        end#inbounds
+        
+    else
+        # Integrate over local bands and cells
+        @inbounds begin
+            for i=1:n
+                for j=1:nbands
+                    int_intensity[j,i] = 0.0;
+                    for k=1:ndirs
+                        int_intensity[j,i] += intensity[(j-1)*ndirs+k, i] * omega[k];
+                    end
+                end
             end
-        end
+        end#inbounds
     end
+    
 end
 
 # Derivative of equilibrium intensity with respect to temperature
@@ -472,15 +477,14 @@ function get_next_temp!(temp_next::Array{Float64}, temp_last::Array{Float64}, I_
     debug = false;
     n = length(temp_last); # number of cells
     m = length(freq); # number of bands
+    if omega === nothing
+        omega = [];
+    end
 
     # G_last = get_integrated_intensity(I_last, ndirs, nbands);
     # G_next = get_integrated_intensity(I_next, ndirs, nbands);
-    if threed
-        get_integrated_intensity_3d!(G_next.values, I_next, ndirs, nbands, omega);
-    else
-        get_integrated_intensity!(G_next.values, I_next, ndirs, nbands);
-    end
-
+    get_integrated_intensity!(G_next_values, I_next, ndirs, nbands, omega);
+    
     # didt = dIdT(freq, dw, temp_last, polarization=polarization); # Use single version in loop instead
 
     idt::Float64 = 1.0/dt;
@@ -569,12 +573,12 @@ function get_next_temp_par!(temp_next::Array{Float64}, temp_last::Array{Float64}
     n = length(temp_last); # number of cells
     m = length(freq); # number of local bands
     nband_partitions::Int = MPI.Comm_size(MPI.COMM_WORLD);
-
-    if threed
-        get_integrated_intensity_3d!(G_next_values, I_next, ndirs, nbands, omega);
-    else
-        get_integrated_intensity!(G_next_values, I_next, ndirs, nbands);
+    if omega === nothing
+        omega = [];
     end
+
+    get_integrated_intensity!(G_next_values, I_next, ndirs, nbands, omega);
+    # println("G_c "*string(G_next_values[:,10305]))
     # didt = dIdT(freq, dw, temp_last, polarization=polarization); # Use single version in loop instead
 
     idt::Float64 = 1.0/dt;
@@ -608,6 +612,11 @@ function get_next_temp_par!(temp_next::Array{Float64}, temp_last::Array{Float64}
         uchange[i] = 4*pi * uchange[i];
 
         unew[i] = (uold[i] + gna[i] - gnb[i] - uchange[i]) / idt
+        
+        # if i==10305
+        #     println("gna, gnb, uold, unew, uchange idt")
+        #     println(string(gna[i]) * ", " * string(gnb[i]) * ", " * string(uold[i]) * ", " * string(unew[i]) * ", " * string(uchange[i]) * ", " * string(idt))
+        # end
     end
     
     # Now unew holds the partially reduced values for this proc.
@@ -627,10 +636,11 @@ function get_next_temp_par!(temp_next::Array{Float64}, temp_last::Array{Float64}
             uprime[i] = 0.0;
 
             for j=1:m # loop over local bands
-                beta = get_time_scale(freq[j], temp_next[i], polarizations[j]);
+                # beta = get_time_scale(freq[j], temp_next[i], polarizations[j]);
                 didt = dIdT_single(freq[j], dw[j], temp_next[i], polarizations[j]);
-
-                uchange[i] += equilibrium_intensity(freq[j], dw[j], temp_next[i], polarizations[j]) / group_v[j];
+                inot = equilibrium_intensity(freq[j], dw[j], temp_next[i], polarizations[j]);
+                
+                uchange[i] += inot / group_v[j];
                 uprime[i] += didt / group_v[j];
             end
             uchange[i] = 4*pi*uchange[i];
@@ -650,6 +660,11 @@ function get_next_temp_par!(temp_next::Array{Float64}, temp_last::Array{Float64}
             delta_T = delta_u / uprime[i];
 
             temp_next[i] = temp_next[i] + delta_T;
+            
+            # if i==10305
+            #     println("iter " * string(iter) * " deltaT " * string(delta_T) * " tnew " * string(temp_next[i]) * " resi " * string(delta_u) *
+            #     " uchange " * string(uchange[i]) * " uprime " * string(uprime[i]))
+            # end
             
             # hijack uold for holding uchange_1
             if iter == 1
@@ -773,12 +788,39 @@ function adjust_area_volume()
     end
 end
 
+# Get the reflection direction indices fro axisymmetric case
+function reflections_axi(ntheta, nphi)
+    ndirs = nphi * ntheta;
+    reflect = zeros(Int, ndirs);
+    
+    count = 0
+    for j=1:ntheta
+        #antheta = (j - 0.5)*pi/ntheta;
+        for i=1:nphi
+            anphi = (i - 0.5)*2*pi/nphi;
+            count += 1;
+            if anphi > 0 && anphi < (pi/2)
+                tmp = round(Int, (j-1)*nphi + nphi/2 - i + 1);
+                reflect[count] = tmp;
+                reflect[tmp] = count;
+            elseif anphi > pi && anphi < (3*pi/2)
+                tmp = round(Int, j*nphi + nphi/2 - i + 1);
+                reflect[count] = tmp;
+                reflect[tmp] = count;
+            end
+        end
+    end
+    
+    return reflect;
+end
+
 # A set of info needed for ALSI boundaries
 if !@isdefined(ALSIInfo)
     mutable struct ALSIInfo
         nfaces::Int             # number of alsi faces
         faces::Vector{Int}      # ordered indices of faces
-        noder::Matrix{Float64}  # face vertex nodes x coordinates
+        noder::Matrix{Float64}  # face vertex nodes r coordinates
+        centerr::Vector{Float64}# face center r coordinates
         area::Vector{Float64}   # area of faces
         elements::Vector{Int}   # indices of elements touching faces
         sdotn::Matrix{Float64}  # s dot n for each direction and face [ndirs, nfaces]
@@ -795,17 +837,18 @@ end
 function get_alsi_info(sx, sy, isx, isy, initialT)
     mesh::Finch.Grid = Finch.finch_state.grid_data;
     # grid.bdryface has face indices
-    indices::Vector{Int} = mesh.bdryface[2];
+    indices::Vector{Int} = mesh.bdryface[1];
     # fv_info.facecenters has face center coords
-    centerx = Finch.finch_state.fv_info.faceCenters[1,indices];
+    centery = Finch.finch_state.fv_info.faceCenters[2,indices];
     # They are probably in order, but just to be safe
-    order = sortperm(centerx);
+    order = sortperm(centery);
     ordered_indices = indices[order];
     
     # Also need node x coords.
     nfaces = length(indices);
     ndirs = length(sx);
     noder = zeros(2, nfaces);
+    centerr = zeros(nfaces);
     area = zeros(nfaces);
     elements = zeros(nfaces);
     sdotn = zeros(ndirs, nfaces);
@@ -825,6 +868,7 @@ function get_alsi_info(sx, sy, isx, isy, initialT)
             noder[1,i] = r2;
             noder[2,i] = r1;
         end
+        centerr[i] = centery[order[i]];
         area[i] = Finch.finch_state.geo_factors.area[ordered_indices[i]];
         elements[i] = mesh.face2element[1, ordered_indices[i]];
         
@@ -840,7 +884,7 @@ function get_alsi_info(sx, sy, isx, isy, initialT)
         ttopold[i] = initialT;
     end
     
-    return ALSIInfo(nfaces, ordered_indices, noder, area, elements, sdotn, isdotn, 0.0, temp, flux, ttop, ttopold);
+    return ALSIInfo(nfaces, ordered_indices, noder, centerr, area, elements, sdotn, isdotn, 0.0, temp, flux, ttop, ttopold);
 end
 
 # Find flux through ALSI boundary faces
@@ -880,6 +924,7 @@ function update_alsi_temp!(alsi_info, intensity, freq, dw, polarizations, np)
     L_power::Float64 = laser_power
     L_freq::Float64 = laser_freq
     L_size::Float64 = spot_size
+    alsi_info.currentT += Dt;
     qdblprime::Float64 = L_power * (1 + sin(L_freq * alsi_info.currentT * 2 * pi))
     A_thickness::Float64 = al_thickness;
     
@@ -899,8 +944,8 @@ function update_alsi_temp!(alsi_info, intensity, freq, dw, polarizations, np)
     next_face = j+1; # alsi_faces[j+1];
     curr_face = j; # alsi_faces[j];
     
-    next_center = 0.5 * (alsi_info.noder[1, next_face] + alsi_info.noder[2, next_face]);
-    curr_center = 0.5 * (alsi_info.noder[1, curr_face] + alsi_info.noder[2, curr_face]);
+    next_center = alsi_info.centerr[next_face]; # 0.5 * (alsi_info.noder[1, next_face] + alsi_info.noder[2, next_face]);
+    curr_center = alsi_info.centerr[curr_face]; # 0.5 * (alsi_info.noder[1, curr_face] + alsi_info.noder[2, curr_face]);
     dr = abs(next_center - curr_center)
     radius = curr_center
     areaf = alsi_info.area[curr_face]
@@ -922,14 +967,17 @@ function update_alsi_temp!(alsi_info, intensity, freq, dw, polarizations, np)
     alsi_info.ttop[j] = b1 - c1 * alsi_info.ttopold[j+1] - d1 * alsi_info.ttopold[j]
     alsi_info.ttop[j] = alsi_info.ttop[j] * Dt / (A_thickness * areaf)
     
+    # println("q "*string(qdblprime)*"b "*string(b)*" b1 "*string(b1)*" c1 "*string(c1)*" d1 "*string(d1)*" ttop "*string(alsi_info.ttop[j]))
+    # println("layer "*string(A_thickness)*"a "*string(a)*" area "*string(areaf)*" y2 "*string(r2)*" dy "*string(dr)*" dt "*string(Dt));
+    
     for j = 2:(alsi_info.nfaces-1)
         next_face = j+1; # alsi_faces[j+1];
         curr_face = j; # alsi_faces[j];
         prev_face = j-1; # alsi_faces[j-1];
         
-        next_center = 0.5 * (alsi_info.noder[1, next_face] + alsi_info.noder[2, next_face]);
-        curr_center = 0.5 * (alsi_info.noder[1, curr_face] + alsi_info.noder[2, curr_face]);
-        prev_center = 0.5 * (alsi_info.noder[1, prev_face] + alsi_info.noder[2, prev_face]);
+        next_center = alsi_info.centerr[next_face]; # 0.5 * (alsi_info.noder[1, next_face] + alsi_info.noder[2, next_face]);
+        curr_center = alsi_info.centerr[curr_face]; # 0.5 * (alsi_info.noder[1, curr_face] + alsi_info.noder[2, curr_face]);
+        prev_center = alsi_info.centerr[prev_face]; # 0.5 * (alsi_info.noder[1, prev_face] + alsi_info.noder[2, prev_face]);
         dr = abs(next_center - curr_center)
         dro = abs(prev_center - curr_center)
         
@@ -959,8 +1007,8 @@ function update_alsi_temp!(alsi_info, intensity, freq, dw, polarizations, np)
     curr_face = j; # alsi_faces[j];
     prev_face = j-1; # alsi_faces[j-1];
     
-    curr_center = 0.5 * (alsi_info.noder[1, curr_face] + alsi_info.noder[2, curr_face]);
-    prev_center = 0.5 * (alsi_info.noder[1, prev_face] + alsi_info.noder[2, prev_face]);
+    curr_center = alsi_info.centerr[curr_face]; # 0.5 * (alsi_info.noder[1, curr_face] + alsi_info.noder[2, curr_face]);
+    prev_center = alsi_info.centerr[prev_face]; # 0.5 * (alsi_info.noder[1, prev_face] + alsi_info.noder[2, prev_face]);
     dro = abs(prev_center - curr_center)
     radius = curr_center
     areaf = alsi_info.area[curr_face]
@@ -1006,6 +1054,14 @@ function update_alsi_temp!(alsi_info, intensity, freq, dw, polarizations, np)
             end
             resi = jin + qdblprime_c - (pi * actin)
             ftemp = ftemp + corr
+            
+            # if j==1
+            #     # println("jin "*string(jin)*" actin "*string(actin)*" actinprime "*string(actinprime)*" corr "*string(corr)*" ftemp "*string(ftemp))
+            #     factor1 = jin + qdblprime_c
+            #     factor2 = pi * actin
+            #     println("jin "*string(jin)*" q_c "*string(qdblprime_c)*" f1 "*string(factor1)*" f2 "*string(factor2)*" corr "*string(corr)*" ftemp "*string(ftemp))
+            # end
+            
             if (resi1 == 0.0)
                 break;
             end
@@ -1018,8 +1074,6 @@ function update_alsi_temp!(alsi_info, intensity, freq, dw, polarizations, np)
         # We can update ttopold now
         alsi_info.ttopold[j] = alsi_info.ttop[j];
     end
-    
-    alsi_info.currentT += Dt;
     
     return nothing;
 end

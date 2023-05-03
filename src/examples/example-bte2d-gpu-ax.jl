@@ -28,18 +28,18 @@ include("bte-parameters-axi.jl")
 include("bte-boundary-axi.jl")
 
 # Input parameters ###########################################################
-nphi = 4;           # number of phi angles
-ntheta = 20;         # number of theta angles
+nphi = 20;           # number of phi angles
+ntheta = 4;         # number of theta angles
 frequency_bands = 40;# number of frequency bands (not including polarizations)
 initial_temp = 300.0;# temperature initial condition
-laser_power = 1.0;  # laser power, qdblprime = laser_power*(1+sin(laser_freq*t*two*pi))
+laser_power = 1e8;  # laser power, qdblprime = laser_power*(1+sin(laser_freq*t*two*pi))
 spot_size = 4.1e-6; # laser spot size (1/e^2 for Gaussian spot)
 laser_freq = 2e7;   # laser modulation frequency
 al_thickness = 6e-8;# thickness of transducer layer
 dt = 1e-12;         # time step size
 nsteps = 100;       # total time steps
 
-use_alsi = true;   # true->ALSI BC on top, false->isothermal BC on top
+use_alsi = true;   # true->ALSI BC on right, false->isothermal BC on right
 ##############################################################################
 
 # Configuration setup
@@ -79,13 +79,19 @@ else
 end
 MPI = Finch.MPI; # This is used in temperature update.
 
-# A simple mesh is internally generated for convenience
-# This is a uniform grid of rectangles
-mesh(QUADMESH, # quad elements
-    elsperdim=[120, 120], # elements in each direction of the uniform grid
-    interval=[0, 525e-6, 0, 525e-6],  # interval in each direction
-    bids=4, # 4 boundary IDs for this mesh correspond to left, right, bottom, top
-    partitions=1) # no partitioning
+# # A simple mesh is internally generated for convenience
+# # This is a uniform grid of rectangles
+# mesh(QUADMESH, # quad elements
+#     elsperdim=[120, 120], # elements in each direction of the uniform grid
+#     interval=[0, 525e-6, 0, 525e-6],  # interval in each direction
+#     bids=4, # 4 boundary IDs for this mesh correspond to left, right, bottom, top
+#     partitions=1) # no partitioning
+
+# Read in a mesh matching the fortran version
+mesh("axi-120.mesh")
+addBoundaryID(2, (x,y)->(x>=1e-4));
+addBoundaryID(3, (x,y)->(y<=0));
+addBoundaryID(4, (x,y)->(y>=1e-4));
 
 # area and volume need to be adjusted for axisymmetric
 adjust_area_volume();
@@ -109,9 +115,10 @@ G_next = variable("G_next", type=VAR_ARRAY, location=CELL, index = [band]) # int
 (center_freq, delta_freq, polarizations) = get_band_frequencies(frequency_bands, low_band, high_band);
 group_v = get_group_speeds(center_freq, polarizations);
 (axial_p, axial_pplus) = get_axialp(int_y, nphi, ntheta);
+reflect = reflections_axi(nphi, ntheta);
 
 # Pieces needed for ALSI boundary
-alsi_info = get_alsi_info(dir_y, dir_z, int_y, int_z, initial_temp);
+alsi_info = get_alsi_info(dir_z, dir_y, int_z, int_y, initial_temp);
 
 # These are set as coefficients because they have known values.
 # Note that the axisymmetric case uses cylindrical coordinates
@@ -135,16 +142,17 @@ gna = zeros(num_cells);
 uprime = zeros(num_cells);
 converged = fill(false, num_cells);
 
-# bottom symmetric, left and top isothermal, right depends on use_alsi
-boundary(I, 1, FLUX, "isothermal_bdry_axi(I, vg, Sz, Sr, iSz, iSr, band, direction, omega, normal, 300)") # left (ID=1)
+# bottom symmetric, right and top isothermal, left depends on use_alsi
 if use_alsi
-    boundary(I, 2, FLUX, "alsi_bdry_axi(I, vg, Sz, Sr, iSz, iSr, band, direction, omega, normal, faceID)") # right (ID=2)
+    boundary(I, 1, FLUX, "alsi_bdry_axi(I, vg, iSz, iSr, band, direction, omega, normal, faceID)") # left (ID=1)
 else
-    boundary(I, 2, FLUX, "isothermal_bdry_axi(I, vg, Sz, Sr, iSz, iSr, band, direction, omega, normal, 350)") # right (ID=2)
-    # boundary(I, 4, FLUX, "isothermal_bdry(I, vg, Sz, Sr, band, direction, normal, (300 + 50*exp(-x*x/(5e-9))))") # right (ID=2)
+    boundary(I, 1, FLUX, "isothermal_bdry_axi(I, vg, iSz, iSr, band, direction, omega, normal, 300)") # left (ID=1)
+    # boundary(I, 1, FLUX, "isothermal_bdry(I, vg, iSz, iSr, band, direction, normal, (300 + 50*exp(-x*x/(5e-9))))") # left (ID=1)
 end
-boundary(I, 3, FLUX, "symmetric_bdry_axi(I, vg, Sz, Sr, Sp, iSz, iSr, band, direction, omega, normal)") # bottom (ID=3)
-boundary(I, 4, FLUX, "isothermal_bdry_axi(I, vg, Sz, Sr, iSz, iSr, band, direction, omega, normal, 300)") # top (ID=4)
+boundary(I, 2, FLUX, "isothermal_bdry_axi(I, vg, iSz, iSr, band, direction, omega, normal, 300)") # right (ID=2)
+# boundary(I, 3, FLUX, "symmetric_bdry_axi(I, vg, iSz, iSr, band, direction, omega, normal)") # bottom (ID=3)
+boundary(I, 3, FLUX, 0.0) # bottom (ID=3) Can do this because area of faces here are all zero -> no flux
+boundary(I, 4, FLUX, "isothermal_bdry_axi(I, vg, iSz, iSr, band, direction, omega, normal, 300)") # top (ID=4)
 
 
 initial(I, [equilibrium_intensity(center_freq[b], delta_freq[b], initial_temp, polarizations[b]) for d=1:ndirs, b=1:nbands])
@@ -159,7 +167,7 @@ assemblyLoops(["elements", band, direction])
 # Get integrated intensity from initial equilibrium.
 # To get initial values here we have to manually initialize.
 evalInitialConditions();
-get_integrated_intensity_3d!(G_last.values, I.values, ndirs, nbands, Omega);
+get_integrated_intensity!(G_last.values, I.values, ndirs, nbands, Omega);
 update_Iplus!(Iplus.values, I.values, nphi, ntheta, nbands);
 
 # After each time step the temperature, equilibrium I, and time scales are updated
@@ -210,9 +218,7 @@ solve(I)
 
 finalizeFinch()
 
-println("max "*string(maximum(temperature.values))*" , min "*string(minimum(temperature.values)))
-
-# display(temperature.values)
+println("Temperature max "*string(maximum(temperature.values))*" , min "*string(minimum(temperature.values)))
 
 # using Plots
 # pyplot();
