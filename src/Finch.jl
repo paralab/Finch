@@ -363,7 +363,7 @@ function add_Subdomain(state::FinchState, subdomain::Subdomain, carve::Bool, kee
 end
 
 # Write the mesh to a MSH file
-function output_mesh(state::FinchState, file::String, format::String)
+function output_mesh(state::FinchState, file::IOStream, format::String)
     if state.config.proc_rank == 0
         write_mesh(file, format, state.mesh_data);
         log_entry("Wrote mesh data to file.", 1);
