@@ -478,7 +478,7 @@ function get_next_temp!(temp_next::Array{Float64}, temp_last::Array{Float64}, I_
     n = length(temp_last); # number of cells
     m = length(freq); # number of bands
     if omega === nothing
-        omega = [];
+        omega = zeros(0);
     end
 
     # G_last = get_integrated_intensity(I_last, ndirs, nbands);
@@ -574,7 +574,7 @@ function get_next_temp_par!(temp_next::Array{Float64}, temp_last::Array{Float64}
     m = length(freq); # number of local bands
     nband_partitions::Int = MPI.Comm_size(MPI.COMM_WORLD);
     if omega === nothing
-        omega = [];
+        omega = zeros(0);
     end
 
     get_integrated_intensity!(G_next_values, I_next, ndirs, nbands, omega);

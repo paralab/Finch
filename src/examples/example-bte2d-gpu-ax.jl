@@ -88,7 +88,7 @@ MPI = Finch.MPI; # This is used in temperature update.
 #     partitions=1) # no partitioning
 
 # Read in a mesh matching the fortran version
-mesh("axi-120.mesh")
+mesh("axi-120.mesh", partitions=1)
 addBoundaryID(2, (x,y)->(x>=1e-4));
 addBoundaryID(3, (x,y)->(y<=0));
 addBoundaryID(4, (x,y)->(y>=1e-4));
@@ -210,7 +210,7 @@ solve(I)
 # setSteps(dt, nsteps);
 
 # evalInitialConditions();
-# get_integrated_intensity!(G_last.values, I.values, ndirs, nbands);
+# get_integrated_intensity!(G_last.values, I.values, ndirs, nbands, Omega);
 
 # solve(I)
 
