@@ -9,12 +9,13 @@ export read_mesh
 function read_mesh(file)
     # Determine the MSH format version
     mesh_file_type = 0; # 1=msh_v2, 2=msh_v4, 3=medit
+    line_number = 0;
     while !eof(file)
-        line = readline(file);
+        line = readline(file); line_number += 1;
         if occursin("\$MeshFormat", line)
             # Check if the MSH version is old(2) or new(4)
             vals = split(readline(file), " ", keepempty=false);
-            if parse(Float64, vals[1]) >= 4
+            if parse_check(Float64, vals[1], line_number) >= 4
                 mesh_file_type = 2;
             else
                 mesh_file_type = 1;
@@ -45,6 +46,7 @@ function read_msh_v2(file)
     
     # Find the beginning of the Nodes and Elements sections.
     # Then read in the numbers.
+    line_number = 0;
     nodes_done = false;
     elements_done = false;
     nx = 0;
@@ -56,55 +58,55 @@ function read_msh_v2(file)
     nv = zeros(Int,0);
     
     while((!nodes_done || !elements_done) && !eof(file))
-        line = readline(file);
+        line = readline(file); line_number += 1;
         if occursin("\$Nodes", line)
             # The Nodes section
-            line = readline(file);
-            nx = parse(Int, split(line, " ", keepempty=false)[1]);
+            line = readline(file); line_number += 1;
+            nx = parse_check(Int, split(line, " ", keepempty=false)[1], line_number);
             if nx > 0
                 # parse each node's coordinates
                 nodes = zeros(3, nx);
                 indices = zeros(Int, nx);
                 i = 1;
-                line = readline(file);
+                line = readline(file); line_number += 1;
                 while !occursin("\$EndNodes", line) && !eof(file)
                     vals = split(line, " ", keepempty=false);
-                    indices[i] = parse(Int, vals[1]);
-                    nodes[1,i] = parse(Float64, vals[2]);
-                    nodes[2,i] = parse(Float64, vals[3]);
-                    nodes[3,i] = parse(Float64, vals[4]);
+                    indices[i] = parse_check(Int, vals[1], line_number);
+                    nodes[1,i] = parse_check(Float64, vals[2], line_number);
+                    nodes[2,i] = parse_check(Float64, vals[3], line_number);
+                    nodes[3,i] = parse_check(Float64, vals[4], line_number);
                     i += 1;
-                    line = readline(file);
+                    line = readline(file); line_number += 1;
                 end
                 
                 nodes_done = true;
             end
         elseif occursin("\$Elements", line)
             # The Elements section
-            line = readline(file);
-            nel = parse(Int, split(line, " ", keepempty=false)[1]);
+            line = readline(file); line_number += 1;
+            nel = parse_check(Int, split(line, " ", keepempty=false)[1], line_number);
             if nel > 0
                 # parse each element's numbers
                 nv = zeros(Int, nel);
                 etypes = zeros(Int, nel);
                 elements = zeros(Int, 8, nel);
                 i = 1;
-                line = readline(file);
+                line = readline(file); line_number += 1;
                 while !occursin("\$EndElements", line) && !eof(file)
                     vals = split(line, " ", keepempty=false);
                     # Skip lower dimensional elements
-                    tmptype = parse(Int, vals[2]);
+                    tmptype = parse_check(Int, vals[2], line_number);
                     if etypetodim[tmptype] == finch_state.config.dimension
                         etypes[i] = tmptype;
                         nv[i] = etypetonv[tmptype];
-                        offset = parse(Int, vals[3]) + 3;
+                        offset = parse_check(Int, vals[3], line_number) + 3;
                         for j=1:nv[i]
-                            elements[j,i] = parse(Int, vals[offset + j]);
+                            elements[j,i] = parse_check(Int, vals[offset + j], line_number);
                         end
                         i += 1;
                     end
                     
-                    line = readline(file);
+                    line = readline(file); line_number += 1;
                 end
                 # adjust to correct number of elements
                 nel = i-1;
@@ -128,6 +130,7 @@ function read_msh_v4(file)
     
     # Find the beginning of the Nodes and Elements sections.
     # Then read in the numbers.
+    line_number = 0;
     nodes_done = false;
     elements_done = false;
     nx = 0;
@@ -138,7 +141,7 @@ function read_msh_v4(file)
     etypes = [];
     nv = [];
     while((!nodes_done || !elements_done) && !eof(file))
-        line = readline(file);
+        line = readline(file); line_number += 1;
         if occursin("\$Nodes", line)
             # The Nodes section
             #=
@@ -155,44 +158,44 @@ function read_msh_v4(file)
             ...
             $EndNodes
             =#
-            line = readline(file);
-            nx = parse(Int, split(line, " ", keepempty=false)[2]);
+            line = readline(file); line_number += 1;
+            nx = parse_check(Int, split(line, " ", keepempty=false)[2], line_number);
             if nx > 0
                 # parse node info
                 nodes = zeros(3,nx);
                 indices = zeros(Int, nx);
                 i = 1;
-                line = readline(file);
+                line = readline(file); line_number += 1;
                 while !occursin("\$EndNodes", line) && !eof(file)
                     # process entity blocks 
                     # The first line has entity info. 
                     entinfo = split(line, " ", keepempty=false);
-                    entdim = parse(Int, entinfo[1]);
-                    parametric = parse(Int, entinfo[3]);
-                    entnx = parse(Int, entinfo[4]);
+                    entdim = parse_check(Int, entinfo[1], line_number);
+                    parametric = parse_check(Int, entinfo[3], line_number);
+                    entnx = parse_check(Int, entinfo[4], line_number);
                     # Node indices
                     for ni=1:entnx
-                        line = readline(file);
+                        line = readline(file); line_number += 1;
                         vals = split(line, " ", keepempty=false);
-                        indices[i-1 + ni] = parse(Int, vals[1]);
+                        indices[i-1 + ni] = parse_check(Int, vals[1], line_number);
                     end
                     # Node coordinates
                     for ni=1:entnx
-                        line = readline(file);
+                        line = readline(file); line_number += 1;
                         vals = split(line, " ", keepempty=false);
-                        nodes[1,i-1 + ni] = parse(Float64, vals[1]);
-                        nodes[2,i-1 + ni] = parse(Float64, vals[2]);
-                        nodes[3,i-1 + ni] = parse(Float64, vals[3]);
+                        nodes[1,i-1 + ni] = parse_check(Float64, vals[1], line_number);
+                        nodes[2,i-1 + ni] = parse_check(Float64, vals[2], line_number);
+                        nodes[3,i-1 + ni] = parse_check(Float64, vals[3], line_number);
                     end
                     # Parametric (ignore)
                     if parametric > 0
                         printerr("Paremetric entity found in mesh file. Ignoring parameters.")
                         for ni=1:entdim
-                            line = readline(file);
+                            line = readline(file); line_number += 1;
                         end
                     end
                     i += entnx;
-                    line = readline(file);
+                    line = readline(file); line_number += 1;
                 end
                 
                 nodes_done = true;
@@ -207,44 +210,44 @@ function read_msh_v4(file)
             2 2 5 6 3          quad tag #2, nodes 2 5 6 3
             $EndElements
             =#
-            line = readline(file);
-            nel = parse(Int, split(line, " ", keepempty=false)[2]);
+            line = readline(file); line_number += 1;
+            nel = parse_check(Int, split(line, " ", keepempty=false)[2], line_number);
             if nel > 0
                 # parse elements
                 nv = zeros(Int, nel);
                 etypes = zeros(Int, nel);
                 elements = zeros(Int, 8, nel);
                 i = 1;
-                line = readline(file);
+                line = readline(file); line_number += 1;
                 while !occursin("\$EndElements", line) && !eof(file)
                     # Process entity blocks
                     # The first line has entity info. 
                     vals = split(line, " ", keepempty=false);
-                    entdim = parse(Int, vals[1]);
-                    enttype = parse(Int, vals[3]);
-                    entnel = parse(Int, vals[4]);
+                    entdim = parse_check(Int, vals[1], line_number);
+                    enttype = parse_check(Int, vals[3], line_number);
+                    entnel = parse_check(Int, vals[4], line_number);
                     
                     # Ignore elements with lower dimension (faces, points etc.)
                     if entdim == finch_state.config.dimension
                         # read element info
                         for ei=1:entnel
-                            line = readline(file);
+                            line = readline(file); line_number += 1;
                             vals = split(line, " ", keepempty=false);
                             etypes[i-1 + ei] = enttype;
                             entnv = etypetonv[enttype];
                             nv[i-1 + ei] = entnv;
                             for j=1:entnv
-                                elements[j, i-1 + ei] = parse(Int, vals[1 + j]);
+                                elements[j, i-1 + ei] = parse_check(Int, vals[1 + j], line_number);
                             end
                         end
                         
                         i += entnel;
-                        line = readline(file);
+                        line = readline(file); line_number += 1;
                     else
                         for ei=1:entnel
-                            line = readline(file); # skip lines
+                            line = readline(file); line_number += 1; # skip lines
                         end
-                        line = readline(file);
+                        line = readline(file); line_number += 1;
                     end
                     
                 end
@@ -278,6 +281,7 @@ function read_medit(file)
     # End
     #
     # There may be lower dimensional elements for surfaces, but it's inconsistent
+    line_number = 0;
     nodes_done = false;
     elements_done = false;
     nx = 0;
@@ -289,14 +293,14 @@ function read_medit(file)
     nv = [];
     dim = 1;
     while((!nodes_done || !elements_done) && !eof(file))
-        line = readline(file);
+        line = readline(file); line_number += 1;
         if occursin("Dimension", line)
             tokens = split(line, " ", keepempty=false);
             if length(tokens) > 1
-                dim = parse(Int, tokens[2]);
+                dim = parse_check(Int, tokens[2], line_number);
             else
-                line = readline(file);
-                dim = parse(Int, line);
+                line = readline(file); line_number += 1;
+                dim = parse_check(Int, line, line_number);
             end
             if finch_state.config.dimension != dim
                 # Maybe someone forgot to set dimension.
@@ -305,7 +309,7 @@ function read_medit(file)
                 bookmark = position(file);
                 highest_dim = 1;
                 while !eof(file)
-                    line = readline(file);
+                    line = readline(file); line_number += 1;
                     if (occursin("Triangles", line) || occursin("Quadrilaterals", line))
                         highest_dim = max(highest_dim,2);
                     end
@@ -327,22 +331,22 @@ function read_medit(file)
         elseif occursin("Vertices", line)
             tokens = split(line, " ", keepempty=false);
             if length(tokens) > 1
-                nx = parse(Int, tokens[2]);
+                nx = parse_check(Int, tokens[2], line_number);
             else
-                line = readline(file);
-                nx = parse(Int, line);
+                line = readline(file); line_number += 1;
+                nx = parse_check(Int, line, line_number);
             end
             
             # parse vertex info
             nodes = zeros(3,nx);
             flags = zeros(Int, nx);
             for i=1:nx
-                line = readline(file);
+                line = readline(file); line_number += 1;
                 vals = split(line, " ", keepempty=false);
                 for j=1:dim
-                    nodes[j,i] = parse(Float64, vals[j]);
+                    nodes[j,i] = parse_check(Float64, vals[j], line_number);
                 end
-                flags[i] = parse(Int, vals[end]);
+                flags[i] = parse_check(Int, vals[end], line_number);
             end
             
             nodes_done = true;
@@ -350,10 +354,10 @@ function read_medit(file)
         elseif dim == 1 && (occursin("Edges", line))
             tokens = split(line, " ", keepempty=false);
             if length(tokens) > 1
-                nel = parse(Int, tokens[2]);
+                nel = parse_check(Int, tokens[2], line_number);
             else
-                line = readline(file);
-                nel = parse(Int, line);
+                line = readline(file); line_number += 1;
+                nel = parse_check(Int, line, line_number);
             end
             
             nv = fill(2, nel);
@@ -361,21 +365,21 @@ function read_medit(file)
             elements = zeros(Int, 8, nel);
             eflags = zeros(Int, nel);
             for i=1:nel
-                line = readline(file);
+                line = readline(file); line_number += 1;
                 vals = split(line, " ", keepempty=false);
-                elements[1,i] = parse(Int, vals[1]);
-                elements[2,i] = parse(Int, vals[2]);
-                eflags[i] = parse(Int, vals[4]);
+                elements[1,i] = parse_check(Int, vals[1], line_number);
+                elements[2,i] = parse_check(Int, vals[2], line_number);
+                eflags[i] = parse_check(Int, vals[4], line_number);
             end
             elements_done = true;
             
         elseif dim == 2 && (occursin("Triangles", line) || occursin("Quadrilaterals", line))
             tokens = split(line, " ", keepempty=false);
             if length(tokens) > 1
-                nel = parse(Int, tokens[2]);
+                nel = parse_check(Int, tokens[2], line_number);
             else
-                line = readline(file);
-                nel = parse(Int, line);
+                line = readline(file); line_number += 1;
+                nel = parse_check(Int, line, line_number);
             end
             if tokens[1] == "Triangles"
                 nv = fill(3, nel);
@@ -383,12 +387,12 @@ function read_medit(file)
                 elements = zeros(Int, 8, nel);
                 eflags = zeros(Int, nel);
                 for i=1:nel
-                    line = readline(file);
+                    line = readline(file); line_number += 1;
                     vals = split(line, " ", keepempty=false);
-                    elements[1,i] = parse(Int, vals[1]);
-                    elements[2,i] = parse(Int, vals[2]);
-                    elements[3,i] = parse(Int, vals[3]);
-                    eflags[i] = parse(Int, vals[4]);
+                    elements[1,i] = parse_check(Int, vals[1], line_number);
+                    elements[2,i] = parse_check(Int, vals[2], line_number);
+                    elements[3,i] = parse_check(Int, vals[3], line_number);
+                    eflags[i] = parse_check(Int, vals[4], line_number);
                 end
                 
             elseif tokens[1] == "Quadrilaterals"
@@ -397,13 +401,13 @@ function read_medit(file)
                 elements = zeros(Int, 8, nel);
                 eflags = zeros(Int, nel);
                 for i=1:nel
-                    line = readline(file);
+                    line = readline(file); line_number += 1;
                     vals = split(line, " ", keepempty=false);
-                    elements[1,i] = parse(Int, vals[1]);
-                    elements[2,i] = parse(Int, vals[2]);
-                    elements[3,i] = parse(Int, vals[3]);
-                    elements[4,i] = parse(Int, vals[4]);
-                    eflags[i] = parse(Int, vals[5]);
+                    elements[1,i] = parse_check(Int, vals[1], line_number);
+                    elements[2,i] = parse_check(Int, vals[2], line_number);
+                    elements[3,i] = parse_check(Int, vals[3], line_number);
+                    elements[4,i] = parse_check(Int, vals[4], line_number);
+                    eflags[i] = parse_check(Int, vals[5], line_number);
                 end
             end
             elements_done = true;
@@ -411,10 +415,10 @@ function read_medit(file)
         elseif dim == 3 && (occursin("Tetrahedra", line) || occursin("Hexahedra", line))
             tokens = split(line, " ", keepempty=false);
             if length(tokens) > 1
-                nel = parse(Int, tokens[2]);
+                nel = parse_check(Int, tokens[2], line_number);
             else
-                line = readline(file);
-                nel = parse(Int, line);
+                line = readline(file); line_number += 1;
+                nel = parse_check(Int, line, line_number);
             end
             
             if tokens[1] == "Tetrahedra"
@@ -423,13 +427,13 @@ function read_medit(file)
                 elements = zeros(Int, 8, nel);
                 eflags = zeros(Int, nel);
                 for i=1:nel
-                    line = readline(file);
+                    line = readline(file); line_number += 1;
                     vals = split(line, " ", keepempty=false);
-                    elements[1,i] = parse(Int, vals[1]);
-                    elements[2,i] = parse(Int, vals[2]);
-                    elements[3,i] = parse(Int, vals[3]);
-                    elements[4,i] = parse(Int, vals[4]);
-                    eflags[i] = parse(Int, vals[5]);
+                    elements[1,i] = parse_check(Int, vals[1], line_number);
+                    elements[2,i] = parse_check(Int, vals[2], line_number);
+                    elements[3,i] = parse_check(Int, vals[3], line_number);
+                    elements[4,i] = parse_check(Int, vals[4], line_number);
+                    eflags[i] = parse_check(Int, vals[5], line_number);
                 end
                 
             elseif tokens[1] == "Hexahedra"
@@ -438,17 +442,17 @@ function read_medit(file)
                 elements = zeros(Int, 8, nel);
                 eflags = zeros(Int, nel);
                 for i=1:nel
-                    line = readline(file);
+                    line = readline(file); line_number += 1;
                     vals = split(line, " ", keepempty=false);
-                    elements[1,i] = parse(Int, vals[1]);
-                    elements[2,i] = parse(Int, vals[2]);
-                    elements[3,i] = parse(Int, vals[3]);
-                    elements[4,i] = parse(Int, vals[4]);
-                    elements[5,i] = parse(Int, vals[5]);
-                    elements[6,i] = parse(Int, vals[6]);
-                    elements[7,i] = parse(Int, vals[7]);
-                    elements[8,i] = parse(Int, vals[8]);
-                    eflags[i] = parse(Int, vals[9]);
+                    elements[1,i] = parse_check(Int, vals[1], line_number);
+                    elements[2,i] = parse_check(Int, vals[2], line_number);
+                    elements[3,i] = parse_check(Int, vals[3], line_number);
+                    elements[4,i] = parse_check(Int, vals[4], line_number);
+                    elements[5,i] = parse_check(Int, vals[5], line_number);
+                    elements[6,i] = parse_check(Int, vals[6], line_number);
+                    elements[7,i] = parse_check(Int, vals[7], line_number);
+                    elements[8,i] = parse_check(Int, vals[8], line_number);
+                    eflags[i] = parse_check(Int, vals[9], line_number);
                 end
             end
             elements_done = true;
@@ -462,4 +466,22 @@ function read_medit(file)
     indices = Array(1:nx);
     
     return MeshData(nx, nodes, indices, nel, elements, etypes, nv);
+end
+
+# Check input numbers for NaN or parse errors.
+# If input is bad, print error and exit.
+# Input: the type to parse to and the string to parse
+# Returns: the parsed value
+function parse_check(type, string, line_number)
+    try
+        result = parse(type, string);
+        if isnan(result) || isinf(result)
+            printerr(finch_state, "Unexpected value in mesh file on line $(line_number): $string", fatal = true);
+        end
+        
+        return result;
+        
+    catch
+        printerr(finch_state, "Error parsing mesh file on line $(line_number): $string should be of type $type", fatal = true);
+    end
 end

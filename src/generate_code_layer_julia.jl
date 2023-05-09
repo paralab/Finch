@@ -712,8 +712,8 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
         # content = generate_from_IR_julia(IR.args[6], IRtypes);
         code = "
 @inbounds begin
-for row=1:nodes_per_element
 for col=1:nodes_per_element
+for row=1:nodes_per_element
 $init_lines
 for i=1:qnodes_per_element
 $compute_lines
