@@ -32,9 +32,16 @@ function generate_code_layer_julia(var::Vector{Variable{FT}}, IR::IR_part, solve
         end
     end
     
+    # For mixed meshes, refel could be refels
+    if finch_state.mixed_elements
+        refel_type = "Vector{Refel{FT}}"
+    else
+        refel_type = "Refel"
+    end
+    
     # 
     if solver == CG || solver == DG
-        args = "(var::Vector{Variable{FT}}, mesh::Grid, refel::Refel, geometric_factors::GeometricFactors, "*
+        args = "(var::Vector{Variable{FT}}, mesh::Grid, refel::$(refel_type), geometric_factors::GeometricFactors, "*
                 "config::FinchConfig, coefficients::Vector{Coefficient}, variables::Vector{Variable{FT}}, "*
                 "test_functions::Vector{Coefficient}, ordered_indexers::Vector{Indexer}, prob::FinchProblem, "*
                 "time_stepper::Stepper, buffers::ParallelBuffers, timer_output::TimerOutput, nl_var=nothing) where FT<:AbstractFloat";
@@ -66,7 +73,7 @@ $(sbm_pieces)
         
         
     elseif solver == FV
-        args = "(var::Vector{Variable{FT}}, mesh::Grid, refel::Refel, geometric_factors::GeometricFactors, "*
+        args = "(var::Vector{Variable{FT}}, mesh::Grid, refel::$(refel_type)l, geometric_factors::GeometricFactors, "*
                 "fv_info::FVInfo, config::FinchConfig, coefficients::Vector{Coefficient}, variables::Vector{Variable{FT}}, "*
                 "test_functions::Vector{Coefficient}, ordered_indexers::Vector{Indexer}, prob::FinchProblem, "*
                 "time_stepper::Stepper, buffers::ParallelBuffers, timer_output::TimerOutput, nl_var=nothing) where FT<:AbstractFloat";

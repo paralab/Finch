@@ -21,7 +21,7 @@ export initFinch, generateFor, useLog, indexDataType, floatDataType,
 """
 initFinch(name = "unnamedProject", floatType::DataType=Float64)
 
-This initializes and returns the Finch state.
+This initializes the Finch state.
 The name of the project can be set here.
 T is the data type to be used for floating point data.
 T must be a subtype of AbstractFloat.
@@ -30,7 +30,9 @@ the computation, some places may still use Float64, so the
 corresponding conversions should be defined.
 """
 function initFinch(name="unnamedProject", floatType::DataType=Float64)
-    return init_finch(floatType, name);
+    # return init_finch(floatType, name);
+    init_finch(floatType, name);
+    return nothing
 end
 
 """
@@ -1614,19 +1616,28 @@ function solve(var)
             end
         end
         
+        # For mixed meshes, need to pass refels instead of refel
+        if finch_state.mixed_elements
+            refel_arg = finch_state.refels;
+            refel_arg_fv = finch_state.fv_refels;
+        else
+            refel_arg = finch_state.refel;
+            refel_arg_fv = finch_state.fv_refel;
+        end
+        
         # Use the appropriate solver
         if finch_state.config.solver_type == CG || finch_state.config.solver_type == DG
             func = finch_state.solve_functions[varind];
             
             if finch_state.prob.nonlinear
-                @timeit finch_state.timer_output "FE_solve" func.func(vars, finch_state.grid_data, finch_state.refel, 
+                @timeit finch_state.timer_output "FE_solve" func.func(vars, finch_state.grid_data, refel_arg, 
                                             finch_state.geo_factors, finch_state.config, finch_state.coefficients, 
                                             finch_state.variables, finch_state.test_functions, finch_state.ordered_indexers, 
                                             finch_state.prob, finch_state.time_stepper, finch_state.parallel_buffers,
                                             finch_state.timer_output, nl_var);
                 
             else
-                @timeit finch_state.timer_output "FE_solve" func.func(vars, finch_state.grid_data, finch_state.refel, 
+                @timeit finch_state.timer_output "FE_solve" func.func(vars, finch_state.grid_data, refel_arg, 
                                             finch_state.geo_factors, finch_state.config, finch_state.coefficients, 
                                             finch_state.variables, finch_state.test_functions, finch_state.ordered_indexers, 
                                             finch_state.prob, finch_state.time_stepper, finch_state.parallel_buffers,
@@ -1639,13 +1650,13 @@ function solve(var)
             func = finch_state.solve_functions[varind];
             
             if finch_state.prob.nonlinear
-                @timeit finch_state.timer_output "FV_solve" func.func(vars, finch_state.fv_grid, finch_state.fv_refel, 
+                @timeit finch_state.timer_output "FV_solve" func.func(vars, finch_state.fv_grid, refel_arg_fv, 
                                             finch_state.fv_geo_factors, finch_state.fv_info, finch_state.config, 
                                             finch_state.coefficients, finch_state.variables, finch_state.test_functions, 
                                             finch_state.ordered_indexers, finch_state.prob, finch_state.time_stepper, 
                                             finch_state.parallel_buffers, finch_state.timer_output, nl_var);
             else
-                @timeit finch_state.timer_output "FV_solve" func.func(vars, finch_state.fv_grid, finch_state.fv_refel, 
+                @timeit finch_state.timer_output "FV_solve" func.func(vars, finch_state.fv_grid, refel_arg_fv, 
                                             finch_state.fv_geo_factors, finch_state.fv_info, finch_state.config, 
                                             finch_state.coefficients, finch_state.variables, finch_state.test_functions, 
                                             finch_state.ordered_indexers, finch_state.prob, finch_state.time_stepper, 

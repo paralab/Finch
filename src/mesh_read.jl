@@ -290,9 +290,12 @@ function read_medit(file)
     indices = [];
     elements = [];
     etypes = [];
+    eflags = [];
     nv = [];
     dim = 1;
-    while((!nodes_done || !elements_done) && !eof(file))
+    el_type_count = 0;
+    el_offset = 0;
+    while(!eof(file))
         line = readline(file); line_number += 1;
         if occursin("Dimension", line)
             tokens = split(line, " ", keepempty=false);
@@ -374,6 +377,8 @@ function read_medit(file)
             elements_done = true;
             
         elseif dim == 2 && (occursin("Triangles", line) || occursin("Quadrilaterals", line))
+            el_type_count += 1;
+            el_offset = nel;
             tokens = split(line, " ", keepempty=false);
             if length(tokens) > 1
                 nel = parse_check(Int, tokens[2], line_number);
@@ -382,11 +387,19 @@ function read_medit(file)
                 nel = parse_check(Int, line, line_number);
             end
             if tokens[1] == "Triangles"
-                nv = fill(3, nel);
-                etypes = fill(2, nel);
-                elements = zeros(Int, 8, nel);
-                eflags = zeros(Int, nel);
-                for i=1:nel
+                if el_type_count > 1
+                    append!(nv, fill(3, nel));
+                    append!(etypes, fill(2, nel));
+                    elements = hcat(elements, zeros(Int, 8, nel));
+                    append!(eflags, zeros(Int, nel));
+                else
+                    nv = fill(3, nel);
+                    etypes = fill(2, nel);
+                    elements = zeros(Int, 8, nel);
+                    eflags = zeros(Int, nel);
+                end
+                
+                for i=(el_offset + 1):(el_offset + nel)
                     line = readline(file); line_number += 1;
                     vals = split(line, " ", keepempty=false);
                     elements[1,i] = parse_check(Int, vals[1], line_number);
@@ -396,11 +409,18 @@ function read_medit(file)
                 end
                 
             elseif tokens[1] == "Quadrilaterals"
-                nv = fill(4, nel);
-                etypes = fill(3, nel);
-                elements = zeros(Int, 8, nel);
-                eflags = zeros(Int, nel);
-                for i=1:nel
+                if el_type_count > 1
+                    append!(nv, fill(4, nel));
+                    append!(etypes, fill(3, nel));
+                    elements = hcat(elements, zeros(Int, 8, nel));
+                    append!(eflags, zeros(Int, nel));
+                else
+                    nv = fill(4, nel);
+                    etypes = fill(3, nel);
+                    elements = zeros(Int, 8, nel);
+                    eflags = zeros(Int, nel);
+                end
+                for i=(el_offset + 1):(el_offset + nel)
                     line = readline(file); line_number += 1;
                     vals = split(line, " ", keepempty=false);
                     elements[1,i] = parse_check(Int, vals[1], line_number);
@@ -410,9 +430,12 @@ function read_medit(file)
                     eflags[i] = parse_check(Int, vals[5], line_number);
                 end
             end
+            nel = nel + el_offset;
             elements_done = true;
             
         elseif dim == 3 && (occursin("Tetrahedra", line) || occursin("Hexahedra", line))
+            el_type_count += 1;
+            el_offset = nel;
             tokens = split(line, " ", keepempty=false);
             if length(tokens) > 1
                 nel = parse_check(Int, tokens[2], line_number);
@@ -422,11 +445,18 @@ function read_medit(file)
             end
             
             if tokens[1] == "Tetrahedra"
-                nv = fill(4, nel);
-                etypes = fill(4, nel);
-                elements = zeros(Int, 8, nel);
-                eflags = zeros(Int, nel);
-                for i=1:nel
+                if el_type_count > 1
+                    append!(nv, fill(4, nel));
+                    append!(etypes, fill(4, nel));
+                    elements = hcat(elements, zeros(Int, 8, nel));
+                    append!(eflags, zeros(Int, nel));
+                else
+                    nv = fill(4, nel);
+                    etypes = fill(4, nel);
+                    elements = zeros(Int, 8, nel);
+                    eflags = zeros(Int, nel);
+                end
+                for i=(el_offset + 1):(el_offset + nel)
                     line = readline(file); line_number += 1;
                     vals = split(line, " ", keepempty=false);
                     elements[1,i] = parse_check(Int, vals[1], line_number);
@@ -437,11 +467,18 @@ function read_medit(file)
                 end
                 
             elseif tokens[1] == "Hexahedra"
-                nv = fill(8, nel);
-                etypes = fill(5, nel);
-                elements = zeros(Int, 8, nel);
-                eflags = zeros(Int, nel);
-                for i=1:nel
+                if el_type_count > 1
+                    append!(nv, fill(8, nel));
+                    append!(etypes, fill(5, nel));
+                    elements = hcat(elements, zeros(Int, 8, nel));
+                    append!(eflags, zeros(Int, nel));
+                else
+                    nv = fill(8, nel);
+                    etypes = fill(5, nel);
+                    elements = zeros(Int, 8, nel);
+                    eflags = zeros(Int, nel);
+                end
+                for i=(el_offset + 1):(el_offset + nel)
                     line = readline(file); line_number += 1;
                     vals = split(line, " ", keepempty=false);
                     elements[1,i] = parse_check(Int, vals[1], line_number);
@@ -455,6 +492,7 @@ function read_medit(file)
                     eflags[i] = parse_check(Int, vals[9], line_number);
                 end
             end
+            nel = nel + el_offset;
             elements_done = true;
         end
     end

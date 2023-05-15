@@ -39,14 +39,47 @@ function copy(j::Jacobian)
 end
 
 # Construct the geometric factors from a grid+refel
-function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=true, 
+function build_geometric_factors(refel, grid::Grid; do_face_detj::Bool=true, 
                                 do_vol_area::Bool=false, constant_jacobian::Bool=false)
     ftype = finch_state.config.float_type;
     nel = size(grid.loc2glb, 2);
     totalfaces = size(grid.facenormals, 2);
     dim = size(grid.allnodes, 1);
-    nodes_per_element = refel.Np;
-    qnodes_per_element = refel.Nqp;
+    
+    # Find maximal values for sizing arrays
+    if typeof(refel) <: Array
+        nodes_per_element = refel[1].Np;
+        qnodes_per_element = refel[1].Nqp;
+        for i=2:length(refel)
+            nodes_per_element = max(nodes_per_element, refel[i].Np);
+            qnodes_per_element = max(qnodes_per_element, refel[i].Nqp);
+        end
+        order = refel[1].N;
+        
+    else # one element type
+        nodes_per_element = refel.Np;
+        qnodes_per_element = refel.Nqp;
+        order = refel.N;
+        
+        nvertex = size(grid.glbvertex, 1)
+        ve = zeros(dim, nvertex);
+        etype = 1;
+        if dim == 1
+            etype = 2;
+        elseif dim == 2
+            if refel.Nfaces == 3
+                etype = 3;
+            else
+                etype = 4;
+            end
+        elseif dim == 3
+            if refel.Nfaces == 4
+                etype = 5;
+            else
+                etype = 6;
+            end
+        end
+    end
     
     if constant_jacobian
         detJ = zeros(ftype, 1, nel);
@@ -66,25 +99,42 @@ function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=tr
     
     #
     xe = zeros(dim, nodes_per_element);
-    nvertex = size(grid.glbvertex, 1)
-    ve = zeros(dim, nvertex);
-    etype = 1;
-    if dim == 1
-        etype = 2;
-    elseif dim == 2
-        if refel.Nfaces == 3
-            etype = 3;
-        else
-            etype = 4;
-        end
-    elseif dim == 3
-        if refel.Nfaces == 4
-            etype = 5;
-        else
-            etype = 6;
-        end
-    end
+    ve = zeros(dim, size(grid.glbvertex, 1));
+    
+    # loop over elements to build their geo facs
     for e=1:nel
+        # it's possible to have different element types with different refels
+        if typeof(refel) <: Array
+            refeli = refel[grid.refel_ind[e]];
+            nodes_per_element = refeli.Np;
+            qnodes_per_element = refeli.Nqp;
+            nvertex = size(grid.glbvertex, 1)
+            for i=1:nvertex
+                if grid.glbvertex[i,e]==0
+                    nvertex = i-1;
+                    break;
+                end
+            end
+            etype = 1;
+            if dim == 1
+                etype = 2;
+            elseif dim == 2
+                if refeli.Nfaces == 3
+                    etype = 3;
+                else
+                    etype = 4;
+                end
+            elseif dim == 3
+                if refeli.Nfaces == 4
+                    etype = 5;
+                else
+                    etype = 6;
+                end
+            end
+        else # only one element type
+            refeli = refel;
+        end
+        
         # get node coords
         for i=1:nodes_per_element
             for j=1:dim
@@ -97,12 +147,12 @@ function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=tr
             end
         end
         
-        (e_detJ, e_J) = geometric_factors(refel, xe, constantJ=constant_jacobian);
+        (e_detJ, e_J) = geometric_factors(refeli, xe, constantJ=constant_jacobian);
         
         if constant_jacobian
             detJ[e] = e_detJ;
         else
-            detJ[:,e] = e_detJ;
+            detJ[1:nodes_per_element,e] = e_detJ;
         end
         
         J[e] = e_J;
@@ -138,16 +188,16 @@ function build_geometric_factors(refel::Refel, grid::Grid; do_face_detj::Bool=tr
             face_const_J = true;
             face_type = 2;
             if dim == 3
-                if refel.Nfaces == 6 # hex
+                if refeli.Nfaces == 6 # hex
                     face_faces = 4; # faces are quads
                     face_const_J = constant_jacobian;
                     face_type = 4;
-                elseif refel.Nfaces == 4 # tet
+                elseif refeli.Nfaces == 4 # tet
                     face_faces = 3; # faces are triangles
                     face_type = 3;
                 end
             end
-            face_refel = build_refel(dim-1, refel.N, face_faces, finch_state.config.elemental_nodes);
+            face_refel = build_refel(dim-1, order, face_faces, finch_state.config.elemental_nodes);
             face_detj = zeros(ftype, totalfaces);
             for fi=1:totalfaces
                 xf = grid.allnodes[:,grid.face2glb[:,1,fi]];
@@ -183,7 +233,7 @@ function geometric_factors(refel::Refel, pts::Matrix; constantJ::Bool=false, do_
     # detJ = determinant(J)
     # J = Jacobian
     FT = finch_state.config.float_type;
-    np = size(pts,2);
+    np = refel.Np;
     if refel.dim == 0
         detJ = [FT(1.0)];
         if do_J

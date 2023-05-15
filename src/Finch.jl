@@ -141,11 +141,18 @@ end
 # Adds a mesh and builds the full grid and reference elements.
 function add_mesh(state::FinchState, mesh; partitions=0)
     state.mesh_data = mesh;
+    state.mixed_elements = mesh.mixed_elements;
     
     @timeit finch_state.timer_output "mesh2grid" begin
     # If no method has been specified, assume CG
     if !(state.needed_grid_types[1] || state.needed_grid_types[2] || state.needed_grid_types[3])
         set_solver(state, CG);
+    end
+    
+    # For now there is only one order
+    order = state.config.basis_order_min;
+    if state.mesh_data.mixed_elements
+        order = [order, order];
     end
     
     if partitions==0
@@ -175,15 +182,15 @@ function add_mesh(state::FinchState, mesh; partitions=0)
         
         # Each proc will build a subgrid containing only their elements and ghost neighbors.
         # Make a Grid struct for each needed type
-        if state.mesh_data.mixed_elements
+        if state.mixed_elements
             if state.needed_grid_types[1] # CG
-                (state.refels, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=CG, order=state.config.basis_order_min);
+                (state.refels, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=CG, order=order);
             end
             if state.needed_grid_types[2] # DG
                 if state.needed_grid_types[1] # CG also needed
-                    (state.refels, state.dg_grid) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=state.config.basis_order_min);
+                    (state.refels, state.dg_grid) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=order);
                 else
-                    (state.refels, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=state.config.basis_order_min);
+                    (state.refels, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=order);
                 end
             end
             if state.needed_grid_types[3] # FV
@@ -196,13 +203,13 @@ function add_mesh(state::FinchState, mesh; partitions=0)
             end
         else # one element type
             if state.needed_grid_types[1] # CG
-                (state.refel, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=CG, order=state.config.basis_order_min);
+                (state.refel, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=CG, order=order);
             end
             if state.needed_grid_types[2] # DG
                 if state.needed_grid_types[1] # CG also needed
-                    (state.refel, state.dg_grid) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=state.config.basis_order_min);
+                    (state.refel, state.dg_grid) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=order);
                 else
-                    (state.refel, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=state.config.basis_order_min);
+                    (state.refel, state.grid_data) = partitioned_grid_from_mesh(state.mesh_data, epart, grid_type=DG, order=order);
                 end
             end
             if state.needed_grid_types[3] # FV
@@ -218,19 +225,19 @@ function add_mesh(state::FinchState, mesh; partitions=0)
     else
         # Make a Grid struct for each needed type
         # refels for mixed type
-        if state.mesh_data.mixed_elements
+        if state.mixed_elements
             if state.needed_grid_types[1] # CG
-                (state.refels, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=CG, order=state.config.basis_order_min);
+                (state.refels, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=CG, order=order, mixed=true);
             end
             if state.needed_grid_types[2] # DG
                 if state.needed_grid_types[1] # CG also needed
-                    (state.refels, state.dg_grid) = grid_from_mesh(state.mesh_data, grid_type=DG, order=state.config.basis_order_min);
+                    (state.refels, state.dg_grid) = grid_from_mesh(state.mesh_data, grid_type=DG, order=order, mixed=true);
                 else
-                    (state.refels, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=DG, order=state.config.basis_order_min);
+                    (state.refels, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=DG, order=order, mixed=true);
                 end
             end
             if state.needed_grid_types[3] # FV
-                (state.fv_refels, state.fv_grid) = grid_from_mesh(state.mesh_data, grid_type=FV, order=1);
+                (state.fv_refels, state.fv_grid) = grid_from_mesh(state.mesh_data, grid_type=FV, order=[1,1], mixed=true);
                 # If only FV is used, also set grid_data and refel to this. Just in case.
                 if !(state.needed_grid_types[1] || state.needed_grid_types[2])
                     state.grid_data = state.fv_grid;
@@ -239,13 +246,13 @@ function add_mesh(state::FinchState, mesh; partitions=0)
             end
         else # one element type
             if state.needed_grid_types[1] # CG
-                (state.refel, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=CG, order=state.config.basis_order_min);
+                (state.refel, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=CG, order=order);
             end
             if state.needed_grid_types[2] # DG
                 if state.needed_grid_types[1] # CG also needed
-                    (state.refel, state.dg_grid) = grid_from_mesh(state.mesh_data, grid_type=DG, order=state.config.basis_order_min);
+                    (state.refel, state.dg_grid) = grid_from_mesh(state.mesh_data, grid_type=DG, order=order);
                 else
-                    (state.refel, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=DG, order=state.config.basis_order_min);
+                    (state.refel, state.grid_data) = grid_from_mesh(state.mesh_data, grid_type=DG, order=order);
                 end
             end
             if state.needed_grid_types[3] # FV
@@ -260,6 +267,25 @@ function add_mesh(state::FinchState, mesh; partitions=0)
     end
     end#timer
     
+    # Build the geometric factors
+    make_geometric_factors(state)
+    
+    log_entry("Added mesh with "*string(state.mesh_data.nx)*" vertices and "*string(state.mesh_data.nel)*" elements.", 1);
+    if np > 1
+        e_count = zeros(Int, np);
+        for ei=1:length(epart)
+            e_count[epart[ei]+1] += 1;
+        end
+        log_entry("Number of elements in each partition: "*string(e_count), 2);
+        log_entry("Full grid has "*string(length(state.grid_data.global_bdry_index))*" nodes.", 2);
+        
+    else
+        log_entry("Full grid has "*string(size(state.grid_data.allnodes,2))*" nodes.", 2);
+    end
+end
+
+# Build geometric factors as needed.
+function make_geometric_factors(state::FinchState)
     # regular parallel sided elements or simplexes have constant Jacobians, so only store one value per element.
     if ((state.config.geometry == SQUARE && state.config.mesh_type == UNIFORM_GRID) ||
         state.config.dimension == 1 ||
@@ -280,31 +306,25 @@ function add_mesh(state::FinchState, mesh; partitions=0)
     
     # FE version is always made?
     @timeit finch_state.timer_output "geo factors" begin
-    state.geo_factors = build_geometric_factors(state.refel, state.grid_data, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
+    if state.mixed_elements
+        refel_var = state.refels;
+        need_fv_geofacs = state.needed_grid_types[3] && state.refels[1].Np > state.fv_refels[1].Np
+    else # one element type
+        refel_var = state.refel;
+        need_fv_geofacs = state.needed_grid_types[3] && state.refel.Np > state.fv_refel.Np
+    end
+    state.geo_factors = build_geometric_factors(refel_var, state.grid_data, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
     if state.needed_grid_types[3] # FV
-        if state.refel.Np == state.fv_refel.Np
+        if !need_fv_geofacs
             state.fv_geo_factors = state.geo_factors;
         else
-            state.fv_geo_factors = build_geometric_factors(state.fv_refel, state.fv_grid, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
+            state.fv_geo_factors = build_geometric_factors(refel_var, state.fv_grid, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
         end
         @timeit finch_state.timer_output "fv_info" begin
         state.fv_info = build_FV_info(state.fv_grid);
         end#timer
     end
     end#timer
-    
-    log_entry("Added mesh with "*string(state.mesh_data.nx)*" vertices and "*string(state.mesh_data.nel)*" elements.", 1);
-    if np > 1
-        e_count = zeros(Int, np);
-        for ei=1:length(epart)
-            e_count[epart[ei]+1] += 1;
-        end
-        log_entry("Number of elements in each partition: "*string(e_count), 2);
-        log_entry("Full grid has "*string(length(state.grid_data.global_bdry_index))*" nodes.", 2);
-        
-    else
-        log_entry("Full grid has "*string(size(state.grid_data.allnodes,2))*" nodes.", 2);
-    end
 end
 
 # Add a Subdomain and carve out the existing mesh if needed
@@ -315,35 +335,8 @@ function add_Subdomain(state::FinchState, subdomain::Subdomain, carve::Bool, kee
             state.grid_data = carve_grid(state.grid_data, subdomain, keep_cuts);
             state.fv_grid = state.grid_data;
             
-            # Redo geometric factors and such
-            # regular parallel sided elements or simplexes have constant Jacobians, so only store one value per element.
-            if ((state.config.geometry == SQUARE && state.config.mesh_type == UNIFORM_GRID) ||
-                state.config.dimension == 1 ||
-                (state.config.dimension == 2 && state.refel.Nfaces == 3) ||
-                (state.config.dimension == 3 && state.refel.Nfaces == 4) )
-                constantJ = true;
-            else
-                constantJ = false;
-            end
-            do_faces = true;
-            do_vol = false;
-            if state.config.solver_type == DG || state.config.solver_type == FV || state.config.solver_type == MIXED
-                do_faces = true;
-            end
-            if state.config.solver_type == FV || state.config.solver_type == MIXED
-                do_vol = true;
-            end
-            
-            # FE version is always made?
-            state.geo_factors = build_geometric_factors(state.refel, state.grid_data, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
-            if state.needed_grid_types[3] # FV
-                if state.refel.Np == state.fv_refel.Np
-                    state.fv_geo_factors = state.geo_factors;
-                else
-                    state.fv_geo_factors = build_geometric_factors(state.fv_refel, state.fv_grid, do_face_detj=do_faces, do_vol_area=do_vol, constant_jacobian=constantJ);
-                end
-                state.fv_info = build_FV_info(state.fv_grid);
-            end
+            # Rebuild the geometric factors
+            make_geometric_factors(state)
             
             log_entry("Carved subdomain with "*string(state.grid_data.nel_global)*" elements.", 1);
             np = state.config.num_partitions;

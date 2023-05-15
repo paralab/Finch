@@ -65,7 +65,7 @@ end
 
 # Builds faces
 # For now assumes only one type of element.
-function build_faces(nel::Int, elements::Matrix{Int}, etypes::Vector{Int})
+function build_faces(nel::Int, elements::Matrix{Int}, etypes::Vector{Int}, ismixed::Bool)
     # numbers of nodes and faces for first and second order elements as defined by GMSH
     # line, triangle, quad, tet, hex, prism, 5-pyramid
     etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices
@@ -73,8 +73,8 @@ function build_faces(nel::Int, elements::Matrix{Int}, etypes::Vector{Int})
     etypetonfn= [1, 2, 2, 3, 4, 4, 4, 1, 2, 2, 3, 4, 4, 4, 1, 2, 2, 4, 4]; # number of vertices for each face (except prism and 5-pyramids!)
     etypetodim= [1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3]; # dimension of each type
     
-    NfacesPerElement = etypetonf[etypes[1]]; # For now assumes only one type of element.
-    Nfp = etypetonfn[etypes[1]]; # For now assumes only one type of element.
+    NfacesPerElement = etypetonf[maximum(etypes)]; # maximal value.
+    Nfp = etypetonfn[maximum(etypes)]; # maximal value.
     
     Nfaces = 0; # will be incremented as discovered
     e2face = zeros(Int, NfacesPerElement, nel);
@@ -224,8 +224,8 @@ function build_faces(nel::Int, elements::Matrix{Int}, etypes::Vector{Int})
     remove_count = 0;
     found = false;
     both_sides_done = zeros(Bool, Nfaces); # If both sides have been handled, don't need to check anymore.
-    removeinds = zeros(Int, Nfp);
-    keepinds = zeros(Int, Nfp);
+    removeinds = zeros(Int, Nfp); # indices of face nodes that may be removed if duplicated
+    keepinds = zeros(Int, Nfp); # indices of face nodes that have already been stored and will be kept
     for fi=2:Nfaces
         found = false;
         for ni=1:Nfp
@@ -391,19 +391,23 @@ function find_boundaries(face2e::Matrix{Int})
     return bdry;
 end
 
+# Check two arrays of Int. 
+# Returns true if every value in f1 is also in f2.
 function shared_face(f1::Vector{Int}, f2::Vector{Int})
-    h = 0;
-    s = 0;
-    for i=1:length(f1)
-        if f1[i] > 0
-            h += 1;
-            for j=1:length(f2)
-                if f1[i] == f2[j]
-                    s += 1;
-                end
+    n1 = length(f1);
+    n2 = length(f2);
+    for i=1:n1
+        found = false
+        for j=1:n2
+            if f1[i] == f2[j]
+                found = true;
+                break;
             end
+        end
+        if !found
+            return false;
         end
     end
     
-    return s == h;
+    return true;
 end

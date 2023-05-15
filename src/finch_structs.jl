@@ -411,10 +411,10 @@ struct MeshData
         
         # uncomment these to compute. WARNING: can be slow
         inv = invert_index(ind);
-        (face2v, face2e, e2face) = build_faces(ne, el, et);
+        ismixed = maximum(et) > minimum(et);
+        (face2v, face2e, e2face) = build_faces(ne, el, et, ismixed);
         norms = find_normals(face2v, x);
         bdry = find_boundaries(face2e);
-        ismixed = maximum(et) > minimum(et);
         new(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry, ismixed);
     )
     # The complete constructor
@@ -453,7 +453,8 @@ struct Grid{T<:AbstractFloat}
     facebid::Vector{Int}             # BID of each face (0=interior face)
     
     mixed_elements::Bool            # are there mixed element types
-    el_type::Vector{Int}            # element type for each element or empty
+    el_type::Vector{Int8}            # element type for each element or empty
+    refel_ind::Vector{Int8}          # index of each element's refel in the refels array
     
     # When partitioning the grid, this stores the ghost info.
     # Items specifying (for solver type) will be empty/0 for other types.
@@ -482,24 +483,24 @@ struct Grid{T<:AbstractFloat}
     Grid(T::DataType, allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
          face2element, facenormals, faceRefelInd, facebid) = 
      new{T}(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
-         face2element, facenormals, faceRefelInd, facebid, false, zeros(Int8,0),
+         face2element, facenormals, faceRefelInd, facebid, false, zeros(Int8,0),  zeros(Int8,0),
          false, Array(1:size(loc2glb,2)), size(loc2glb,2), size(loc2glb,2), 0,size(face2element,2), 0, 0, 0, zeros(Int,0), zeros(Int,0), 
          zeros(Int,0), zeros(Int,0), zeros(Int8,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]);
          
     Grid(T::DataType, allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
-         face2element, facenormals, faceRefelInd, facebid, ismixed, eltypes) = 
+         face2element, facenormals, faceRefelInd, facebid, ismixed, eltypes, refelind) = 
      new{T}(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
-         face2element, facenormals, faceRefelInd, facebid, ismixed, eltypes,
+         face2element, facenormals, faceRefelInd, facebid, ismixed, eltypes, refelind,
          false, Array(1:size(loc2glb,2)), size(loc2glb,2), size(loc2glb,2), 0,size(face2element,2), 0, 0, 0, zeros(Int,0), zeros(Int,0), 
          zeros(Int,0), zeros(Int,0), zeros(Int8,0), 0, zeros(Int,0), zeros(Int,0), [zeros(Int,2,0)]);
     
     # full: partitioned
     Grid(T::DataType, allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
-         face2element, facenormals, faceRefelInd, facebid, ismixed, eltypes,
+         face2element, facenormals, faceRefelInd, facebid, ismixed, eltypes, refelind,
          ispartitioned, el_order, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
          node_owner, partition2global_element, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind) = 
      new{T}(allnodes, bdry, bdryfc, bdrynorm, bids, nodebid, loc2glb, glbvertex, f2glb, element2face, 
-         face2element, facenormals, faceRefelInd, facebid, ismixed, eltypes,
+         face2element, facenormals, faceRefelInd, facebid, ismixed, eltypes, refelind,
          ispartitioned, el_order, nel_global, nel_owned, nel_ghost, nface_owned, nface_ghost, nnodes_global, nnodes_borrowed, element_owners, 
          node_owner, partition2global_element, partition2global, glb_bid, num_neighbors, neighbor_ids, ghost_counts, ghost_ind); # subgrid parts included
          
@@ -510,7 +511,7 @@ struct Grid{T<:AbstractFloat}
         zeros(Int,0,0,0),
         zeros(Int,0,0), zeros(Int,0,0), zeros(T,0,0), zeros(Int,0,0),
         zeros(Int,0),
-        false, [],
+        false, zeros(Int8,0), zeros(Int8,0),
         false,zeros(Int,0),0,0,0,0,0,0,0,zeros(Int,0),zeros(Int,0),zeros(Int,0),zeros(Int,0),zeros(Int8,0),
         0,zeros(Int,0),zeros(Int,0),[zeros(Int,0,0)]
     )
