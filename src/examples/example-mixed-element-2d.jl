@@ -23,6 +23,7 @@ domain(2)
 mesh("mixedmesh.mesh")
 
 u = variable("u")
+err = variable("err")
 testSymbol("v")
 
 boundary(u, 1, DIRICHLET, 0)
@@ -46,9 +47,9 @@ xy = Finch.finch_state.grid_data.allnodes;
 for i=1:size(xy,2)
     x = xy[1,i];
     y = xy[2,i];
-    err = abs(u.values[i] - exact(x,y));
+    err.values[i] = abs(u.values[i] - exact(x,y));
     global maxerr;
-    maxerr = max(err,maxerr);
+    maxerr = max(err.values[i],maxerr);
 end
 println("max error = "*string(maxerr));
 
@@ -57,6 +58,7 @@ println("max error = "*string(maxerr));
 using Plots
 pyplot();
 
-display(plot(xy[1,:], xy[2,:], u.values[:], st=:surface))
+# display(plot(xy[1,:], xy[2,:], u.values[:], st=:surface))
+display(plot(xy[1,:], xy[2,:], err.values[:], st=:surface))
 
-# output_values(u, "poisson2d", format="vtk");
+outputValues([u,err], "p2dmixed", format="vtk");

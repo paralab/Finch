@@ -5,7 +5,8 @@ Writes it to a Medit file
 
 ## Parameters ##############################################
 # Depth of coarsest level
-min_depth = 4;
+min_depth = 7;
+make_plot = false;
 
 # Refinement criterion
 # An element centered at (x,y) is refined if true
@@ -282,8 +283,8 @@ function build_mesh(min_depth)
                     eltype[nextel] = 2;
                     nextel += 1;
                     
-                    elements[2, eid] = elements[4,eid];
-                    elements[3, eid] = new_node;
+                    elements[3, eid] = elements[4,eid];
+                    elements[2, eid] = new_node;
                     eltype[eid] = 2;
                     
                 elseif n_config == 4
@@ -338,8 +339,8 @@ function build_mesh(min_depth)
                     nextel += 1;
                     
                     elements[1, nextel] = elements[1,eid];
-                    elements[2, nextel] = elements[4,eid];
-                    elements[3, nextel] = new_node1;
+                    elements[2, nextel] = new_node1;
+                    elements[3, nextel] = elements[4,eid];
                     eltype[nextel] = 2;
                     nextel += 1;
                     
@@ -349,7 +350,8 @@ function build_mesh(min_depth)
                     eltype[nextel] = 2;
                     nextel += 1;
                     
-                    elements[1, eid] = new_node2;
+                    elements[1, eid] = elements[2,eid];
+                    elements[2, eid] = new_node2;
                     elements[3, eid] = new_node1;
                     eltype[eid] = 2;
                     
@@ -492,39 +494,41 @@ close(outfile);
 
 println("Wrote mesh to $filename in MEDIT format");
 
-# Plot to check
-println("Plotting... This could take a minute the first time.");
-try
-    using Plots
-    pyplot();
-catch e
-    println("You don't have the Plots package yet. I'll install it for you now.")
-    using Pkg
-    Pkg.add("Plots")
-    Pkg.add("PyPlot")
-    using Plots
-    pyplot();
-end
-elx = zeros(4, nel);
-ely = zeros(4, nel);
-centers = zeros(2, nel);
-for i=1:nel
-    if etype[i] == 3
-        elx[:,i] = nodes[1, elements[1:4,i]];
-        ely[:,i] = nodes[2, elements[1:4,i]];
-        centers[1,i] = sum(elx[:,i])/4;
-        centers[2,i] = sum(ely[:,i])/4;
-    else
-        elx[1:3,i] = nodes[1, elements[1:3,i]];
-        ely[1:3,i] = nodes[2, elements[1:3,i]];
-        elx[4,i] = nodes[1, elements[1,i]];
-        ely[4,i] = nodes[2, elements[1,i]];
-        centers[1,i] = sum(elx[1:3,i])/3;
-        centers[2,i] = sum(ely[1:3,i])/3;
+if make_plot
+    # Plot to check
+    println("Plotting... This could take a minute the first time.");
+    try
+        using Plots
+        pyplot();
+    catch e
+        println("You don't have the Plots package yet. I'll install it for you now.")
+        using Pkg
+        Pkg.add("Plots")
+        Pkg.add("PyPlot")
+        using Plots
+        pyplot();
     end
+    elx = zeros(4, nel);
+    ely = zeros(4, nel);
+    centers = zeros(2, nel);
+    for i=1:nel
+        if etype[i] == 3
+            elx[:,i] = nodes[1, elements[1:4,i]];
+            ely[:,i] = nodes[2, elements[1:4,i]];
+            centers[1,i] = sum(elx[:,i])/4;
+            centers[2,i] = sum(ely[:,i])/4;
+        else
+            elx[1:3,i] = nodes[1, elements[1:3,i]];
+            ely[1:3,i] = nodes[2, elements[1:3,i]];
+            elx[4,i] = nodes[1, elements[1,i]];
+            ely[4,i] = nodes[2, elements[1,i]];
+            centers[1,i] = sum(elx[1:3,i])/3;
+            centers[2,i] = sum(ely[1:3,i])/3;
+        end
+    end
+    p1 = plot(elx, ely, legend=false)
+    # for i=1:nel
+    #     annotate!(centers[1,i], centers[2,i], string(i));
+    # end
+    display(plot(p1))
 end
-p1 = plot(elx, ely, legend=false)
-# for i=1:nel
-#     annotate!(centers[1,i], centers[2,i], string(i));
-# end
-display(plot(p1))
