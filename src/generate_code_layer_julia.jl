@@ -73,7 +73,7 @@ $(sbm_pieces)
         
         
     elseif solver == FV
-        args = "(var::Vector{Variable{FT}}, mesh::Grid, refel::$(refel_type)l, geometric_factors::GeometricFactors, "*
+        args = "(var::Vector{Variable{FT}}, mesh::Grid, refel::$(refel_type), geometric_factors::GeometricFactors, "*
                 "fv_info::FVInfo, config::FinchConfig, coefficients::Vector{Coefficient}, variables::Vector{Variable{FT}}, "*
                 "test_functions::Vector{Coefficient}, ordered_indexers::Vector{Indexer}, prob::FinchProblem, "*
                 "time_stepper::Stepper, buffers::ParallelBuffers, timer_output::TimerOutput, nl_var=nothing) where FT<:AbstractFloat";
@@ -716,7 +716,6 @@ function generate_named_op(IR::IR_operation_node, IRtypes::Union{IR_entry_types,
             compute_lines *= "$matname[$row_index, $col_index] += $content;\n";
         end
         
-        # content = generate_from_IR_julia(IR.args[6], IRtypes);
         code = "
 @inbounds begin
 for col=1:nodes_per_element
@@ -835,6 +834,8 @@ end
 end";
 
     elseif op === :LINALG_TDM
+        # This is the core of a (matrix transpose)*(diagonal matrix)*(matrix) product
+        
         # Tcode = generate_from_IR_julia(IR.args[2], IRtypes) * "[i + (row-1)*qnodes_per_element]";
         # Mcode = generate_from_IR_julia(IR.args[4], IRtypes) * "[i + (col-1)*qnodes_per_element]";
         # Dcode = generate_from_IR_julia(apply_indexed_access(IR.args[3], [:i], IRtypes), IRtypes);
