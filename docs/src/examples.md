@@ -9,5 +9,6 @@ Pages = ["poisson1d.md",
          "bratu.md",
          "unstructured.md",
          "FVadvection.md",
-         "indexed.md"]
+         "indexed.md",
+         "bte.md"]
 ```
