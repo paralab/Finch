@@ -309,7 +309,7 @@ function geometric_factors(refel::Refel, pts::Matrix; constantJ::Bool=false, do_
         # end
         
         if constantJ
-            detJ = FT(-xs*yr + xr*ys);
+            detJ = FT(abs(-xs*yr + xr*ys));
             if do_J
                 xr = [FT(xr)];
                 xs = [FT(xs)];
@@ -317,7 +317,7 @@ function geometric_factors(refel::Refel, pts::Matrix; constantJ::Bool=false, do_
                 ys = [FT(ys)];
             end
         else
-            detJ = -xs.*yr + xr.*ys;
+            detJ = abs.(-xs.*yr + xr.*ys);
         end
         
         if do_J
@@ -386,7 +386,7 @@ function geometric_factors(refel::Refel, pts::Matrix; constantJ::Bool=false, do_
         # end
         
         if constantJ
-            detJ = FT(xr*(ys*zt-zs*yt) - yr*(xs*zt-zs*xt) + zr*(xs*yt-ys*xt));
+            detJ = FT(abs(xr*(ys*zt-zs*yt) - yr*(xs*zt-zs*xt) + zr*(xs*yt-ys*xt)));
             if do_J
                 xr = [FT(xr)];
                 xs = [FT(xs)];
@@ -399,7 +399,7 @@ function geometric_factors(refel::Refel, pts::Matrix; constantJ::Bool=false, do_
                 zt = [FT(zt)];
             end
         else
-            detJ = xr.*(ys.*zt-zs.*yt) - yr.*(xs.*zt-zs.*xt) + zr.*(xs.*yt-ys.*xt);
+            detJ = abs.(xr.*(ys.*zt-zs.*yt) - yr.*(xs.*zt-zs.*xt) + zr.*(xs.*yt-ys.*xt));
         end
         
         if do_J
