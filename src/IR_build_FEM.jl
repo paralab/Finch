@@ -1909,8 +1909,7 @@ function generate_local_to_global_fem(dofs_per_node; vec_only=false)
                 IR_data_node(IRtypes.int_data, :global_matrix_J, [:allocated_nonzeros], [:next_ind]),
                 :glb_j
             ]));
-            push!(matrix_loop_body.parts, IR_operation_node(IRtypes.math_assign_op, [
-                :+,
+            push!(matrix_loop_body.parts, IR_operation_node(IRtypes.assign_op, [
                 IR_data_node(IRtypes.float_data, :global_matrix_V, [:allocated_nonzeros], [:next_ind]),
                 IR_data_node(IRtypes.float_data, :element_matrix, [:dofs_per_element, :dofs_per_element], [:ni, :nj])
             ]));
