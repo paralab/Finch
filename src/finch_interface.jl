@@ -1630,14 +1630,14 @@ function solve(var)
             func = finch_state.solve_functions[varind];
             
             if finch_state.prob.nonlinear
-                @timeit finch_state.timer_output "FE_solve" func.func(vars, finch_state.grid_data, refel_arg, 
+                @timeit finch_state.timer_output "FE_solve" @invokelatest func.func(vars, finch_state.grid_data, refel_arg, 
                                             finch_state.geo_factors, finch_state.config, finch_state.coefficients, 
                                             finch_state.variables, finch_state.test_functions, finch_state.ordered_indexers, 
                                             finch_state.prob, finch_state.time_stepper, finch_state.parallel_buffers,
                                             finch_state.timer_output, nl_var);
                 
             else
-                @timeit finch_state.timer_output "FE_solve" func.func(vars, finch_state.grid_data, refel_arg, 
+                @timeit finch_state.timer_output "FE_solve" @invokelatest func.func(vars, finch_state.grid_data, refel_arg, 
                                             finch_state.geo_factors, finch_state.config, finch_state.coefficients, 
                                             finch_state.variables, finch_state.test_functions, finch_state.ordered_indexers, 
                                             finch_state.prob, finch_state.time_stepper, finch_state.parallel_buffers,
@@ -1650,13 +1650,13 @@ function solve(var)
             func = finch_state.solve_functions[varind];
             
             if finch_state.prob.nonlinear
-                @timeit finch_state.timer_output "FV_solve" func.func(vars, finch_state.fv_grid, refel_arg_fv, 
+                @timeit finch_state.timer_output "FV_solve" @invokelatest func.func(vars, finch_state.fv_grid, refel_arg_fv, 
                                             finch_state.fv_geo_factors, finch_state.fv_info, finch_state.config, 
                                             finch_state.coefficients, finch_state.variables, finch_state.test_functions, 
                                             finch_state.ordered_indexers, finch_state.prob, finch_state.time_stepper, 
                                             finch_state.parallel_buffers, finch_state.timer_output, nl_var);
             else
-                @timeit finch_state.timer_output "FV_solve" func.func(vars, finch_state.fv_grid, refel_arg_fv, 
+                @timeit finch_state.timer_output "FV_solve" @invokelatest func.func(vars, finch_state.fv_grid, refel_arg_fv, 
                                             finch_state.fv_geo_factors, finch_state.fv_info, finch_state.config, 
                                             finch_state.coefficients, finch_state.variables, finch_state.test_functions, 
                                             finch_state.ordered_indexers, finch_state.prob, finch_state.time_stepper, 
