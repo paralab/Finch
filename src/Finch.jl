@@ -309,6 +309,7 @@ function make_geometric_factors(state::FinchState)
     if state.mixed_elements
         refel_var = state.refels;
         need_fv_geofacs = state.needed_grid_types[3] && state.refels[1].Np > state.fv_refels[1].Np
+        constantJ = false;
     else # one element type
         refel_var = state.refel;
         need_fv_geofacs = state.needed_grid_types[3] && state.refel.Np > state.fv_refel.Np

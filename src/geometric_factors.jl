@@ -234,6 +234,7 @@ function geometric_factors(refel::Refel, pts::Matrix; constantJ::Bool=false, do_
     # J = Jacobian
     FT = finch_state.config.float_type;
     np = refel.Np;
+    nqp = refel.Nqp;
     if refel.dim == 0
         detJ = [FT(1.0)];
         if do_J
@@ -259,8 +260,8 @@ function geometric_factors(refel::Refel, pts::Matrix; constantJ::Bool=false, do_
                 end
                 
             else
-                detJ = zeros(FT, np);
-                for j=1:np
+                detJ = zeros(FT, nqp);
+                for j=1:nqp
                     for i=1:np
                         detJ[j] += refel.Dg[j,i] * pts[1,i];
                     end
@@ -285,11 +286,11 @@ function geometric_factors(refel::Refel, pts::Matrix; constantJ::Bool=false, do_
                     ys += refel.Qs[1,i] * pts[2,i];
                 end
             else
-                xr = zeros(FT, np);
-                xs = zeros(FT, np);
-                yr = zeros(FT, np);
-                ys = zeros(FT, np);
-                for j=1:np
+                xr = zeros(FT, nqp);
+                xs = zeros(FT, nqp);
+                yr = zeros(FT, nqp);
+                ys = zeros(FT, nqp);
+                for j=1:nqp
                     for i=1:np
                         xr[j] += refel.Qr[j,i] * pts[1,i];
                         xs[j] += refel.Qs[j,i] * pts[1,i];
@@ -346,16 +347,16 @@ function geometric_factors(refel::Refel, pts::Matrix; constantJ::Bool=false, do_
                     zt += refel.Qt[1,i] * pts[3,i];
                 end
             else
-                xr = zeros(FT, np);
-                xs = zeros(FT, np);
-                xt = zeros(FT, np);
-                yr = zeros(FT, np);
-                ys = zeros(FT, np);
-                yt = zeros(FT, np);
-                zr = zeros(FT, np);
-                zs = zeros(FT, np);
-                zt = zeros(FT, np);
-                for j=1:np
+                xr = zeros(FT, nqp);
+                xs = zeros(FT, nqp);
+                xt = zeros(FT, nqp);
+                yr = zeros(FT, nqp);
+                ys = zeros(FT, nqp);
+                yt = zeros(FT, nqp);
+                zr = zeros(FT, nqp);
+                zs = zeros(FT, nqp);
+                zt = zeros(FT, nqp);
+                for j=1:nqp
                     for i=1:np
                         xr[j] += refel.Qr[j,i] * pts[1,i];
                         xs[j] += refel.Qs[j,i] * pts[1,i];
