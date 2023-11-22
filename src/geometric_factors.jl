@@ -173,6 +173,8 @@ function build_geometric_factors(refel, grid::Grid; do_face_detj::Bool=true,
     end
     
     if do_face_detj
+        refeli = refel
+        
         if dim == 1
             # Faces in 1D are just points
             # detj = 1, area = 1
