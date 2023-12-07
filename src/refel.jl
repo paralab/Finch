@@ -171,29 +171,29 @@ function build_refel(dimension, order, nfaces, nodetype)
         Nfp = [1, 1]; # face points
         
     elseif (dimension == 2 && nfaces == 3) # triangle
-        Np = (Int)((order+1)*(order+2)/2);
-        Nfp = [order+1, order+1, order+1]; # face lines
+        Np = (Int)( ( order + 1 )*( order + 2 )/2);
+        Nfp = [order + 1, order + 1, order + 1]; # face lines
         
     elseif (dimension == 2 && nfaces == 4) # quad
-        Np = (Int)((order+1)*(order+1));
-        Nfp = [order+1, order+1, order+1, order+1]; # face lines
+        Np = (Int)( (order + 1) * (order + 1) );
+        Nfp = [order + 1, order + 1, order + 1, order + 1]; # face lines
         
     elseif (dimension == 3 && nfaces == 4)  # tet
-        Np = (Int)((order+1)*(order+2)*(order+3)/6);
-        M = (Int)((order+1)*(order+2)/2);
+        Np = (Int)((order + 1)*(order + 2)*(order + 3)/6);
+        M = (Int)((order + 1)*(order + 2)/2);
         Nfp = [M, M, M, M]; # face triangles
         
     elseif (dimension == 3 && nfaces == 6)  # hex
-        Np = (Int)((order+1)*(order+1)*(order+1)); # hex
-        M = (Int)((order+1)*(order+1));
+        Np = (Int)((order + 1)*(order + 1)*(order + 1)); # hex
+        M = (Int)((order + 1)*(order + 1));
         Nfp = [M, M, M, M, M, M]; # face quads
         
     elseif (dimension == 4)  # ??
-        Np = (Int)((order+1)*(order+2)*(order+3)*(order+4)/24); # ??
+        Np = (Int)((order + 1)*(order + 2)*(order + 3)*(order + 4)/24); # ??
         # TODO
     end
     
-    refel = Refel(finch_state.config.float_type, dimension, order, Np, nfaces, Nfp);
+    refel = Refel( finch_state.config.float_type, dimension, order, Np, nfaces, Nfp);
     
     # Get nodes on the reference element
     refel_nodes!(refel, nodetype);
@@ -230,7 +230,7 @@ function build_refel(dimension, order, nfaces, nodetype)
     else # line, quad, hex
         # Vandermonde matrix and grad,inv
         # Values of basis functions and derivs at points
-        refel.V = zeros(order+1, order+1);
+        refel.V = zeros(order + 1, order + 1);
         refel.gradV = zeros(order+1, order+1);
         # Gauss versions
         refel.Vg = zeros(order+1, order+1);
@@ -240,7 +240,7 @@ function build_refel(dimension, order, nfaces, nodetype)
         refel.surf_gradV = Array{Array{Float64}}(undef, nfaces);
         refel.surf_Vg = Array{Array{Float64}}(undef, nfaces);
         refel.surf_gradVg = Array{Array{Float64}}(undef, nfaces);
-        for fi=1:nfaces
+        for fi = 1:nfaces
             refel.surf_V[fi] = zeros(refel.Nfp[fi], Np);
             refel.surf_gradV[fi] = zeros(refel.Nfp[fi], Np);
             refel.surf_Vg[fi] = zeros(refel.Nfp[fi], Np);
@@ -248,18 +248,27 @@ function build_refel(dimension, order, nfaces, nodetype)
         end
         
         # nodal versions
-        for i=1:refel.N+1
-            refel.V[:,i] = jacobi_polynomial(refel.r1d, 0, 0, i-1);
-        end
+
+        refel.V = jacobi_polynomial( refel.r1d, 0, 0, refel.N, polynomialStartIdx = 1 )'
+
+        # Previous Evaluation
+        # for i = 1:refel.N + 1
+        #     refel.V[:,i] = jacobi_polynomial(refel.r1d, 0, 0, i-1);
+        # end
+
         for i=1:refel.N
             refel.gradV[:,i+1] = sqrt(i*(i+1)) .* jacobi_polynomial(refel.r1d, 1, 1, i-1);
         end
         refel.invV = inv(refel.V);
         
         # Gauss versions
-        for i=1:refel.N+1
-            refel.Vg[:,i] = jacobi_polynomial(refel.g1d, 0, 0, i-1);
-        end
+        refel.Vg = jacobi_polynomial(refel.g1d, 0, 0, refel.N, polynomialStartIdx = 1);
+
+        # Previous Evaluation
+        # for i=1:refel.N+1
+        #     refel.Vg[:,i] = jacobi_polynomial(refel.g1d, 0, 0, i-1);
+        # end
+
         for i=1:refel.N
             refel.gradVg[:,i+1] = sqrt(i*(i+1)) .* jacobi_polynomial(refel.g1d, 1, 1, i-1);
         end
@@ -284,12 +293,12 @@ function build_refel(dimension, order, nfaces, nodetype)
             
         elseif dimension == 2
             # volume
-            ident = Matrix(1.0*I,order+1,order+1);
-            refel.Q = kron(refel.Q1d,refel.Q1d);
-            refel.Qr = kron(refel.Q1d,refel.Dg);
-            refel.Qs = kron(refel.Dg,refel.Q1d);
-            refel.Ddr = kron(ident,refel.Dr);
-            refel.Dds = kron(refel.Dr,ident);
+            ident = Matrix( 1.0*I, order + 1, order + 1 );
+            refel.Q = kron(refel.Q1d, refel.Q1d);
+            refel.Qr = kron(refel.Q1d, refel.Dg);
+            refel.Qs = kron(refel.Dg, refel.Q1d);
+            refel.Ddr = kron(ident, refel.Dr);
+            refel.Dds = kron(refel.Dr, ident);
             # surface
             refel.surf_Q = Array{Array{Float64}}(undef, nfaces);
             refel.surf_Qr = Array{Array{Float64}}(undef, nfaces);
