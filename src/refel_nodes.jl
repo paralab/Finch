@@ -75,7 +75,7 @@ function refel_nodes!(refel, nodetype)
             triangle_refel_nodes!(refel);
         else # quads
             if nodetype == UNIFORM
-                refel.r1d = Array(-1:(2/(refel.Np-1)):1);
+                refel.r1d = Array(-1 : (2 / ( refel.N ) ) : 1);
                 refel.wr1d = ones(length(refel.r1d)) ./ length(refel.r1d);
             elseif nodetype == GAUSS
                 (r,w) = jacobi_gauss_quad(0,0,refel.N);
@@ -150,7 +150,7 @@ function refel_nodes!(refel, nodetype)
             tetrahedron_refel_nodes!(refel);
         else # hexs
             if nodetype == UNIFORM
-                refel.r1d = Array(-1:(2/(refel.Np-1)):1);
+                refel.r1d = Array( -1 : (2 / ( refel.N ) ) : 1 );
                 refel.wr1d = ones(length(refel.r1d)) ./ length(refel.r1d);
             elseif nodetype == GAUSS
                 (r,w) = jacobi_gauss_quad(0,0,refel.N);
