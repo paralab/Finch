@@ -10,12 +10,10 @@ include("jacobi_polynomial.jl");
 include("refel_nodes.jl");
 include("refel_triangle.jl");
 include("refel_tet.jl");
-include("FinchStructs.jl")
-using LinearAlgebra
 
 import Base.copy
 function copy(ref::Refel)
-    T = Float64;
+    T = finch_state.config.float_type;
     newref = Refel(T, ref.dim, ref.N, ref.Np, ref.Nfaces, ref.Nfp);
     newref.Nqp = ref.Nqp;
     newref.r1d = copy(ref.r1d);
@@ -87,7 +85,7 @@ function build_refel(dimension, order, nfaces, nodetype)
         # TODO
     end
     
-    refel = Refel( Float64, dimension, order, Np, nfaces, Nfp);
+    refel = Refel( finch_state.config.float_type, dimension, order, Np, nfaces, Nfp);
     
     # Get nodes on the reference element
     refel_nodes!(refel, nodetype);
