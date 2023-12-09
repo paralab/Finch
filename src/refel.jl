@@ -10,118 +10,12 @@ include("jacobi_polynomial.jl");
 include("refel_nodes.jl");
 include("refel_triangle.jl");
 include("refel_tet.jl");
-
-# mutable struct Refel
-#     dim::Int                # Dimension
-#     N::Int                  # Order of polynomials
-#     Np::Int                 # Number of nodes
-#     Nqp::Int                # Number of quadrature points
-#     Nfaces::Int             # Number of faces
-#     Nfp::Array{Int,1}       # Number of nodes for each face
-    
-#     ######################################
-#     # Volume nodes and quadrature matrices
-#     ######################################
-#     r1d::Array{Float64}     # Node coordinates in 1D
-#     r::Array{Float64}       # dim-dim Node coordinates
-    
-#     wr1d::Array{Float64}    # r1d gll Quadrature weights
-#     wr::Array{Float64}      # r gll Quadrature weights
-    
-#     g1d::Array{Float64}     # 1D Gauss points
-#     wg1d::Array{Float64}    # 1D Gauss weights
-    
-#     g::Array{Float64}       # dim-dim Gauss points
-#     wg::Array{Float64}      # dim-dim Gauss weights
-    
-#     V::Array{Float64}       # basis at r
-#     gradV::Array{Float64}   # grad of basis at r
-#     invV::Array{Float64}    # Inverse V
-    
-#     Vg::Array{Float64}      # basis at Gauss
-#     gradVg::Array{Float64}  # grad of basis at g
-#     invVg::Array{Float64}   # Inverse Vg
-    
-#     Dr::Array{Float64}      # Differentiation matrix for r
-#     Ds::Array{Float64}      # Differentiation matrix for s
-#     Dt::Array{Float64}      # Differentiation matrix for t
-#     Dg::Array{Float64}      # Differentiation matrix for g
-    
-#     # Useful quadrature matrices for the volume integrals
-#     Q1d::Array{Float64}     # 1D quadrature matrix: like Vg*invV
-#     Q::Array{Float64}       # dim-dim quadrature matrix
-#     Qr::Array{Float64}      # quad of derivative matrix: like gradVg*invV
-#     Qs::Array{Float64}      # 
-#     Qt::Array{Float64}      # 
-    
-#     Ddr::Array{Float64}      # Derivatives at the elemental nodes, not quadrature nodes
-#     Dds::Array{Float64}      # 
-#     Ddt::Array{Float64}      #
-    
-#     #######################################
-#     # Surface nodes and quadrature matrices
-#     #######################################
-#     face2local::Array{Array{Int}}       # maps face nodes to local indices
-    
-#     surf_r::Array{Array{Float64}}       # surface node coordinates
-#     surf_wr::Array{Array{Float64}}      # surface gll weights
-    
-#     surf_g::Array{Array{Float64}}       # surface Gauss points
-#     surf_wg::Array{Array{Float64}}      # surface Gauss weights
-    
-#     surf_V::Array{Array{Float64}}       # basis at surf_r
-#     surf_gradV::Array{Array{Float64}}   # grad of basis at surf_r
-#     surf_invV::Array{Array{Float64}}    # Inverse surf_V
-    
-#     surf_Vg::Array{Array{Float64}}      # basis at surf_g
-#     surf_gradVg::Array{Array{Float64}}  # grad of basis at surf_g
-#     surf_invVg::Array{Array{Float64}}   # Inverse surf_Vg
-    
-#     surf_Dr::Array{Array{Float64}}      # Differentiation matrix for surf_r
-#     surf_Ds::Array{Array{Float64}}      # Differentiation matrix for surf_s
-#     surf_Dt::Array{Array{Float64}}      # Differentiation matrix for surf_t
-#     surf_Dg::Array{Array{Float64}}      # Differentiation matrix for surf_g
-    
-#     surf_Q::Array{Array{Float64}}       # quadrature matrix
-#     surf_Qr::Array{Array{Float64}}      # derivative quadrature matrix
-#     surf_Qs::Array{Array{Float64}}      # 
-#     surf_Qt::Array{Array{Float64}}      # 
-    
-#     surf_Ddr::Array{Array{Float64}}     # Derivatives at the elemental nodes, not quadrature nodes
-#     surf_Dds::Array{Array{Float64}}     # 
-#     surf_Ddt::Array{Array{Float64}}     #
-    
-#     # Constructor needs at least this information
-#     Refel(dim, order, nnodes, nfaces, nfp) = new(
-#         dim,
-#         order,
-#         nnodes,
-#         -1,
-#         nfaces,
-#         nfp,
-#         [],[],
-#         [],[],
-#         [],[],
-#         [],[],
-#         [],[],[],
-#         [],[],[],
-#         [],[],[],[],
-#         [],[],[],[],[],
-#         [],[],[],
-#         [[]],
-#         [[]],[[]],
-#         [[]],[[]],
-#         [[]],[[]],[[]],
-#         [[]],[[]],[[]],
-#         [[]],[[]],[[]],[[]],
-#         [[]],[[]],[[]],[[]],
-#         [[]],[[]],[[]]
-#     )
-# end
+include("FinchStructs.jl")
+using LinearAlgebra
 
 import Base.copy
 function copy(ref::Refel)
-    T = finch_state.config.float_type;
+    T = Float64;
     newref = Refel(T, ref.dim, ref.N, ref.Np, ref.Nfaces, ref.Nfp);
     newref.Nqp = ref.Nqp;
     newref.r1d = copy(ref.r1d);
