@@ -226,7 +226,7 @@ function build_faces(nel::Int, elements::Matrix{Int}, etypes::Vector{Int}, ismix
     both_sides_done = zeros(Bool, Nfaces); # If both sides have been handled, don't need to check anymore.
     removeinds = zeros(Int, Nfp); # indices of face nodes that may be removed if duplicated
     keepinds = zeros(Int, Nfp); # indices of face nodes that have already been stored and will be kept
-    for fi=2:Nfaces
+    for fi = 2:Nfaces
         found = false;
         for ni=1:Nfp
             removeinds[ni] = face2v[ni,fi];
@@ -391,23 +391,31 @@ function find_boundaries(face2e::Matrix{Int})
     return bdry;
 end
 
-# Check two arrays of Int. 
+# Concise version to check for shared face
 # Returns true if every value in f1 is also in f2.
 function shared_face(f1::Vector{Int}, f2::Vector{Int})
-    n1 = length(f1);
-    n2 = length(f2);
-    for i=1:n1
-        found = false
-        for j=1:n2
-            if f1[i] == f2[j]
-                found = true;
-                break;
-            end
-        end
-        if !found
-            return false;
-        end
-    end
+
+    return issubset( f1, f2 )
     
-    return true;
 end
+
+# Check two arrays of Int. (Older version) 
+# Returns true if every value in f1 is also in f2.
+# function shared_face(f1::Vector{Int}, f2::Vector{Int})
+#     n1 = length(f1);
+#     n2 = length(f2);
+#     for i=1:n1
+#         found = false
+#         for j=1:n2
+#             if f1[i] == f2[j]
+#                 found = true;
+#                 break;
+#             end
+#         end
+#         if !found
+#             return false;
+#         end
+#     end
+    
+#     return true;
+# end
