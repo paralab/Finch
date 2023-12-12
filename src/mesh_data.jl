@@ -4,6 +4,7 @@
 # It is only the basic elemental mesh with vertices and faces.
 =#
 export build_faces, find_boundaries, find_normals
+import Base
 
 # struct MeshData
 #     #### Minimal required information ####
@@ -63,11 +64,51 @@ function invert_index(ind::Vector{Int})
     return invind;
 end
 
-# Builds faces
+struct FaceVertices
+    vertices::Vector{Int}
+end
+
+function Base.isequal(A::FaceVertices, B::FaceVertices)
+    return shared_face( A.vertices, B.vertices )
+end
+
+function Base.hash(A::FaceVertices)
+    hash( A.vertices )
+end
+
+function updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, localFaceNumber )
+
+    nVertices = size( vertexVals, 1 )
+
+    if( haskey( dictVal, FaceVertices( vertexVals ) ) )
+
+        faceId = dictVal.get( FaceVertices( vertexVals ) );
+        face2e[ 2, faceId ] = ei;
+        e2face[ localFaceNumber, ei ] = faceId;
+    else
+        
+        nFaces = nFaces + 1; 
+        faceId = nFaces;
+        dictVal[ FaceVertices( vertexVals ) ] = faceId;
+
+        face2e[ 1, faceId ] = ei;
+        e2face[ localFaceNumber, ei ] = faceId;
+        face2v[ 1:nVertices, faceId ] = vertexVals[:];
+    end
+
+    return nFaces
+
+end
+
+# Builds faces (New Longer version)
 # For now assumes only one type of element.
-function build_faces(nel::Int, elements::Matrix{Int}, etypes::Vector{Int}, ismixed::Bool)
-    # numbers of nodes and faces for first and second order elements as defined by GMSH
-    # line, triangle, quad, tet, hex, prism, 5-pyramid
+# Use dict to store vertices -> faceID mapping
+# Loop over elements, loop over faces, check for duplicate face by checking value in dict
+
+function build_faces( nel::Int, elements::Matrix{Int}, etypes::Vector{Int}, ismixed::Bool )
+
+#   # numbers of nodes and faces for first and second order elements as defined by GMSH
+#   # line, triangle, quad, tet, hex, prism, 5-pyramid
     etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices
     etypetonf = [2, 3, 4, 4, 6, 5, 5, 2, 3, 4, 4, 6, 5, 5, 1, 4, 6, 5, 5]; # number of faces
     etypetonfn= [1, 2, 2, 3, 4, 4, 4, 1, 2, 2, 3, 4, 4, 4, 1, 2, 2, 4, 4]; # number of vertices for each face (except prism and 5-pyramids!)
@@ -76,208 +117,322 @@ function build_faces(nel::Int, elements::Matrix{Int}, etypes::Vector{Int}, ismix
     NfacesPerElement = etypetonf[maximum(etypes)]; # maximal value.
     Nfp = etypetonfn[maximum(etypes)]; # maximal value.
     
-    Nfaces = 0; # will be incremented as discovered
+    nFaces = 0; # will be incremented as discovered
     e2face = zeros(Int, NfacesPerElement, nel);
     
     face2v = zeros(Int, Nfp, NfacesPerElement * nel);
     face2e = zeros(Int, 2, NfacesPerElement * nel);
-    
+
+    dictVal = Dict{ ( FaceVertices ), Int }()
+
     for ei=1:nel
+
         if etypes[ei] == 1 # line
-            face2v[1,Nfaces+1] = elements[1, ei];
-            face2v[1,Nfaces+2] = elements[2, ei];
-            face2e[1,Nfaces+1] = ei; #
-            face2e[1,Nfaces+2] = ei; #
-            e2face[1,ei] = Nfaces+1;
-            e2face[2,ei] = Nfaces+2;
-            Nfaces += 2;
+
+            vertexVals = [ elements[ 1, ei ] ];
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 1 );
+
+            vertexVals = [ elements[ 2, ei ] ];
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 2 );
+
         elseif etypes[ei] == 2 # triangle
-            face2v[1,Nfaces+1] = elements[1, ei];
-            face2v[2,Nfaces+1] = elements[2, ei];
-            face2v[1,Nfaces+2] = elements[2, ei];
-            face2v[2,Nfaces+2] = elements[3, ei];
-            face2v[1,Nfaces+3] = elements[3, ei];
-            face2v[2,Nfaces+3] = elements[1, ei];
-            face2e[1,Nfaces+1] = ei; #
-            face2e[1,Nfaces+2] = ei; #
-            face2e[1,Nfaces+3] = ei; #
-            e2face[1,ei] = Nfaces+1;
-            e2face[2,ei] = Nfaces+2;
-            e2face[3,ei] = Nfaces+3;
-            Nfaces += 3;
+
+            vertexVals = elements[ [1, 2], ei ]
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 1 );
+
+            vertexVals = elements[ [2, 3], ei ]
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 2 );
+
+            vertexVals = elements[ [3, 1], ei ]
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 3 );
+
         elseif etypes[ei] == 3 # quad
-            face2v[:,Nfaces+1] = elements[[4,1], ei];
-            face2v[:,Nfaces+2] = elements[1:2, ei];
-            face2v[:,Nfaces+3] = elements[2:3, ei];
-            face2v[:,Nfaces+4] = elements[[4,3], ei];
-            face2e[1,Nfaces+1] = ei; #
-            face2e[1,Nfaces+2] = ei; #
-            face2e[1,Nfaces+3] = ei; #
-            face2e[1,Nfaces+4] = ei; #
-            e2face[1,ei] = Nfaces+1;
-            e2face[2,ei] = Nfaces+2;
-            e2face[3,ei] = Nfaces+3;
-            e2face[4,ei] = Nfaces+4;
-            Nfaces += 4;
+
+            vertexVals = elements[ [4, 1], ei ]
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 1 );
+
+            vertexVals = elements[ 1 : 2, ei ]
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 2 );
+
+            vertexVals = elements[ 2 : 3, ei ];
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 3 );
+
+            vertexVals = elements[ [4, 3], ei ];
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 4 );
+
         elseif etypes[ei] == 4 # tet
-            # face2v[:,Nfaces+1] = elements[[1,3,2], ei];
-            # face2v[:,Nfaces+2] = elements[[2,3,4], ei];
-            # face2v[:,Nfaces+3] = elements[[1,2,4], ei];
-            # face2v[:,Nfaces+4] = elements[[1,4,3], ei];
+            
             tmp = [1 3 2; 2 3 4; 1 2 4; 1 4 3];
-            for i=1:4
-                face2v[1,Nfaces+i] = elements[tmp[i,1], ei];
-                face2v[2,Nfaces+i] = elements[tmp[i,2], ei];
-                face2v[3,Nfaces+i] = elements[tmp[i,3], ei];
-            end
-            face2e[1,Nfaces+1] = ei; #
-            face2e[1,Nfaces+2] = ei; #
-            face2e[1,Nfaces+3] = ei; #
-            face2e[1,Nfaces+4] = ei; #
-            e2face[1,ei] = Nfaces+1;
-            e2face[2,ei] = Nfaces+2;
-            e2face[3,ei] = Nfaces+3;
-            e2face[4,ei] = Nfaces+4;
-            Nfaces += 4;
-        elseif etypes[ei] == 5 # hex
-            # face2v[:,Nfaces+1] = elements[[1,5,8,4], ei];
-            # face2v[:,Nfaces+2] = elements[[2,3,7,6], ei];
-            # face2v[:,Nfaces+3] = elements[[1,2,6,5], ei];
-            # face2v[:,Nfaces+4] = elements[[3,4,8,7], ei];
-            # face2v[:,Nfaces+5] = elements[[1,4,3,2], ei];
-            # face2v[:,Nfaces+6] = elements[[5,6,7,8], ei];
-            tmp = [1 5 8 4;2 3 7 6;1 2 6 5;3 4 8 7;1 4 3 2;5 6 7 8];
-            for i=1:6
-                face2v[1,Nfaces+i] = elements[tmp[i,1], ei];
-                face2v[2,Nfaces+i] = elements[tmp[i,2], ei];
-                face2v[3,Nfaces+i] = elements[tmp[i,3], ei];
-                face2v[4,Nfaces+i] = elements[tmp[i,4], ei];
-            end
-            face2e[1,Nfaces+1] = ei; #
-            face2e[1,Nfaces+2] = ei; #
-            face2e[1,Nfaces+3] = ei; #
-            face2e[1,Nfaces+4] = ei; #
-            face2e[1,Nfaces+5] = ei; #
-            face2e[1,Nfaces+6] = ei; #
-            e2face[1,ei] = Nfaces+1;
-            e2face[2,ei] = Nfaces+2;
-            e2face[3,ei] = Nfaces+3;
-            e2face[4,ei] = Nfaces+4;
-            e2face[5,ei] = Nfaces+5;
-            e2face[6,ei] = Nfaces+6;
-            Nfaces += 6;
-        elseif etypes[ei] == 6 # prism
-            face2v[1:3,Nfaces+1] = elements[[1,3,2], ei];
-            face2v[1:3,Nfaces+2] = elements[[4,5,6], ei];
-            face2v[:,Nfaces+3] = elements[[1,2,5,4], ei];
-            face2v[:,Nfaces+4] = elements[[1,4,6,3], ei];
-            face2v[:,Nfaces+5] = elements[[2,3,6,5], ei];
-            face2e[1,Nfaces+1] = ei; #
-            face2e[1,Nfaces+2] = ei; #
-            face2e[1,Nfaces+3] = ei; #
-            face2e[1,Nfaces+4] = ei; #
-            face2e[1,Nfaces+5] = ei; #
-            e2face[1,ei] = Nfaces+1;
-            e2face[2,ei] = Nfaces+2;
-            e2face[3,ei] = Nfaces+3;
-            e2face[4,ei] = Nfaces+4;
-            e2face[5,ei] = Nfaces+5;
-            Nfaces += 5;
-        elseif etypes[ei] == 7 # 5-pyramid
-            face2v[:,Nfaces+1] = elements[[1,4,3,2], ei];
-            face2v[1:3,Nfaces+2] = elements[[1,2,5], ei];
-            face2v[1:3,Nfaces+3] = elements[[3,4,5], ei];
-            face2v[1:3,Nfaces+4] = elements[[2,3,5], ei];
-            face2v[1:3,Nfaces+5] = elements[[4,1,5], ei];
-            face2e[1,Nfaces+1] = ei; #
-            face2e[1,Nfaces+2] = ei; #
-            face2e[1,Nfaces+3] = ei; #
-            face2e[1,Nfaces+4] = ei; #
-            face2e[1,Nfaces+5] = ei; #
-            e2face[1,ei] = Nfaces+1;
-            e2face[2,ei] = Nfaces+2;
-            e2face[3,ei] = Nfaces+3;
-            e2face[4,ei] = Nfaces+4;
-            e2face[5,ei] = Nfaces+5;
-            Nfaces += 5;
-        end
-    end
-    
-    # println("before:");
-    # println(face2e)
-    # println(e2face)
-    
-    # Remove duplicates
-    # This is slow. Checks each face against other faces
-    newface2v = zeros(Int, Nfp, Nfaces);
-    newface2e = zeros(Int, 2, Nfaces);
-    newe2face = zeros(Int, NfacesPerElement, nel);
-    newface2v[:,1] = face2v[:,1];
-    newface2e[:,1] = face2e[:,1];
-    for fk=1:NfacesPerElement
-        if e2face[fk,face2e[1,1]] == 1
-            newe2face[fk,face2e[1,1]] = 1;
-        end
-    end
-    
-    next_ind = 2;
-    remove_count = 0;
-    found = false;
-    both_sides_done = zeros(Bool, Nfaces); # If both sides have been handled, don't need to check anymore.
-    removeinds = zeros(Int, Nfp); # indices of face nodes that may be removed if duplicated
-    keepinds = zeros(Int, Nfp); # indices of face nodes that have already been stored and will be kept
-    for fi = 2:Nfaces
-        found = false;
-        for ni=1:Nfp
-            removeinds[ni] = face2v[ni,fi];
-        end
-        # Check against all found faces
-        for fj=1:next_ind-1
-            if !both_sides_done[fj]
-                for ni=1:Nfp
-                    keepinds[ni] = newface2v[ni,fj];
-                end
-                if shared_face(keepinds, removeinds) # fi is a duplicate.
-                    newface2e[2,fj] = face2e[1,fi];
-                    for fk=1:NfacesPerElement
-                        if e2face[fk,face2e[1,fi]] == fi
-                            newe2face[fk,face2e[1,fi]] = fj;
-                        end
-                    end
-                    
-                    remove_count += 1;
-                    found = true;
-                    both_sides_done[fj] = true;
-                    break;
-                end
-            end
-        end
-        if !found # fi wasn't a duplicate. give it a new index.
-            newface2e[1,next_ind] = face2e[1,fi];
-            newface2e[2,next_ind] = 0;
-            for ni=1:Nfp
-                newface2v[ni,next_ind] = removeinds[ni];
-            end
-            for fk=1:NfacesPerElement
-                if e2face[fk,face2e[1,fi]] == fi
-                    newe2face[fk,face2e[1,fi]] = next_ind;
-                end
+            for i = 1 : 4
+
+                vertexVals = elements[ tmp[i, 1 : 3], ei ];
+                nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, i );
             end
             
-            next_ind += 1;
+        elseif etypes[ei] == 5 # hex
+            
+            tmp = [1 5 8 4; 2 3 7 6; 1 2 6 5; 3 4 8 7; 1 4 3 2; 5 6 7 8];
+            for i = 1 : 6
+                vertexVals = elements[ tmp[i, 1 : 4], ei ];
+                nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, i );
+            end
+           
+        elseif etypes[ei] == 6 # prism
+
+            vertexVals = elements[ [1, 3, 2], ei ];
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 1 );
+
+            vertexVals = elements[[4, 5, 6], ei];
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 2 );
+
+            vertexVals = elements[[1, 2, 5, 4], ei];
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 3 );
+
+            vertexVals = elements[[1, 4, 6, 3], ei];
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 4 );
+
+            vertexVals = elements[[2, 3, 6, 5], ei];
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 5 );
+
+        elseif etypes[ei] == 7 # 5-pyramid
+
+            vertexVals = elements[[1, 4, 3, 2], ei];
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 1 );
+
+            vertexVals = elements[[1, 2, 5], ei];
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 2 );
+
+            vertexVals = elements[[3, 4, 5], ei];
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 3 );
+
+            vertexVals = elements[[2, 3, 5], ei];
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 4 );
+
+            vertexVals = elements[[4, 1, 5], ei];
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 5 );
         end
+
     end
-    
-    # cut off the excess
-    remaining = Nfaces-remove_count;
-    face2e = newface2e[:,1:remaining];
-    face2v = newface2v[:,1:remaining];
-    e2face = newe2face;
-    
-    # face_element_sanity_check(elements, e2face, face2v);
-    
-    return (face2v, face2e, e2face);
+
+    face2v = face2v[ :, 1 : nFaces ];
+    face2e = face2e[ :, 1 : nFaces ];
 end
+
+
+# Older version (checks for all faces to determine duplicate faces)
+# function build_faces(nel::Int, elements::Matrix{Int}, etypes::Vector{Int}, ismixed::Bool)
+#     # numbers of nodes and faces for first and second order elements as defined by GMSH
+#     # line, triangle, quad, tet, hex, prism, 5-pyramid
+#     etypetonv = [2, 3, 4, 4, 8, 6, 5, 2, 3, 4, 4, 8, 6, 5, 1, 4, 8, 6, 5]; # number of vertices
+#     etypetonf = [2, 3, 4, 4, 6, 5, 5, 2, 3, 4, 4, 6, 5, 5, 1, 4, 6, 5, 5]; # number of faces
+#     etypetonfn= [1, 2, 2, 3, 4, 4, 4, 1, 2, 2, 3, 4, 4, 4, 1, 2, 2, 4, 4]; # number of vertices for each face (except prism and 5-pyramids!)
+#     etypetodim= [1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3]; # dimension of each type
+    
+#     NfacesPerElement = etypetonf[maximum(etypes)]; # maximal value.
+#     Nfp = etypetonfn[maximum(etypes)]; # maximal value.
+    
+#     Nfaces = 0; # will be incremented as discovered
+#     e2face = zeros(Int, NfacesPerElement, nel);
+    
+#     face2v = zeros(Int, Nfp, NfacesPerElement * nel);
+#     face2e = zeros(Int, 2, NfacesPerElement * nel);
+    
+#     for ei=1:nel
+#         if etypes[ei] == 1 # line
+#             face2v[1,Nfaces+1] = elements[1, ei];
+#             face2v[1,Nfaces+2] = elements[2, ei];
+#             face2e[1,Nfaces+1] = ei; #
+#             face2e[1,Nfaces+2] = ei; #
+#             e2face[1,ei] = Nfaces+1;
+#             e2face[2,ei] = Nfaces+2;
+#             Nfaces += 2;
+#         elseif etypes[ei] == 2 # triangle
+#             face2v[1,Nfaces+1] = elements[1, ei];
+#             face2v[2,Nfaces+1] = elements[2, ei];
+#             face2v[1,Nfaces+2] = elements[2, ei];
+#             face2v[2,Nfaces+2] = elements[3, ei];
+#             face2v[1,Nfaces+3] = elements[3, ei];
+#             face2v[2,Nfaces+3] = elements[1, ei];
+#             face2e[1,Nfaces+1] = ei; #
+#             face2e[1,Nfaces+2] = ei; #
+#             face2e[1,Nfaces+3] = ei; #
+#             e2face[1,ei] = Nfaces+1;
+#             e2face[2,ei] = Nfaces+2;
+#             e2face[3,ei] = Nfaces+3;
+#             Nfaces += 3;
+#         elseif etypes[ei] == 3 # quad
+#             face2v[:,Nfaces+1] = elements[[4,1], ei];
+#             face2v[:,Nfaces+2] = elements[1:2, ei];
+#             face2v[:,Nfaces+3] = elements[2:3, ei];
+#             face2v[:,Nfaces+4] = elements[[4,3], ei];
+#             face2e[1,Nfaces+1] = ei; #
+#             face2e[1,Nfaces+2] = ei; #
+#             face2e[1,Nfaces+3] = ei; #
+#             face2e[1,Nfaces+4] = ei; #
+#             e2face[1,ei] = Nfaces+1;
+#             e2face[2,ei] = Nfaces+2;
+#             e2face[3,ei] = Nfaces+3;
+#             e2face[4,ei] = Nfaces+4;
+#             Nfaces += 4;
+#         elseif etypes[ei] == 4 # tet
+#             # face2v[:,Nfaces+1] = elements[[1,3,2], ei];
+#             # face2v[:,Nfaces+2] = elements[[2,3,4], ei];
+#             # face2v[:,Nfaces+3] = elements[[1,2,4], ei];
+#             # face2v[:,Nfaces+4] = elements[[1,4,3], ei];
+#             tmp = [1 3 2; 2 3 4; 1 2 4; 1 4 3];
+#             for i=1:4
+#                 face2v[1,Nfaces+i] = elements[tmp[i,1], ei];
+#                 face2v[2,Nfaces+i] = elements[tmp[i,2], ei];
+#                 face2v[3,Nfaces+i] = elements[tmp[i,3], ei];
+#             end
+#             face2e[1,Nfaces+1] = ei; #
+#             face2e[1,Nfaces+2] = ei; #
+#             face2e[1,Nfaces+3] = ei; #
+#             face2e[1,Nfaces+4] = ei; #
+#             e2face[1,ei] = Nfaces+1;
+#             e2face[2,ei] = Nfaces+2;
+#             e2face[3,ei] = Nfaces+3;
+#             e2face[4,ei] = Nfaces+4;
+#             Nfaces += 4;
+#         elseif etypes[ei] == 5 # hex
+#             # face2v[:,Nfaces+1] = elements[[1,5,8,4], ei];
+#             # face2v[:,Nfaces+2] = elements[[2,3,7,6], ei];
+#             # face2v[:,Nfaces+3] = elements[[1,2,6,5], ei];
+#             # face2v[:,Nfaces+4] = elements[[3,4,8,7], ei];
+#             # face2v[:,Nfaces+5] = elements[[1,4,3,2], ei];
+#             # face2v[:,Nfaces+6] = elements[[5,6,7,8], ei];
+#             tmp = [1 5 8 4;2 3 7 6;1 2 6 5;3 4 8 7;1 4 3 2;5 6 7 8];
+#             for i=1:6
+#                 face2v[1,Nfaces+i] = elements[tmp[i,1], ei];
+#                 face2v[2,Nfaces+i] = elements[tmp[i,2], ei];
+#                 face2v[3,Nfaces+i] = elements[tmp[i,3], ei];
+#                 face2v[4,Nfaces+i] = elements[tmp[i,4], ei];
+#             end
+#             face2e[1,Nfaces+1] = ei; #
+#             face2e[1,Nfaces+2] = ei; #
+#             face2e[1,Nfaces+3] = ei; #
+#             face2e[1,Nfaces+4] = ei; #
+#             face2e[1,Nfaces+5] = ei; #
+#             face2e[1,Nfaces+6] = ei; #
+#             e2face[1,ei] = Nfaces+1;
+#             e2face[2,ei] = Nfaces+2;
+#             e2face[3,ei] = Nfaces+3;
+#             e2face[4,ei] = Nfaces+4;
+#             e2face[5,ei] = Nfaces+5;
+#             e2face[6,ei] = Nfaces+6;
+#             Nfaces += 6;
+#         elseif etypes[ei] == 6 # prism
+#             face2v[1:3,Nfaces+1] = elements[[1,3,2], ei];
+#             face2v[1:3,Nfaces+2] = elements[[4,5,6], ei];
+#             face2v[:,Nfaces+3] = elements[[1,2,5,4], ei];
+#             face2v[:,Nfaces+4] = elements[[1,4,6,3], ei];
+#             face2v[:,Nfaces+5] = elements[[2,3,6,5], ei];
+#             face2e[1,Nfaces+1] = ei; #
+#             face2e[1,Nfaces+2] = ei; #
+#             face2e[1,Nfaces+3] = ei; #
+#             face2e[1,Nfaces+4] = ei; #
+#             face2e[1,Nfaces+5] = ei; #
+#             e2face[1,ei] = Nfaces+1;
+#             e2face[2,ei] = Nfaces+2;
+#             e2face[3,ei] = Nfaces+3;
+#             e2face[4,ei] = Nfaces+4;
+#             e2face[5,ei] = Nfaces+5;
+#             Nfaces += 5;
+#         elseif etypes[ei] == 7 # 5-pyramid
+#             face2v[:,Nfaces+1] = elements[[1,4,3,2], ei];
+#             face2v[1:3,Nfaces+2] = elements[[1,2,5], ei];
+#             face2v[1:3,Nfaces+3] = elements[[3,4,5], ei];
+#             face2v[1:3,Nfaces+4] = elements[[2,3,5], ei];
+#             face2v[1:3,Nfaces+5] = elements[[4,1,5], ei];
+#             face2e[1,Nfaces+1] = ei; #
+#             face2e[1,Nfaces+2] = ei; #
+#             face2e[1,Nfaces+3] = ei; #
+#             face2e[1,Nfaces+4] = ei; #
+#             face2e[1,Nfaces+5] = ei; #
+#             e2face[1,ei] = Nfaces+1;
+#             e2face[2,ei] = Nfaces+2;
+#             e2face[3,ei] = Nfaces+3;
+#             e2face[4,ei] = Nfaces+4;
+#             e2face[5,ei] = Nfaces+5;
+#             Nfaces += 5;
+#         end
+#     end
+    
+#     # println("before:");
+#     # println(face2e)
+#     # println(e2face)
+    
+#     # Remove duplicates
+#     # This is slow. Checks each face against other faces
+#     newface2v = zeros(Int, Nfp, Nfaces);
+#     newface2e = zeros(Int, 2, Nfaces);
+#     newe2face = zeros(Int, NfacesPerElement, nel);
+#     newface2v[:,1] = face2v[:,1];
+#     newface2e[:,1] = face2e[:,1];
+#     for fk=1:NfacesPerElement
+#         if e2face[fk,face2e[1,1]] == 1
+#             newe2face[fk,face2e[1,1]] = 1;
+#         end
+#     end
+    
+#     next_ind = 2;
+#     remove_count = 0;
+#     found = false;
+#     both_sides_done = zeros(Bool, Nfaces); # If both sides have been handled, don't need to check anymore.
+#     removeinds = zeros(Int, Nfp); # indices of face nodes that may be removed if duplicated
+#     keepinds = zeros(Int, Nfp); # indices of face nodes that have already been stored and will be kept
+#     for fi = 2:Nfaces
+#         found = false;
+#         for ni=1:Nfp
+#             removeinds[ni] = face2v[ni,fi];
+#         end
+#         # Check against all found faces
+#         for fj=1:next_ind-1
+#             if !both_sides_done[fj]
+#                 for ni=1:Nfp
+#                     keepinds[ni] = newface2v[ni,fj];
+#                 end
+#                 if shared_face(keepinds, removeinds) # fi is a duplicate.
+#                     newface2e[2,fj] = face2e[1,fi];
+#                     for fk=1:NfacesPerElement
+#                         if e2face[fk,face2e[1,fi]] == fi
+#                             newe2face[fk,face2e[1,fi]] = fj;
+#                         end
+#                     end
+                    
+#                     remove_count += 1;
+#                     found = true;
+#                     both_sides_done[fj] = true;
+#                     break;
+#                 end
+#             end
+#         end
+#         if !found # fi wasn't a duplicate. give it a new index.
+#             newface2e[1,next_ind] = face2e[1,fi];
+#             newface2e[2,next_ind] = 0;
+#             for ni=1:Nfp
+#                 newface2v[ni,next_ind] = removeinds[ni];
+#             end
+#             for fk=1:NfacesPerElement
+#                 if e2face[fk,face2e[1,fi]] == fi
+#                     newe2face[fk,face2e[1,fi]] = next_ind;
+#                 end
+#             end
+            
+#             next_ind += 1;
+#         end
+#     end
+    
+#     # cut off the excess
+#     remaining = Nfaces-remove_count;
+#     face2e = newface2e[:,1:remaining];
+#     face2v = newface2v[:,1:remaining];
+#     e2face = newe2face;
+    
+#     # face_element_sanity_check(elements, e2face, face2v);
+    
+#     return (face2v, face2e, e2face);
+# end
 
 # Make sure that face vertices are vertices of the element
 function face_element_sanity_check(elements::Matrix{Int}, e2f::Matrix{Int}, face2v::Matrix{Int})
