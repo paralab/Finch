@@ -216,6 +216,8 @@ function build_faces( nel::Int, elements::Matrix{Int}, etypes::Vector{Int}, ismi
 
     face2v = face2v[ :, 1 : nFaces ];
     face2e = face2e[ :, 1 : nFaces ];
+
+    return (face2v, face2e, e2face);
 end
 
 
