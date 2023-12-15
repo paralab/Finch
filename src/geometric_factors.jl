@@ -152,7 +152,7 @@ function build_geometric_factors(refel, grid::Grid; do_face_detj::Bool=true,
         if constant_jacobian
             detJ[e] = e_detJ;
         else
-            detJ[1:nodes_per_element,e] = e_detJ;
+            detJ[1:qnodes_per_element,e] = e_detJ;
         end
         
         J[e] = e_J;
