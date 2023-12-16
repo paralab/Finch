@@ -73,7 +73,7 @@ function Base.isequal(A::FaceVertices, B::FaceVertices)
 end
 
 function Base.hash(A::FaceVertices)
-    hash( A.vertices )
+    hash( sort( A.vertices ) )
 end
 
 function updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, localFaceNumber )
