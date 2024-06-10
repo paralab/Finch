@@ -142,6 +142,9 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
         end
     elseif mixed # element types
         facenvtx = zeros(Int, totalfaces);
+
+        ############ Needs to be modified for pyramids
+        
         for i=1:totalfaces
             facenvtx[i] = etypetonv[etypetoftype[mesh.etypes[mesh.face2element[1,i]]]];
         end

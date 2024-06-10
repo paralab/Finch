@@ -10,6 +10,7 @@ include("jacobi_polynomial.jl");
 include("refel_nodes.jl");
 include("refel_triangle.jl");
 include("refel_tet.jl");
+include("refel_pyramid.jl")
 
 # mutable struct Refel
 #     dim::Int                # Dimension
@@ -18,79 +19,79 @@ include("refel_tet.jl");
 #     Nqp::Int                # Number of quadrature points
 #     Nfaces::Int             # Number of faces
 #     Nfp::Array{Int,1}       # Number of nodes for each face
-
+    
 #     ######################################
 #     # Volume nodes and quadrature matrices
 #     ######################################
 #     r1d::Array{Float64}     # Node coordinates in 1D
 #     r::Array{Float64}       # dim-dim Node coordinates
-
+    
 #     wr1d::Array{Float64}    # r1d gll Quadrature weights
 #     wr::Array{Float64}      # r gll Quadrature weights
-
+    
 #     g1d::Array{Float64}     # 1D Gauss points
 #     wg1d::Array{Float64}    # 1D Gauss weights
-
+    
 #     g::Array{Float64}       # dim-dim Gauss points
 #     wg::Array{Float64}      # dim-dim Gauss weights
-
+    
 #     V::Array{Float64}       # basis at r
 #     gradV::Array{Float64}   # grad of basis at r
 #     invV::Array{Float64}    # Inverse V
-
+    
 #     Vg::Array{Float64}      # basis at Gauss
 #     gradVg::Array{Float64}  # grad of basis at g
 #     invVg::Array{Float64}   # Inverse Vg
-
+    
 #     Dr::Array{Float64}      # Differentiation matrix for r
 #     Ds::Array{Float64}      # Differentiation matrix for s
 #     Dt::Array{Float64}      # Differentiation matrix for t
 #     Dg::Array{Float64}      # Differentiation matrix for g
-
+    
 #     # Useful quadrature matrices for the volume integrals
 #     Q1d::Array{Float64}     # 1D quadrature matrix: like Vg*invV
 #     Q::Array{Float64}       # dim-dim quadrature matrix
 #     Qr::Array{Float64}      # quad of derivative matrix: like gradVg*invV
 #     Qs::Array{Float64}      # 
 #     Qt::Array{Float64}      # 
-
+    
 #     Ddr::Array{Float64}      # Derivatives at the elemental nodes, not quadrature nodes
 #     Dds::Array{Float64}      # 
 #     Ddt::Array{Float64}      #
-
+    
 #     #######################################
 #     # Surface nodes and quadrature matrices
 #     #######################################
 #     face2local::Array{Array{Int}}       # maps face nodes to local indices
-
+    
 #     surf_r::Array{Array{Float64}}       # surface node coordinates
 #     surf_wr::Array{Array{Float64}}      # surface gll weights
-
+    
 #     surf_g::Array{Array{Float64}}       # surface Gauss points
 #     surf_wg::Array{Array{Float64}}      # surface Gauss weights
-
+    
 #     surf_V::Array{Array{Float64}}       # basis at surf_r
 #     surf_gradV::Array{Array{Float64}}   # grad of basis at surf_r
 #     surf_invV::Array{Array{Float64}}    # Inverse surf_V
-
+    
 #     surf_Vg::Array{Array{Float64}}      # basis at surf_g
 #     surf_gradVg::Array{Array{Float64}}  # grad of basis at surf_g
 #     surf_invVg::Array{Array{Float64}}   # Inverse surf_Vg
-
+    
 #     surf_Dr::Array{Array{Float64}}      # Differentiation matrix for surf_r
 #     surf_Ds::Array{Array{Float64}}      # Differentiation matrix for surf_s
 #     surf_Dt::Array{Array{Float64}}      # Differentiation matrix for surf_t
 #     surf_Dg::Array{Array{Float64}}      # Differentiation matrix for surf_g
-
+    
 #     surf_Q::Array{Array{Float64}}       # quadrature matrix
 #     surf_Qr::Array{Array{Float64}}      # derivative quadrature matrix
 #     surf_Qs::Array{Array{Float64}}      # 
 #     surf_Qt::Array{Array{Float64}}      # 
-
+    
 #     surf_Ddr::Array{Array{Float64}}     # Derivatives at the elemental nodes, not quadrature nodes
 #     surf_Dds::Array{Array{Float64}}     # 
 #     surf_Ddt::Array{Array{Float64}}     #
-
+    
 #     # Constructor needs at least this information
 #     Refel(dim, order, nnodes, nfaces, nfp) = new(
 #         dim,
@@ -171,29 +172,34 @@ function build_refel(dimension, order, nfaces, nodetype)
         Nfp = [1, 1]; # face points
         
     elseif (dimension == 2 && nfaces == 3) # triangle
-        Np = (Int)( ( order + 1 )*( order + 2 )/2);
-        Nfp = [order + 1, order + 1, order + 1]; # face lines
+        Np = (Int)((order+1)*(order+2)/2);
+        Nfp = [order+1, order+1, order+1]; # face lines
         
     elseif (dimension == 2 && nfaces == 4) # quad
-        Np = (Int)( (order + 1) * (order + 1) );
-        Nfp = [order + 1, order + 1, order + 1, order + 1]; # face lines
+        Np = (Int)((order+1)*(order+1));
+        Nfp = [order+1, order+1, order+1, order+1]; # face lines
         
     elseif (dimension == 3 && nfaces == 4)  # tet
-        Np = (Int)((order + 1)*(order + 2)*(order + 3)/6);
-        M = (Int)((order + 1)*(order + 2)/2);
+        Np = (Int)((order+1)*(order+2)*(order+3)/6);
+        M = (Int)((order+1)*(order+2)/2);
         Nfp = [M, M, M, M]; # face triangles
         
     elseif (dimension == 3 && nfaces == 6)  # hex
-        Np = (Int)((order + 1)*(order + 1)*(order + 1)); # hex
-        M = (Int)((order + 1)*(order + 1));
+        Np = (Int)((order+1)*(order+1)*(order+1)); # hex
+        M = (Int)((order+1)*(order+1));
         Nfp = [M, M, M, M, M, M]; # face quads
-        
+    elseif (dimension == 3 && nfaces == 5) #pyramid
+        Np = (Int)(( order + 1 )*( order + 2 )*(2 * order + 3 )/6);
+        M1 = (Int)((order + 1)*(order + 1));
+        M2 = (Int)((order+1)*(order+2)/2);
+        Nfp = [M2, M2, M2, M2, M1];
+
     elseif (dimension == 4)  # ??
-        Np = (Int)((order + 1)*(order + 2)*(order + 3)*(order + 4)/24); # ??
+        Np = (Int)((order+1)*(order+2)*(order+3)*(order+4)/24); # ??
         # TODO
     end
     
-    refel = Refel( finch_state.config.float_type, dimension, order, Np, nfaces, Nfp);
+    refel = Refel(finch_state.config.float_type, dimension, order, Np, nfaces, Nfp);
     
     # Get nodes on the reference element
     refel_nodes!(refel, nodetype);
@@ -226,486 +232,223 @@ function build_refel(dimension, order, nfaces, nodetype)
         
     elseif (dimension == 3 && nfaces == 4) # tet
         refel = build_tetrahedron_refel(refel);
-        
+    
+    elseif (dimension == 3 && nfaces == 5) # pyramid
+        refel = build_pyramid_refel(refel);
+    
     else # line, quad, hex
-        # Vandermonde matrix and grad,inv
-        # Values of basis functions and derivs at points
-        refel.V = zeros(order + 1, order + 1);
-        refel.gradV = zeros(order+1, order+1);
-        # Gauss versions
-        refel.Vg = zeros(order+1, order+1);
-        refel.gradVg = zeros(order+1, order+1);
-        # surface versions
-        refel.surf_V = Array{Array{Float64}}(undef, nfaces);
-        refel.surf_gradV = Array{Array{Float64}}(undef, nfaces);
-        refel.surf_Vg = Array{Array{Float64}}(undef, nfaces);
-        refel.surf_gradVg = Array{Array{Float64}}(undef, nfaces);
-        for fi = 1:nfaces
-            refel.surf_V[fi] = zeros(refel.Nfp[fi], Np);
-            refel.surf_gradV[fi] = zeros(refel.Nfp[fi], Np);
-            refel.surf_Vg[fi] = zeros(refel.Nfp[fi], Np);
-            refel.surf_gradVg[fi] = zeros(refel.Nfp[fi], Np);
-        end
-        
-        # nodal versions
-        refel.V[:, :] = jacobi_polynomial( refel.r1d, 0, 0, refel.N, polynomialStartIdx = 1 )'
-
-        # Previous Evaluation
-        # for i = 1:refel.N + 1
-        #     refel.V[:,i] = jacobi_polynomial(refel.r1d, 0, 0, i-1);
-        # end
-
-        polynomialOrders = collect( 1:refel.N )
-        derivativePrefix = sqrt.( polynomialOrders .* ( polynomialOrders .+ 1 ) )
-
-        refel.gradV[ :, 2:end ] = ( derivativePrefix .* jacobi_polynomial( refel.r1d, 1, 1, refel.N - 1, polynomialStartIdx = 1 ) )'
-
-        # Previous Evaluation
-        # for i=1:refel.N
-        #     refel.gradV[:,i+1] = sqrt(i*(i+1)) .* jacobi_polynomial(refel.r1d, 1, 1, i-1);
-        # end
-
-        refel.invV = inv(refel.V);
-        
-        # Gauss versions
-        refel.Vg = jacobi_polynomial(refel.g1d, 0, 0, refel.N, polynomialStartIdx = 1)';
-
-        # Previous Evaluation
-        # for i=1:refel.N+1
-        #     refel.Vg[:,i] = jacobi_polynomial(refel.g1d, 0, 0, i-1);
-        # end
-
-        refel.gradVg[ :, 2:end ] = ( derivativePrefix .* jacobi_polynomial( refel.g1d, 1, 1, refel.N - 1, polynomialStartIdx = 1 ) )'
-
-        # Previous Evaluation
-        # for i=1:refel.N
-        #     refel.gradVg[:,i+1] = sqrt(i*(i+1)) .* jacobi_polynomial(refel.g1d, 1, 1, i-1);
-        # end
-        refel.invVg = inv(refel.Vg);
-        
-        # Differentiation matrices
-        refel.Dr = refel.gradV*refel.invV;
-        refel.Dg = refel.gradVg*refel.invV;
-        
-        refel.Q1d = refel.Vg*refel.invV;
-        
-        if dimension == 1
-            # volume
-            refel.Q = refel.Q1d;
-            refel.Qr = refel.Dg;
-            refel.Ddr = refel.Dr;
-            #surface
-            # r and g are the same for this case because there's only one point
-            refel.surf_Q = [refel.V[[1],:] * refel.invV, refel.V[[Np],:] * refel.invV];
-            refel.surf_Qr = [refel.gradV[[1],:] * refel.invV, refel.gradV[[Np],:] * refel.invV];
-            refel.surf_Ddr = refel.surf_Qr; 
-            
-        elseif dimension == 2
-            # volume
-            ident = Matrix( 1.0*I, order + 1, order + 1 );
-            refel.Q = kron(refel.Q1d, refel.Q1d);
-            refel.Qr = kron(refel.Q1d, refel.Dg);
-            refel.Qs = kron(refel.Dg, refel.Q1d);
-            refel.Ddr = kron(ident, refel.Dr);
-            refel.Dds = kron(refel.Dr, ident);
-            # surface
-            refel.surf_Q = Array{Array{Float64}}(undef, nfaces);
-            refel.surf_Qr = Array{Array{Float64}}(undef, nfaces);
-            refel.surf_Qs = Array{Array{Float64}}(undef, nfaces);
-            refel.surf_Ddr = Array{Array{Float64}}(undef, nfaces);
-            refel.surf_Dds = Array{Array{Float64}}(undef, nfaces);
-            ## Surfaces will use the full matrices rather than using tensor products
-            fullinvV = kron(refel.invV, refel.invV);
-
-            for fi = 1:nfaces
-                surf_gradVr = zeros( refel.Nfp[fi], Np );
-                surf_gradVs = zeros( refel.Nfp[fi], Np );
-                surf_gradVgr = zeros( refel.Nfp[fi], Np );
-                surf_gradVgs = zeros( refel.Nfp[fi], Np );
-                for ni = 1 : size( refel.surf_r[fi], 1 )
-                    # nodal versions
-
-                    # Faster Evaluation
-                    xEvals = jacobi_polynomial(refel.surf_r[fi][ ni, 1 ], 0, 0, refel.N, polynomialStartIdx = 1 )'
-                    yEvals = jacobi_polynomial(refel.surf_r[fi][ ni, 2 ], 0, 0, refel.N, polynomialStartIdx = 1 )'
-
-                    # X varies fastest in linearized kron operation
-                    refel.surf_V[fi][ni, :] = kron( yEvals, xEvals )                      
-
-                    # Previous Evaluation, X varies fastest in inner loop
-                    # for i = 1 : refel.N + 1
-                    #     for j = 1 : refel.N + 1
-                    #         ind = (j - 1) * (refel.N + 1) + i;
-                    #         refel.surf_V[fi][ni, ind] = (jacobi_polynomial(refel.surf_r[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_r[fi][ni,2], 0, 0, j-1))[1];
-                    #     end
-                    # end
-
-                    # New Evaluation for surface derivatives
-                    xderivEvals = ( derivativePrefix .* jacobi_polynomial(refel.surf_r[fi][ni, 1], 1, 1, refel.N - 1, polynomialStartIdx = 1) )'
-                    yderivEvals = ( derivativePrefix .* jacobi_polynomial(refel.surf_r[fi][ni, 2], 1, 1, refel.N - 1, polynomialStartIdx = 1) )'
-   
-                    indicesToUpdate = [ ( j - 1 ) * (refel.N + 1) + i for j in 1:(refel.N + 1) for i in 2:(refel.N + 1) ]
-                    surf_gradVr[ ni, indicesToUpdate ] = kron( yEvals, xderivEvals )
-
-                    indicesToUpdate = [ ( j - 1 ) * (refel.N + 1) + i for j in 2:(refel.N + 1) for i in 1:(refel.N + 1) ]
-                    surf_gradVs[ ni, indicesToUpdate ] = kron( yderivEvals, xEvals ) 
-
-                    # Bug Fix for surface derivatives.
-                    # Consider polynomial orders 0 -> N in both X and Y directions
-
-                    # For multiplied X Y polynomials, if X direction varies fastest, 
-                    # order in X direction varies from 0 -> N fastest with index
-
-                    # Hence, if i == 1, polynomial derivative with X is 0 and needs to be skipped.
-                    # For all other indexes, derivative value needs to be calculated regardless of j direction
-                    
-                    # Vice versa observation in Y direction
-                    # for i = 1:refel.N + 1
-                    #     for j = 1:refel.N + 1
-
-                    #         ind = ( j - 1 ) * (refel.N + 1) + i;
-                    #         ivalDeriv = i - 1
-                    #         jvalDeriv = j - 1
-
-                    #         if( i > 1 )  
-
-                    #             surf_gradVr[ ni, ind ] = sqrt( ivalDeriv * ( ivalDeriv + 1 ) ) * 
-                    #                 (jacobi_polynomial( refel.surf_r[fi][ ni, 1 ], 1, 1, ivalDeriv - 1 ) .*
-                    #                 jacobi_polynomial( refel.surf_r[fi][ ni, 2 ], 0, 0, jvalDeriv ) )[1];
-
-                    #         end
-
-                    #         if( j > 1 )
-
-                    #             surf_gradVs[ ni, ind ] = sqrt( jvalDeriv * ( jvalDeriv + 1 ) ) *
-                    #             (jacobi_polynomial( refel.surf_r[fi][ ni, 1 ], 0, 0, ivalDeriv ) .*
-                    #             jacobi_polynomial( refel.surf_r[fi][ ni, 2 ], 1, 1, jvalDeriv - 1) )[1];
-
-                    #         end
-                    #     end
-                    # end
-                    
-                    # Previous Evaluation of surface derivatives (with bug)
-                    # for i=1:refel.N
-                    #     for j=1:refel.N
-                    #         ind = (j)*(refel.N) + i + 1;
-                    #         surf_gradVr[ni,ind] = sqrt(i*(i+1)) * (jacobi_polynomial(refel.surf_r[fi][ni,1], 1, 1, i-1) .* jacobi_polynomial(refel.surf_r[fi][ni,2], 0, 0, j-1))[1];
-                    #         surf_gradVs[ni,ind] = sqrt(j*(j+1)) * (jacobi_polynomial(refel.surf_r[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_r[fi][ni,2], 1, 1, j-1))[1];
-                    #     end
-                    # end
-
-                    # Faster Evaluation
-                    xEvals = jacobi_polynomial(refel.surf_g[fi][ ni, 1 ], 0, 0, refel.N, polynomialStartIdx = 1 )'
-                    yEvals = jacobi_polynomial(refel.surf_g[fi][ ni, 2 ], 0, 0, refel.N, polynomialStartIdx = 1 )'
-
-                    # X varies fastest in linearized kron operation
-                    refel.surf_Vg[fi][ni, :] = kron( yEvals, xEvals )
-
-                    # Gauss versions, Previous Evaluation, X varies fastest in inner loop
-                    # for i=1:refel.N+1
-                    #     for j=1:refel.N+1
-                    #         ind = (j-1)*(refel.N+1) + i;
-                    #         refel.surf_Vg[fi][ni,ind] = (jacobi_polynomial(refel.surf_g[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_g[fi][ni,2], 0, 0, j-1))[1];
-                    #     end
-                    # end
-
-                    # New Evaluation for surface derivatives
-                    xderivEvals = ( derivativePrefix .* jacobi_polynomial(refel.surf_g[fi][ni, 1], 1, 1, refel.N - 1, polynomialStartIdx = 1) )'
-                    yderivEvals = ( derivativePrefix .* jacobi_polynomial(refel.surf_g[fi][ni, 2], 1, 1, refel.N - 1, polynomialStartIdx = 1) )'
-   
-                    indicesToUpdate = [ ( j - 1 ) * (refel.N + 1) + i for j in 1:(refel.N + 1) for i in 2:(refel.N + 1) ]
-                    surf_gradVgr[ ni, indicesToUpdate ] = kron( yEvals, xderivEvals )
-
-                    indicesToUpdate = [ ( j - 1 ) * (refel.N + 1) + i for j in 2:(refel.N + 1) for i in 1:(refel.N + 1) ]
-                    surf_gradVgs[ ni, indicesToUpdate ] = kron( yderivEvals, xEvals ) 
-
-                    # Bug Fix for surface derivatives (Gauss Version).
-                    # Consider polynomial orders 0 -> N in both X and Y directions
-
-                    # For multiplied X Y polynomials, if X direction varies fastest, 
-                    # order in X direction varies from 0 -> N fastest with index
-
-                    # Hence, if i == 1, polynomial derivative with X is 0 and needs to be skipped.
-                    # For all other indexes, derivative value needs to be calculated regardless of j direction
-                    
-                    # Vice versa observation in Y direction
-                    # for i = 1:refel.N + 1
-                    #     for j = 1:refel.N + 1
-
-                    #         ind = ( j - 1 ) * (refel.N + 1) + i;
-                    #         ivalDeriv = i - 1
-                    #         jvalDeriv = j - 1
-
-                    #         if( i > 1 )  
-
-                    #             surf_gradVgr[ ni, ind ] = sqrt( ivalDeriv * ( ivalDeriv + 1 ) ) * 
-                    #                 (jacobi_polynomial( refel.surf_g[fi][ ni, 1 ], 1, 1, ivalDeriv - 1 ) .*
-                    #                 jacobi_polynomial( refel.surf_g[fi][ ni, 2 ], 0, 0, jvalDeriv ) )[1];
-
-                    #         end
-
-                    #         if( j > 1 )
-
-                    #             surf_gradVgs[ ni, ind ] = sqrt( jvalDeriv * ( jvalDeriv + 1 ) ) *
-                    #             (jacobi_polynomial( refel.surf_g[fi][ ni, 1 ], 0, 0, ivalDeriv ) .*
-                    #             jacobi_polynomial( refel.surf_g[fi][ ni, 2 ], 1, 1, jvalDeriv - 1) )[1];
-
-                    #         end
-                    #     end
-                    # end
-
-                    # Gauss Versions, Previous Evaluation (With Bug)
-                    # for i=1:refel.N
-                    #     for j=1:refel.N
-                    #         ind = (j)*(refel.N) + i + 1;
-                    #         surf_gradVgr[ni,ind] = sqrt(i*(i+1)) * (jacobi_polynomial(refel.surf_g[fi][ni,1], 1, 1, i-1) .* jacobi_polynomial(refel.surf_g[fi][ni,2], 0, 0, j-1))[1];
-                    #         surf_gradVgs[ni,ind] = sqrt(j*(j+1)) * (jacobi_polynomial(refel.surf_g[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_g[fi][ni,2], 1, 1, j-1))[1];
-                    #     end
-                    # end
-                end
-                
-                refel.surf_Q[fi] = refel.surf_V[fi] * fullinvV;
-                refel.surf_Qr[fi] = surf_gradVgr * fullinvV;
-                refel.surf_Qs[fi] = surf_gradVgs * fullinvV;
-                refel.surf_Ddr[fi] = surf_gradVr * fullinvV;
-                refel.surf_Dds[fi] = surf_gradVs * fullinvV;
-            end
-            
-        elseif dimension == 3
-            ident = Matrix(1.0*I,order+1,order+1);
-            refel.Q = kron(kron(refel.Q1d, refel.Q1d), refel.Q1d);
-            refel.Qr = kron(kron(refel.Q1d, refel.Q1d), refel.Dg);
-            refel.Qs = kron(kron(refel.Q1d, refel.Dg), refel.Q1d);
-            refel.Qt = kron(kron(refel.Dg, refel.Q1d), refel.Q1d);
-            refel.Ddr = kron(kron(ident, ident), refel.Dg);
-            refel.Dds = kron(kron(ident, refel.Dg), ident);
-            refel.Ddt = kron(kron(refel.Dg, ident), ident);
-            
-            # surface
-            refel.surf_Q = Array{Array{Float64}}(undef, nfaces);
-            refel.surf_Qr = Array{Array{Float64}}(undef, nfaces);
-            refel.surf_Qs = Array{Array{Float64}}(undef, nfaces);
-            refel.surf_Qt = Array{Array{Float64}}(undef, nfaces);
-            refel.surf_Ddr = Array{Array{Float64}}(undef, nfaces);
-            refel.surf_Dds = Array{Array{Float64}}(undef, nfaces);
-            refel.surf_Ddt = Array{Array{Float64}}(undef, nfaces);
-            ## Surfaces will use the full matrices rather than using tensor products
-            fullinvV = kron(refel.invV, kron(refel.invV, refel.invV));
-            
-            for fi=1:nfaces
-                surf_gradVr = zeros(refel.Nfp[fi], Np);
-                surf_gradVs = zeros(refel.Nfp[fi], Np);
-                surf_gradVt = zeros(refel.Nfp[fi], Np);
-                surf_gradVgr = zeros(refel.Nfp[fi], Np);
-                surf_gradVgs = zeros(refel.Nfp[fi], Np);
-                surf_gradVgt = zeros(refel.Nfp[fi], Np);
-                for ni=1:size(refel.surf_r[fi],1)
-                    # nodal versions
-                    xEvals = jacobi_polynomial(refel.surf_r[fi][ ni, 1 ], 0, 0, refel.N, polynomialStartIdx = 1 )'
-                    yEvals = jacobi_polynomial(refel.surf_r[fi][ ni, 2 ], 0, 0, refel.N, polynomialStartIdx = 1 )'
-                    zEvals = jacobi_polynomial(refel.surf_r[fi][ ni, 3 ], 0, 0, refel.N, polynomialStartIdx = 1 )'
-
-                    # Faster Evaluation 
-                    refel.surf_V[fi][ ni, : ] = kron( zEvals, kron( yEvals, xEvals ) )
-
-                    # Previous Evaluation
-                    for i=1:refel.N+1
-                        for j=1:refel.N+1
-                            for k=1:refel.N+1
-                                ind = (k-1)*(refel.N+1)*(refel.N+1) + (j-1)*(refel.N+1) + i;
-                                refel.surf_V[fi][ni,ind] = (jacobi_polynomial(refel.surf_r[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_r[fi][ni,2], 0, 0, j-1) .* jacobi_polynomial(refel.surf_r[fi][ni,3], 0, 0, k-1))[1];
-                            end
-                        end
-                    end
-
-                    # New/Faster Evaluation for surface derivatives
-                    xderivEvals = ( derivativePrefix .* jacobi_polynomial(refel.surf_r[fi][ni, 1], 1, 1, refel.N - 1, polynomialStartIdx = 1) )'
-                    yderivEvals = ( derivativePrefix .* jacobi_polynomial(refel.surf_r[fi][ni, 2], 1, 1, refel.N - 1, polynomialStartIdx = 1) )'
-                    zderivEvals = ( derivativePrefix .* jacobi_polynomial(refel.surf_r[fi][ni, 3], 1, 1, refel.N - 1, polynomialStartIdx = 1) )'
-
-                    indicesToUpdate = [  ( k - 1 ) * (refel.N + 1) * (refel.N + 1) + ( j - 1 ) * (refel.N + 1) + i 
-                                    for k in 1:(refel.N + 1) 
-                                    for j in 1:(refel.N + 1) 
-                                    for i in 2:(refel.N + 1) ]
-
-                    surf_gradVr[ ni, indicesToUpdate ] = kron( zEvals, kron( yEvals, xderivEvals ) )
-
-                    indicesToUpdate = [  ( k - 1 ) * (refel.N + 1) * (refel.N + 1) + ( j - 1 ) * (refel.N + 1) + i 
-                                    for k in 1:(refel.N + 1) 
-                                    for j in 2:(refel.N + 1) 
-                                    for i in 1:(refel.N + 1) ]
-
-                    surf_gradVs[ ni, indicesToUpdate ] = kron( zEvals, kron( yderivEvals, xEvals ) )
-                    
-                    indicesToUpdate = [  ( k - 1 ) * (refel.N + 1) * (refel.N + 1) + ( j - 1 ) * (refel.N + 1) + i 
-                                    for k in 2:(refel.N + 1) 
-                                    for j in 1:(refel.N + 1) 
-                                    for i in 1:(refel.N + 1) ]
-
-                    surf_gradVt[ ni, indicesToUpdate ] = kron( zderivEvals, kron( yEvals, xEvals ) )
-
-                    # Correct Evaluation (Longer Version with bug fix for readability)
-                    # for i = 1:refel.N + 1
-                    #     for j = 1:refel.N + 1
-                    #         for k = 1:refel.N + 1
-
-                    #             ind =  ( k - 1 ) * (refel.N + 1) * (refel.N + 1) + ( j - 1 ) * (refel.N + 1) + i;
-                    #             ivalDeriv = i - 1
-                    #             jvalDeriv = j - 1
-                    #             kvalDeriv = k - 1
-
-                    #             if( i > 1 )
-
-                    #                 surf_gradVr[ ni, ind ] = sqrt( ivalDeriv * ( ivalDeriv + 1 ) ) * 
-                    #                 (jacobi_polynomial( refel.surf_r[fi][ ni, 1 ], 1, 1, ivalDeriv - 1 ) .*
-                    #                 jacobi_polynomial( refel.surf_r[fi][ ni, 2 ], 0, 0, jvalDeriv ) .*
-                    #                 jacobi_polynomial( refel.surf_r[fi][ ni, 3 ], 0, 0, kvalDeriv ))[1];
-
-                    #             end
-
-                    #             if( j > 1 )
-
-                    #                 surf_gradVs[ ni, ind ] = sqrt( jvalDeriv * ( jvalDeriv + 1 ) ) *
-                    #                 (jacobi_polynomial( refel.surf_r[fi][ ni, 1 ], 0, 0, ivalDeriv ) .*
-                    #                 jacobi_polynomial( refel.surf_r[fi][ ni, 2 ], 1, 1, jvalDeriv - 1) .*
-                    #                 jacobi_polynomial( refel.surf_r[fi][ ni, 3 ], 0, 0, kvalDeriv) )[1];
-
-                    #             end
-
-                    #             if( k > 1 )
-
-                    #                 surf_gradVt[ ni, ind ] = sqrt( kvalDeriv * ( kvalDeriv + 1 ) ) *
-                    #                 (jacobi_polynomial( refel.surf_r[fi][ ni, 1 ], 0, 0, ivalDeriv ) .*
-                    #                 jacobi_polynomial( refel.surf_r[fi][ ni, 2 ], 0, 0, jvalDeriv ) .*
-                    #                 jacobi_polynomial( refel.surf_r[fi][ ni, 3 ], 1, 1, kvalDeriv - 1 ) )[1];
-
-                    #             end
-                    #         end
-                    #     end
-                    # end
-
-                    # Previous Evaluation (with bug)
-                    # for i = 1:refel.N 
-                    #     for j = 1:refel.N 
-                    #         for k = 1:refel.N 
-                    #              ind = (k)*(refel.N)*(refel.N) + (j)*(refel.N) + i + 1;
-                    #             surf_gradVr[ni,ind] = sqrt(i*(i+1)) * (jacobi_polynomial(refel.surf_r[fi][ni,1], 1, 1, i-1) .* jacobi_polynomial(refel.surf_r[fi][ni,2], 0, 0, j-1) .* jacobi_polynomial(refel.surf_r[fi][ni,3], 0, 0, k-1))[1];
-                    #             surf_gradVs[ni,ind] = sqrt(j*(j+1)) * (jacobi_polynomial(refel.surf_r[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_r[fi][ni,2], 1, 1, j-1) .* jacobi_polynomial(refel.surf_r[fi][ni,3], 0, 0, k-1))[1];
-                    #             surf_gradVt[ni,ind] = sqrt(k*(k+1)) * (jacobi_polynomial(refel.surf_r[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_r[fi][ni,2], 0, 0, j-1) .* jacobi_polynomial(refel.surf_r[fi][ni,3], 1, 1, k-1))[1];     
-                    #         end
-                    #     end
-                    # end
-
-                    # Gauss versions
-                    xEvals = jacobi_polynomial(refel.surf_g[fi][ ni, 1 ], 0, 0, refel.N, polynomialStartIdx = 1 )'
-                    yEvals = jacobi_polynomial(refel.surf_g[fi][ ni, 2 ], 0, 0, refel.N, polynomialStartIdx = 1 )'
-                    zEvals = jacobi_polynomial(refel.surf_g[fi][ ni, 3 ], 0, 0, refel.N, polynomialStartIdx = 1 )'
-
-                    # Faster Evaluation 
-                    refel.surf_Vg[fi][ ni, : ] = kron( zEvals, kron( yEvals, xEvals ) )
-
-                    # Previous Evaluation (Gauss Version)
-                    # for i=1:refel.N+1
-                    #     for j=1:refel.N+1
-                    #         for k=1:refel.N+1
-                    #             ind = (k-1)*(refel.N+1)*(refel.N+1) + (j-1)*(refel.N+1) + i;
-                    #             refel.surf_Vg[fi][ni,ind] = (jacobi_polynomial(refel.surf_g[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_g[fi][ni,2], 0, 0, j-1) .* jacobi_polynomial(refel.surf_g[fi][ni,3], 0, 0, k-1))[1];
-                    #         end
-                    #     end
-                    # end
-
-                    # New Evaluation for surface derivatives
-                    xderivEvals = ( derivativePrefix .* jacobi_polynomial(refel.surf_g[fi][ni, 1], 1, 1, refel.N - 1, polynomialStartIdx = 1) )'
-                    yderivEvals = ( derivativePrefix .* jacobi_polynomial(refel.surf_g[fi][ni, 2], 1, 1, refel.N - 1, polynomialStartIdx = 1) )'
-                    zderivEvals = ( derivativePrefix .* jacobi_polynomial(refel.surf_g[fi][ni, 3], 1, 1, refel.N - 1, polynomialStartIdx = 1) )'
-
-                    indicesToUpdate = [  ( k - 1 ) * (refel.N + 1) * (refel.N + 1) + ( j - 1 ) * (refel.N + 1) + i 
-                                    for k in 1:(refel.N + 1) 
-                                    for j in 1:(refel.N + 1) 
-                                    for i in 2:(refel.N + 1) ]
-
-                    surf_gradVgr[ ni, indicesToUpdate ] = kron( zEvals, kron( yEvals, xderivEvals ) )
-
-                    indicesToUpdate = [  ( k - 1 ) * (refel.N + 1) * (refel.N + 1) + ( j - 1 ) * (refel.N + 1) + i 
-                                    for k in 1:(refel.N + 1) 
-                                    for j in 2:(refel.N + 1) 
-                                    for i in 1:(refel.N + 1) ]
-
-                    surf_gradVgs[ ni, indicesToUpdate ] = kron( zEvals, kron( yderivEvals, xEvals ) )
-                    
-                    indicesToUpdate = [  ( k - 1 ) * (refel.N + 1) * (refel.N + 1) + ( j - 1 ) * (refel.N + 1) + i 
-                                    for k in 2:(refel.N + 1) 
-                                    for j in 1:(refel.N + 1) 
-                                    for i in 1:(refel.N + 1) ]
-
-                    surf_gradVgt[ ni, indicesToUpdate ] = kron( zderivEvals, kron( yEvals, xEvals ) )
-
-                    # Correct Evaluation (Longer Version with bug fix for readability)
-                    # for i = 1:refel.N + 1
-                    #     for j = 1:refel.N + 1
-                    #         for k = 1:refel.N + 1
-
-                    #             ind =  ( k - 1 ) * (refel.N + 1) * (refel.N + 1) + ( j - 1 ) * (refel.N + 1) + i;
-                    #             ivalDeriv = i - 1
-                    #             jvalDeriv = j - 1
-                    #             kvalDeriv = k - 1
-
-                    #             if( i > 1 )
-
-                    #                 surf_gradVgr[ ni, ind ] = sqrt( ivalDeriv * ( ivalDeriv + 1 ) ) * 
-                    #                 (jacobi_polynomial( refel.surf_g[fi][ ni, 1 ], 1, 1, ivalDeriv - 1 ) .*
-                    #                 jacobi_polynomial( refel.surf_g[fi][ ni, 2 ], 0, 0, jvalDeriv ) .*
-                    #                 jacobi_polynomial( refel.surf_g[fi][ ni, 3 ], 0, 0, kvalDeriv ))[1];
-
-                    #             end
-
-                    #             if( j > 1 )
-
-                    #                 surf_gradVgs[ ni, ind ] = sqrt( jvalDeriv * ( jvalDeriv + 1 ) ) *
-                    #                 (jacobi_polynomial( refel.surf_g[fi][ ni, 1 ], 0, 0, ivalDeriv ) .*
-                    #                 jacobi_polynomial( refel.surf_g[fi][ ni, 2 ], 1, 1, jvalDeriv - 1) .*
-                    #                 jacobi_polynomial( refel.surf_g[fi][ ni, 3 ], 0, 0, kvalDeriv) )[1];
-
-                    #             end
-
-                    #             if( k > 1 )
-
-                    #                 surf_gradVgt[ ni, ind ] = sqrt( kvalDeriv * ( kvalDeriv + 1 ) ) *
-                    #                 (jacobi_polynomial( refel.surf_g[fi][ ni, 1 ], 0, 0, ivalDeriv ) .*
-                    #                 jacobi_polynomial( refel.surf_g[fi][ ni, 2 ], 0, 0, jvalDeriv ) .*
-                    #                 jacobi_polynomial( refel.surf_g[fi][ ni, 3 ], 1, 1, kvalDeriv - 1 ) )[1];
-
-                    #             end
-                    #         end
-                    #     end
-                    # end
-
-                    # Previous Evaluation (With bug, gauss version)
-                    # for i=1:refel.N
-                    #     for j=1:refel.N
-                    #         for k=1:refel.N
-                    #             ind = (k)*(refel.N)*(refel.N) + (j)*(refel.N) + i + 1;
-                    #             surf_gradVgr[ni,ind] = sqrt(i*(i+1)) * (jacobi_polynomial(refel.surf_g[fi][ni,1], 1, 1, i-1) .* jacobi_polynomial(refel.surf_g[fi][ni,2], 0, 0, j-1) .* jacobi_polynomial(refel.surf_g[fi][ni,3], 0, 0, k-1))[1];
-                    #             surf_gradVgs[ni,ind] = sqrt(j*(j+1)) * (jacobi_polynomial(refel.surf_g[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_g[fi][ni,2], 1, 1, j-1) .* jacobi_polynomial(refel.surf_g[fi][ni,3], 0, 0, k-1))[1];
-                    #             surf_gradVgt[ni,ind] = sqrt(k*(k+1)) * (jacobi_polynomial(refel.surf_g[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_g[fi][ni,2], 0, 0, j-1) .* jacobi_polynomial(refel.surf_g[fi][ni,3], 1, 1, k-1))[1];
-                    #         end
-                    #     end
-                    # end
-                end
-                
-                refel.surf_Q[fi] = refel.surf_V[fi] * fullinvV;
-                refel.surf_Qr[fi] = surf_gradVgr * fullinvV;
-                refel.surf_Qs[fi] = surf_gradVgs * fullinvV;
-                refel.surf_Qt[fi] = surf_gradVgt * fullinvV;
-                refel.surf_Ddr[fi] = surf_gradVr * fullinvV;
-                refel.surf_Dds[fi] = surf_gradVs * fullinvV;
-                refel.surf_Ddt[fi] = surf_gradVt * fullinvV;
-            end
-        end
+        println( "dimension = "*string(dimension) * "\n" )
+        println( "nfaces = " * string( nfaces ) * "\n" )
+        quadratureOrder = order;
+        refel = build_regular_refel( refel, quadratureOrder, nfaces, nodetype, Np, Nfp, dimension )
     end
+
+    println( "refel.Q is "* string( refel.Q ) * "\n" )
+    println( "refel.Qr is "* string( refel.Qr ) * "\n" )
+    println( "refel.Qs is "* string( refel.Qs ) * "\n" )
+    println( "refel.g is "* string( refel.g ) * "\n" )
     
     return refel;
 end
+
+function build_regular_refel( refel, order, nfaces, nodetype, Np, Nfp, dimension )
+
+    # Values of basis functions and derivs at points
+    refel.V = zeros(order+1, order+1);
+    refel.gradV = zeros(order+1, order+1);
+    # Gauss versions
+    refel.Vg = zeros(order+1, order+1);
+    refel.gradVg = zeros(order+1, order+1);
+    # surface versions
+    refel.surf_V = Array{Array{Float64}}(undef, nfaces);
+    refel.surf_gradV = Array{Array{Float64}}(undef, nfaces);
+    refel.surf_Vg = Array{Array{Float64}}(undef, nfaces);
+    refel.surf_gradVg = Array{Array{Float64}}(undef, nfaces);
+    for fi=1:nfaces
+        refel.surf_V[fi] = zeros(refel.Nfp[fi], Np);
+        refel.surf_gradV[fi] = zeros(refel.Nfp[fi], Np);
+        refel.surf_Vg[fi] = zeros(refel.Nfp[fi], Np);
+        refel.surf_gradVg[fi] = zeros(refel.Nfp[fi], Np);
+    end
+    
+    # nodal versions
+    for i=1:refel.N+1
+        refel.V[:,i] = jacobi_polynomial(refel.r1d, 0, 0, i-1);
+    end
+    for i=1:refel.N
+        refel.gradV[:,i+1] = sqrt(i*(i+1)) .* jacobi_polynomial(refel.r1d, 1, 1, i-1);
+    end
+    refel.invV = inv(refel.V);
+    
+    # Gauss versions
+    for i=1:refel.N+1
+        refel.Vg[:,i] = jacobi_polynomial(refel.g1d, 0, 0, i-1);
+    end
+    for i=1:refel.N
+        refel.gradVg[:,i+1] = sqrt(i*(i+1)) .* jacobi_polynomial(refel.g1d, 1, 1, i-1);
+    end
+    refel.invVg = inv(refel.Vg);
+    
+    # Differentiation matrices
+    refel.Dr = refel.gradV*refel.invV;
+    refel.Dg = refel.gradVg*refel.invV;
+    
+    refel.Q1d = refel.Vg*refel.invV;
+    
+    if dimension == 1
+        # volume
+        refel.Q = refel.Q1d;
+        refel.Qr = refel.Dg;
+        refel.Ddr = refel.Dr;
+        #surface
+        # r and g are the same for this case because there's only one point
+        refel.surf_Q = [refel.V[[1],:] * refel.invV, refel.V[[Np],:] * refel.invV];
+        refel.surf_Qr = [refel.gradV[[1],:] * refel.invV, refel.gradV[[Np],:] * refel.invV];
+        refel.surf_Ddr = refel.surf_Qr; 
+        
+    elseif dimension == 2
+        # volume
+        ident = Matrix(1.0*I,order+1,order+1);
+        refel.Q = kron(refel.Q1d,refel.Q1d);
+        refel.Qr = kron(refel.Q1d,refel.Dg);
+        refel.Qs = kron(refel.Dg,refel.Q1d);
+        refel.Ddr = kron(ident,refel.Dr);
+        refel.Dds = kron(refel.Dr,ident);
+        # surface
+        refel.surf_Q = Array{Array{Float64}}(undef, nfaces);
+        refel.surf_Qr = Array{Array{Float64}}(undef, nfaces);
+        refel.surf_Qs = Array{Array{Float64}}(undef, nfaces);
+        refel.surf_Ddr = Array{Array{Float64}}(undef, nfaces);
+        refel.surf_Dds = Array{Array{Float64}}(undef, nfaces);
+        ## Surfaces will use the full matrices rather than using tensor products
+        fullinvV = kron(refel.invV, refel.invV);
+        
+        for fi=1:nfaces
+            surf_gradVr = zeros(refel.Nfp[fi], Np);
+            surf_gradVs = zeros(refel.Nfp[fi], Np);
+            surf_gradVgr = zeros(refel.Nfp[fi], Np);
+            surf_gradVgs = zeros(refel.Nfp[fi], Np);
+            for ni=1:size(refel.surf_r[fi],1)
+                # nodal versions
+                for i=1:refel.N+1
+                    for j=1:refel.N+1
+                        ind = (j-1)*(refel.N+1) + i;
+                        refel.surf_V[fi][ni,ind] = (jacobi_polynomial(refel.surf_r[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_r[fi][ni,2], 0, 0, j-1))[1];
+                    end
+                end
+                for i=1:refel.N
+                    for j=1:refel.N
+                        ind = (j)*(refel.N) + i + 1;
+                        surf_gradVr[ni,ind] = sqrt(i*(i+1)) * (jacobi_polynomial(refel.surf_r[fi][ni,1], 1, 1, i-1) .* jacobi_polynomial(refel.surf_r[fi][ni,2], 0, 0, j-1))[1];
+                        surf_gradVs[ni,ind] = sqrt(j*(j+1)) * (jacobi_polynomial(refel.surf_r[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_r[fi][ni,2], 1, 1, j-1))[1];
+                    end
+                end
+                # Gauss versions
+                for i=1:refel.N+1
+                    for j=1:refel.N+1
+                        ind = (j-1)*(refel.N+1) + i;
+                        refel.surf_Vg[fi][ni,ind] = (jacobi_polynomial(refel.surf_g[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_g[fi][ni,2], 0, 0, j-1))[1];
+                    end
+                end
+                for i=1:refel.N
+                    for j=1:refel.N
+                        ind = (j)*(refel.N) + i + 1;
+                        surf_gradVgr[ni,ind] = sqrt(i*(i+1)) * (jacobi_polynomial(refel.surf_g[fi][ni,1], 1, 1, i-1) .* jacobi_polynomial(refel.surf_g[fi][ni,2], 0, 0, j-1))[1];
+                        surf_gradVgs[ni,ind] = sqrt(j*(j+1)) * (jacobi_polynomial(refel.surf_g[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_g[fi][ni,2], 1, 1, j-1))[1];
+                    end
+                end
+            end
+            
+            refel.surf_Q[fi] = refel.surf_V[fi] * fullinvV;
+            refel.surf_Qr[fi] = surf_gradVgr * fullinvV;
+            refel.surf_Qs[fi] = surf_gradVgs * fullinvV;
+            refel.surf_Ddr[fi] = surf_gradVr * fullinvV;
+            refel.surf_Dds[fi] = surf_gradVs * fullinvV;
+        end
+        
+    elseif dimension == 3
+        ident = Matrix(1.0*I,order+1,order+1);
+        refel.Q = kron(kron(refel.Q1d, refel.Q1d), refel.Q1d);
+        refel.Qr = kron(kron(refel.Q1d, refel.Q1d), refel.Dg);
+        refel.Qs = kron(kron(refel.Q1d, refel.Dg), refel.Q1d);
+        refel.Qt = kron(kron(refel.Dg, refel.Q1d), refel.Q1d);
+        refel.Ddr = kron(kron(ident, ident), refel.Dg);
+        refel.Dds = kron(kron(ident, refel.Dg), ident);
+        refel.Ddt = kron(kron(refel.Dg, ident), ident);
+        
+        # surface
+        refel.surf_Q = Array{Array{Float64}}(undef, nfaces);
+        refel.surf_Qr = Array{Array{Float64}}(undef, nfaces);
+        refel.surf_Qs = Array{Array{Float64}}(undef, nfaces);
+        refel.surf_Qt = Array{Array{Float64}}(undef, nfaces);
+        refel.surf_Ddr = Array{Array{Float64}}(undef, nfaces);
+        refel.surf_Dds = Array{Array{Float64}}(undef, nfaces);
+        refel.surf_Ddt = Array{Array{Float64}}(undef, nfaces);
+        ## Surfaces will use the full matrices rather than using tensor products
+        fullinvV = kron(refel.invV, kron(refel.invV, refel.invV));
+        
+        for fi=1:nfaces
+            surf_gradVr = zeros(refel.Nfp[fi], Np);
+            surf_gradVs = zeros(refel.Nfp[fi], Np);
+            surf_gradVt = zeros(refel.Nfp[fi], Np);
+            surf_gradVgr = zeros(refel.Nfp[fi], Np);
+            surf_gradVgs = zeros(refel.Nfp[fi], Np);
+            surf_gradVgt = zeros(refel.Nfp[fi], Np);
+            for ni=1:size(refel.surf_r[fi],1)
+                # nodal versions
+                for i=1:refel.N+1
+                    for j=1:refel.N+1
+                        for k=1:refel.N+1
+                            ind = (k-1)*(refel.N+1)*(refel.N+1) + (j-1)*(refel.N+1) + i;
+                            refel.surf_V[fi][ni,ind] = (jacobi_polynomial(refel.surf_r[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_r[fi][ni,2], 0, 0, j-1) .* jacobi_polynomial(refel.surf_r[fi][ni,3], 0, 0, k-1))[1];
+                        end
+                    end
+                end
+                for i=1:refel.N
+                    for j=1:refel.N
+                        for k=1:refel.N
+                            ind = (k)*(refel.N)*(refel.N) + (j)*(refel.N) + i + 1;
+                            surf_gradVr[ni,ind] = sqrt(i*(i+1)) * (jacobi_polynomial(refel.surf_r[fi][ni,1], 1, 1, i-1) .* jacobi_polynomial(refel.surf_r[fi][ni,2], 0, 0, j-1) .* jacobi_polynomial(refel.surf_r[fi][ni,3], 0, 0, k-1))[1];
+                            surf_gradVs[ni,ind] = sqrt(j*(j+1)) * (jacobi_polynomial(refel.surf_r[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_r[fi][ni,2], 1, 1, j-1) .* jacobi_polynomial(refel.surf_r[fi][ni,3], 0, 0, k-1))[1];
+                            surf_gradVt[ni,ind] = sqrt(k*(k+1)) * (jacobi_polynomial(refel.surf_r[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_r[fi][ni,2], 0, 0, j-1) .* jacobi_polynomial(refel.surf_r[fi][ni,3], 1, 1, k-1))[1];
+                        end
+                    end
+                end
+                # Gauss versions
+                for i=1:refel.N+1
+                    for j=1:refel.N+1
+                        for k=1:refel.N+1
+                            ind = (k-1)*(refel.N+1)*(refel.N+1) + (j-1)*(refel.N+1) + i;
+                            refel.surf_Vg[fi][ni,ind] = (jacobi_polynomial(refel.surf_g[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_g[fi][ni,2], 0, 0, j-1) .* jacobi_polynomial(refel.surf_g[fi][ni,3], 0, 0, k-1))[1];
+                        end
+                    end
+                end
+                for i=1:refel.N
+                    for j=1:refel.N
+                        for k=1:refel.N
+                            ind = (k)*(refel.N)*(refel.N) + (j)*(refel.N) + i + 1;
+                            surf_gradVgr[ni,ind] = sqrt(i*(i+1)) * (jacobi_polynomial(refel.surf_g[fi][ni,1], 1, 1, i-1) .* jacobi_polynomial(refel.surf_g[fi][ni,2], 0, 0, j-1) .* jacobi_polynomial(refel.surf_g[fi][ni,3], 0, 0, k-1))[1];
+                            surf_gradVgs[ni,ind] = sqrt(j*(j+1)) * (jacobi_polynomial(refel.surf_g[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_g[fi][ni,2], 1, 1, j-1) .* jacobi_polynomial(refel.surf_g[fi][ni,3], 0, 0, k-1))[1];
+                            surf_gradVgt[ni,ind] = sqrt(k*(k+1)) * (jacobi_polynomial(refel.surf_g[fi][ni,1], 0, 0, i-1) .* jacobi_polynomial(refel.surf_g[fi][ni,2], 0, 0, j-1) .* jacobi_polynomial(refel.surf_g[fi][ni,3], 1, 1, k-1))[1];
+                        end
+                    end
+                end
+            end
+            
+            refel.surf_Q[fi] = refel.surf_V[fi] * fullinvV;
+            refel.surf_Qr[fi] = surf_gradVgr * fullinvV;
+            refel.surf_Qs[fi] = surf_gradVgs * fullinvV;
+            refel.surf_Qt[fi] = surf_gradVgt * fullinvV;
+            refel.surf_Ddr[fi] = surf_gradVr * fullinvV;
+            refel.surf_Dds[fi] = surf_gradVs * fullinvV;
+            refel.surf_Ddt[fi] = surf_gradVt * fullinvV;
+        end
+    end
+
+    return refel
+
+end
+
 
 function custom_quadrature_refel(oldrefel, nodes, weights)
     # The supplied nodes will replace the gauss quadrature nodes and weights r.g and r.wg
