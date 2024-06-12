@@ -76,13 +76,13 @@ function Base.hash(A::FaceVertices)
     hash( sort( A.vertices ) )
 end
 
-function updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, localFaceNumber )
+function updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, localFaceNumber )
 
     nVertices = size( vertexVals, 1 )
 
     if( haskey( dictVal, FaceVertices( vertexVals ) ) )
 
-        faceId = dictVal.get( FaceVertices( vertexVals ) );
+        faceId = get( dictVal, FaceVertices( vertexVals ), nothing );
         face2e[ 2, faceId ] = ei;
         e2face[ localFaceNumber, ei ] = faceId;
     else
@@ -94,6 +94,7 @@ function updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, lo
         face2e[ 1, faceId ] = ei;
         e2face[ localFaceNumber, ei ] = faceId;
         face2v[ 1:nVertices, faceId ] = vertexVals[:];
+        face2nvtx[ faceId ] = nVertices;
     end
 
     return nFaces
@@ -114,14 +115,15 @@ function build_faces( nel::Int, elements::Matrix{Int}, etypes::Vector{Int}, ismi
     etypetonfn= [1, 2, 2, 3, 4, 4, 4, 1, 2, 2, 3, 4, 4, 4, 1, 2, 2, 4, 4]; # number of vertices for each face (except prism and 5-pyramids!)
     etypetodim= [1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3, 3, 3, 1, 2, 2, 3, 3]; # dimension of each type
     
-    NfacesPerElement = etypetonf[maximum(etypes)]; # maximal value.
-    Nfp = etypetonfn[maximum(etypes)]; # maximal value.
+    NfacesPerElement = maximum( etypetonf[ etypes ] ); # maximal value.
+    Nfp = maximum( etypetonfn[ etypes ] ); # maximal value.
     
     nFaces = 0; # will be incremented as discovered
     e2face = zeros(Int, NfacesPerElement, nel);
     
     face2v = zeros(Int, Nfp, NfacesPerElement * nel);
     face2e = zeros(Int, 2, NfacesPerElement * nel);
+    face2nvtx = zeros(Int, NfacesPerElement * nel)
 
     dictVal = Dict{ ( FaceVertices ), Int }()
 
@@ -130,35 +132,35 @@ function build_faces( nel::Int, elements::Matrix{Int}, etypes::Vector{Int}, ismi
         if etypes[ei] == 1 # line
 
             vertexVals = [ elements[ 1, ei ] ];
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 1 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 1 );
 
             vertexVals = [ elements[ 2, ei ] ];
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 2 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 2 );
 
         elseif etypes[ei] == 2 # triangle
 
             vertexVals = elements[ [1, 2], ei ]
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 1 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 1 );
 
             vertexVals = elements[ [2, 3], ei ]
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 2 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 2 );
 
             vertexVals = elements[ [3, 1], ei ]
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 3 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 3 );
 
         elseif etypes[ei] == 3 # quad
 
             vertexVals = elements[ [4, 1], ei ]
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 1 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 1 );
 
             vertexVals = elements[ 1 : 2, ei ]
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 2 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 2 );
 
             vertexVals = elements[ 2 : 3, ei ];
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 3 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 3 );
 
             vertexVals = elements[ [4, 3], ei ];
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 4 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 4 );
 
         elseif etypes[ei] == 4 # tet
             
@@ -166,7 +168,7 @@ function build_faces( nel::Int, elements::Matrix{Int}, etypes::Vector{Int}, ismi
             for i = 1 : 4
 
                 vertexVals = elements[ tmp[i, 1 : 3], ei ];
-                nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, i );
+                nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, i );
             end
             
         elseif etypes[ei] == 5 # hex
@@ -174,50 +176,51 @@ function build_faces( nel::Int, elements::Matrix{Int}, etypes::Vector{Int}, ismi
             tmp = [1 5 8 4; 2 3 7 6; 1 2 6 5; 3 4 8 7; 1 4 3 2; 5 6 7 8];
             for i = 1 : 6
                 vertexVals = elements[ tmp[i, 1 : 4], ei ];
-                nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, i );
+                nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, i );
             end
            
         elseif etypes[ei] == 6 # prism
 
             vertexVals = elements[ [1, 3, 2], ei ];
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 1 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 1 );
 
             vertexVals = elements[[4, 5, 6], ei];
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 2 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 2 );
 
             vertexVals = elements[[1, 2, 5, 4], ei];
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 3 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 3 );
 
             vertexVals = elements[[1, 4, 6, 3], ei];
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 4 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 4 );
 
             vertexVals = elements[[2, 3, 6, 5], ei];
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 5 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 5 );
 
         elseif etypes[ei] == 7 # 5-pyramid
 
             vertexVals = elements[[1, 4, 3, 2], ei];
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 1 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 1 );
 
             vertexVals = elements[[1, 2, 5], ei];
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 2 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 2 );
 
             vertexVals = elements[[3, 4, 5], ei];
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 3 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 3 );
 
             vertexVals = elements[[2, 3, 5], ei];
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 4 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 4 );
 
             vertexVals = elements[[4, 1, 5], ei];
-            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, 5 );
+            nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 5 );
         end
 
     end
 
     face2v = face2v[ :, 1 : nFaces ];
     face2e = face2e[ :, 1 : nFaces ];
+    face2nvtx = face2nvtx[ 1:nFaces ];
 
-    return (face2v, face2e, e2face);
+    return (face2v, face2e, e2face, face2nvtx);
 end
 
 

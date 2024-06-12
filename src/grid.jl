@@ -143,10 +143,10 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
     elseif mixed # element types
         facenvtx = zeros(Int, totalfaces);
 
-        ############ Needs to be modified for pyramids
+        ############ modified for pyramids
         
         for i=1:totalfaces
-            facenvtx[i] = etypetonv[etypetoftype[mesh.etypes[mesh.face2element[1,i]]]];
+            facenvtx[i] = mesh.face2nvtx[i];
         end
     else # one element type
         facenvtx = etypetonv[etypetoftype[mesh.etypes[1]]];
@@ -187,11 +187,11 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
     max_nfaces = 0;
     dg_node_count = 0;
     if mixed # element types
+        max_Nfv = maximum( facenvtx );
         for i=1:nel
             max_Np = max(max_Np, refels[refel_ind[i]].Np);
             max_nvtx = max(max_nvtx, nvtx[i]);
             max_Nfp = max(max_Nfp, maximum(refels[refel_ind[i]].Nfp));
-            max_Nfv = max(max_Nfv, facenvtx[i]);
             max_nfaces = max(max_nfaces, nfaces[i]);
             dg_node_count += refels[refel_ind[i]].Np;
         end
@@ -273,18 +273,22 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
         elseif dim == 3
             if n_vert == 8 # hexes
                 (e_x, e_y, e_z) = hex_refel_to_xyz(refeli.r[:,1], refeli.r[:,2], refeli.r[:,3], e_vert);
-            else # tets
+            elseif n_vert == 4 # tets
                 # (e_x, e_y, e_z) = tetrahedron_refel_to_xyz(refel.r[:,1], refel.r[:,2], refel.r[:,3], e_vert);
                 tetrahedron_refel_to_xyz!(refeli.r, e_vert, e_x, e_y, e_z);
+            elseif n_vert == 5
+                pyramid_refel_to_xyz!(refeli.r, e_vert, e_x, e_y, e_z)
             end
         end
         
         # Add them to the tmp global nodes
-        tmpallnodes[1, (node_offset + 1):(node_offset + Npi)] .= e_x;
+        # println( size(e_x) )
+        # println( Npi )
+        tmpallnodes[1, (node_offset + 1):(node_offset + Npi)] .= e_x[1:Npi];
         if dim > 1
-            tmpallnodes[2, (node_offset + 1):(node_offset + Npi)] .= e_y;
+            tmpallnodes[2, (node_offset + 1):(node_offset + Npi)] .= e_y[1:Npi];
             if dim > 2
-                tmpallnodes[3, (node_offset + 1):(node_offset + Npi)] .= e_z;
+                tmpallnodes[3, (node_offset + 1):(node_offset + Npi)] .= e_z[1:Npi];
             end
         end
         
@@ -321,6 +325,7 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
     el_center = zeros(float_type, dim);
     tmpf2glb = zeros(Int, max_Nfp);
     faceNodesA = zeros(dim, max_Nfp);
+    # println(size(faceNodesA))
     faceNodesB = zeros(dim, max_Nfv);
     f_centerA = zeros(float_type, dim);
     f_centerB = zeros(float_type, dim);
@@ -328,7 +333,7 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
     for ei=1:nel
         if mixed # element types
             n_vert = nvtx[ei];
-            n_facevert = facenvtx[ei];
+            # n_facevert = facenvtx[ei];
             refeli = refels[refel_ind[ei]];
             nfacesi = nfaces[ei];
         else # one element type
@@ -384,6 +389,7 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
             # number of nodes on grid version of face
             Nfpi = refeli.Nfp[gfi];
             f_centerA .= 0.0;
+            # print(refeli.face2local)
             for fpi=1:Nfpi
                 tmpf2glb[fpi] = loc2glb[refeli.face2local[gfi][fpi], ei];
                 for di=1:dim
@@ -397,7 +403,7 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
             for mfi=1:nfacesi
                 thisfaceind = mesh.element2face[mfi, ei];
                 # number of vertex nodes on mesh version of face
-                Nfpj = n_facevert;
+                Nfpj = facenvtx[thisfaceind];
                 f_centerB .= 0.0;
                 for fpj=1:Nfpj
                     tmp_nodeid = mesh.face2vertex[fpj,thisfaceind];
@@ -440,7 +446,7 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
                     mbid = mesh.bdryID[thisfaceind];
                     gbid = indexin([mbid], bids)[1];
                     if !(gbid === nothing) # This is a boundary face
-                        append!(bdry[gbid], tmpf2glb);
+                        append!(bdry[gbid], tmpf2glb[1:Nfpi]);
                         push!(bdryfc[gbid], thisfaceind);
                         facebid[thisfaceind] = gbid;
                         thisnormal = normals[:, mfi];
@@ -529,17 +535,19 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
         end
         
         for fj=1:refeli.Nfaces
-            for fpi=1:this_Nfp
-                if refeli.face2local[fj][fpi] > 0
-                    for di=1:dim
-                        faceNodesB[di,fpi] = allnodes[di, loc2glb[refeli.face2local[fj][fpi], eL]];
+            if length( refeli.face2local[fj] ) == this_Nfp
+                for fpi=1:this_Nfp
+                    if refeli.face2local[fj][fpi] > 0
+                        for di=1:dim
+                            faceNodesB[di,fpi] = allnodes[di, loc2glb[refeli.face2local[fj][fpi], eL]];
+                        end
                     end
                 end
-            end
-            
-            if is_same_face(faceNodesA, faceNodesB, dim, tol, vertex_dist_scale[eL], this_Nfp)
-                faceRefelInd[1,fi] = fj;
-                break;
+                
+                if is_same_face(faceNodesA, faceNodesB, dim, tol, vertex_dist_scale[eL], this_Nfp)
+                    faceRefelInd[1,fi] = fj;
+                    break;
+                end
             end
         end
         
@@ -552,17 +560,19 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
             end
             # Check f2glb against the face2local in refel
             for fj=1:refeli.Nfaces
-                for fpi=1:this_Nfp
-                    if refeli.face2local[fj][fpi] > 0
-                        for di=1:dim
-                            faceNodesB[di,fpi] = allnodes[di, loc2glb[refeli.face2local[fj][fpi], eR]];
+                if length( refeli.face2local[fj] ) == this_Nfp
+                    for fpi=1:this_Nfp
+                        if refeli.face2local[fj][fpi] > 0
+                            for di=1:dim
+                                faceNodesB[di,fpi] = allnodes[di, loc2glb[refeli.face2local[fj][fpi], eR]];
+                            end
                         end
                     end
-                end
-                
-                if is_same_face(faceNodesA, faceNodesB, dim, tol, vertex_dist_scale[eL], this_Nfp)
-                    faceRefelInd[2,fi] = fj;
-                    break;
+                    
+                    if is_same_face(faceNodesA, faceNodesB, dim, tol, vertex_dist_scale[eL], this_Nfp)
+                        faceRefelInd[2,fi] = fj;
+                        break;
+                    end
                 end
             end
         end
@@ -2116,6 +2126,32 @@ function tetrahedron_refel_to_xyz!(rst::Matrix, v::Matrix, x::Vector, y::Vector,
     end
 end
 
+function pyramid_refel_to_xyz!(rst::Matrix, v::Matrix, x::Vector, y::Vector, z::Vector)
+
+    p1 = v[ 1:3, 1 ];
+    p2 = v[ 1:3, 2 ];
+    p3 = v[ 1:3, 3 ];
+    p4 = v[ 1:3, 4 ];
+    p5 = v[ 1:3, 5 ];
+
+    #Vertex Functions (Barycentric Coordinates for pyramid)
+    V = zeros( 5, size( rst, 1 ) );
+    tol = 1e-10;
+    V[ :, 1 ] = .25 * ( 1 .- rst[:, 1:1] .- rst[:, 2:2] .- rst[:, 3:3] .+ rst[:, 1:1].*rst[:, 2:2]./(1 .- rst[:, 3:3] .+ tol) );
+    V[ :, 2 ] = .25 * ( 1 .+ rst[:, 1:1] .- rst[:, 2:2] .- rst[:, 3:3] .- rst[:, 1:1].*rst[:, 2:2]./(1 .- rst[:, 3:3] .+ tol) );
+    V[ :, 3 ] = .25 * ( 1 .+ rst[:, 1:1] .+ rst[:, 2:2] .- rst[:, 3:3] .+ rst[:, 1:1].*rst[:, 2:2]./(1 .- rst[:, 3:3] .+ tol) );
+    V[ :, 4 ] = .25 * ( 1 .- rst[:, 1:1] .+ rst[:, 2:2] .- rst[:, 3:3] .- rst[:, 1:1].*rst[:, 2:2]./(1 .- rst[:, 3:3] .+ tol) );
+    V[ :, 5 ] = rst[:, 3:3];
+
+    np = size(rst,1);
+    
+    for i = 1:np
+        x[i] = V[i, 1] * p1[1] + V[i, 2] * p2[1] + V[i, 3] * p3[1] + V[i, 4] * p4[1] + V[i, 5] * p5[1]
+        y[i] = V[i, 1] * p1[2] + V[i, 2] * p2[2] + V[i, 3] * p3[2] + V[i, 4] * p4[2] + V[i, 5] * p5[2]
+        z[i] = V[i, 1] * p1[3] + V[i, 2] * p2[3] + V[i, 3] * p3[3] + V[i, 4] * p4[3] + V[i, 5] * p5[3]
+    end
+
+end
 # Returns true if the nodes are within tol of each other.
 # If scale is provided, it is a relative tolerance.
 function is_same_node(x1, x2, tol, scale=1)

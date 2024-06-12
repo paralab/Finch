@@ -100,8 +100,8 @@ function read_msh_v2(file)
                         etypes[i] = tmptype;
                         nv[i] = etypetonv[tmptype];
                         offset = parse_check(Int, vals[3], line_number) + 3;
-                        for j = 1:nv[i]
-                            elements[j, i] = parse_check(Int, vals[offset + j], line_number);
+                        for j=1:nv[i]
+                            elements[j,i] = parse_check(Int, vals[offset + j], line_number);
                         end
                         i += 1;
                     end
@@ -109,17 +109,23 @@ function read_msh_v2(file)
                     line = readline(file); line_number += 1;
                 end
                 # adjust to correct number of elements
-                nel = i - 1;
-                nv = nv[1 : nel];
-                etypes = etypes[1 : nel];
+                nel = i-1;
+                nv = nv[1:nel];
+                etypes = etypes[1:nel];
                 elements = elements[:, 1:nel];
                 
+                # print( etypes[449] )
                 elements_done = true;
             end
         end
     end
     nodes = nodes[1:finch_state.config.dimension, :];
     
+    # println( "nodesStart" )
+    # println( nodes )
+    # println( "ElementsStart" )
+    # println( elements )
+
     return MeshData(nx, nodes, indices, nel, elements, etypes, nv);
 end
 

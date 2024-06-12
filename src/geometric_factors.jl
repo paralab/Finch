@@ -127,8 +127,10 @@ function build_geometric_factors(refel, grid::Grid; do_face_detj::Bool=true,
             elseif dim == 3
                 if refeli.Nfaces == 4
                     etype = 5;
-                else
+                elseif refeli.Nfaces == 6
                     etype = 6;
+                elseif refeli.Nfaces == 5
+                    etype = 7;
                 end
             end
         else # only one element type
@@ -172,9 +174,10 @@ function build_geometric_factors(refel, grid::Grid; do_face_detj::Bool=true,
         end
     end
     
+    do_face_detj = false
     if do_face_detj
+
         refeli = refel
-        
         if dim == 1
             # Faces in 1D are just points
             # detj = 1, area = 1
@@ -629,6 +632,22 @@ function element_volume(etype::Int, pts::Matrix{FT}) where FT<:AbstractFloat
         v += a[1] * bxc[1] + a[2] * bxc[2] + a[3] * bxc[3];
         
         return abs(v);
+
+    elseif etype == 7 # pyramids
+        a = [pts[ i, 1 ] - pts[ i, 5 ] for i = 1:3];
+        b = [pts[ i, 2 ] - pts[ i, 5 ] for i = 1:3];
+        c = [pts[ i, 3 ] - pts[ i, 5 ] for i = 1:3];
+        axb = [a[2]*b[3] - a[3]*b[2], a[3]*b[1] - a[1]*b[3], a[1]*b[2] - a[2]*b[1]];
+        vol = abs( axb[1] * c[1] + axb[2] * c[2] + axb[3] * c[3] )/6;
+
+        a = [pts[ i, 2 ] - pts[ i, 5 ] for i = 1:3];
+        b = [pts[ i, 3 ] - pts[ i, 5 ] for i = 1:3];
+        c = [pts[ i, 4 ] - pts[ i, 5 ] for i = 1:3];
+        axb = [a[2]*b[3] - a[3]*b[2], a[3]*b[1] - a[1]*b[3], a[1]*b[2] - a[2]*b[1]];
+        vol = vol + abs( axb[1] * c[1] + axb[2] * c[2] + axb[3] * c[3] )/6;
+
+        return vol;
+            
     end
     printerr("Can't compute volume for unknown element type: "*string(etype), fatal=true);
     return 1.0; 
@@ -740,6 +759,9 @@ function build_derivative_matrix(refel::Refel, geofacs::GeometricFactors, direct
     end
     
     end # inbounds
+    # println( "Derivative Matrix Start" )
+    # println(mat)
+    # println( "Derivative Matrix End" )
 end
 
 # Build the regular deriv matrices, then extract the relevant face parts

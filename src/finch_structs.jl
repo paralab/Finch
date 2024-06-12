@@ -395,6 +395,7 @@ struct MeshData
     face2vertex::Array{Int,2}   # Vertices defining each face (array has size (Nfp, Nfaces))
     face2element::Array{Int,2}  # Indices of elements on each side of the face. If 0, it is a boundary face. (size is (2,Nfaces))
     element2face::Array{Int,2}  # Indices of faces on each side of the element. (size is (NfacesPerElement, nel))
+    face2nvtx::Array{Int, 1}    # Number of vertices for each face. Only different for mixed type meshes size is (Nfaces, 1)
     normals::Array{Float64,2}   # Normal vectors for each face pointing from first to second in face2element order (size is (dim, Nfaces))
     bdryID::Array{Int,1}        # Boundary ID for each face (0=interior face)
     mixed_elements::Bool        # Are there mixed element types
@@ -412,20 +413,20 @@ struct MeshData
         # uncomment these to compute. WARNING: can be slow
         inv = invert_index(ind);
         ismixed = maximum(et) > minimum(et);
-        (face2v, face2e, e2face) = build_faces(ne, el, et, ismixed);
+        (face2v, face2e, e2face, face2nvtx) = build_faces(ne, el, et, ismixed);
         norms = find_normals(face2v, x);
         bdry = find_boundaries(face2e);
-        new(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry, ismixed);
+        new(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, face2nvtx, norms, bdry, ismixed);
     )
     # The complete constructor
-    MeshData(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry) = (
+    MeshData(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, face2nvtx, norms, bdry) = (
         ismixed = maximum(et) > minimum(et);
-        new(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, norms, bdry, ismixed);
+        new(n, x, ind, ne, el, et, v, inv, face2v, face2e, e2face, face2nvtx, norms, bdry, ismixed);
     )
     # An empty mesh
     MeshData() = new(
         0, zeros(0,0), zeros(Int,0), 0, zeros(0,0), zeros(Int,0), zeros(Int,0), zeros(Int,0),
-        zeros(Int,0,0), zeros(Int,0,0), zeros(Int,0,0), zeros(0,0), zeros(Int,0), false
+        zeros(Int,0,0), zeros(Int,0,0), zeros(Int,0,0), zeros(Int, 0), zeros(0,0), zeros(Int,0), false
     )
 end
 

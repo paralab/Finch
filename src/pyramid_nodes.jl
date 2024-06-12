@@ -18,9 +18,9 @@ function pyramid_refel_nodes!(refel)
     ids = vcat( v_ids, etri_ids, equad_ids, ftri_ids, fquad_ids);
     maprst = [mapr maps mapt];
 
-    println( typeof( Vbc[ :, ids ] ) )
-    println( size( Vbc[:, ids] ) )
-    println( size( maprst ) )
+    # println( typeof( Vbc[ :, ids ] ) )
+    # println( size( Vbc[:, ids] ) )
+    # println( size( maprst ) )
     mapcrst = Vbc[ :, ids] \ maprst;
 
     # evaluate map at equispaced volumed nodes
@@ -46,14 +46,16 @@ function pyramid_refel_nodes!(refel)
     
     # face node maps
     tol = 1e-12;
-    tf1(x) = abs(x[1] + 1) < tol;
-    tf2(x) = abs(x[2] + 1) < tol;
-    tf3(x) = abs(x[3] + 1) < tol;
-    tf4(x) = abs(x[1] + x[2] + x[3] + 1) < tol;
+    tf1(x) = abs(-2 * x[1] + 2 * x[3] - 2) < tol;
+    tf2(x) = abs(-2 * x[2] + 2 * x[3] - 2) < tol;
+    tf3(x) = abs(2 * x[1] + 2 * x[3] - 2) < tol;
+    tf4(x) = abs(2 * x[2] + 2 * x[3] - 2) < tol;
+    tf5(x) = abs(x[3]) < tol;
     refel.face2local = [get_face2local_map(refel.r, tf1),
                         get_face2local_map(refel.r, tf2),
                         get_face2local_map(refel.r, tf3),
-                        get_face2local_map(refel.r, tf4)];
+                        get_face2local_map(refel.r, tf4),
+                        get_face2local_map(refel.r, tf5)];
     
     # Surface quadrature nodes/weights are not ready. TODO
     if finch_state.config.solver_type == DG
@@ -85,8 +87,8 @@ function pyramidSurfaceNodes3D( N )
     (gr, vals) = jacobi_LGL_quad( N );
 
     # (r2d, s2d) = meshgrid(gr);
-    println( size(gr) )
-    println(typeof(gr))
+    # println( size(gr) )
+    # println(typeof(gr))
     r2d = gr' .* ones(N + 1);
     s2d = ones(1, N + 1) .* gr;
     t2d = zeros(N + 1, N + 1);
