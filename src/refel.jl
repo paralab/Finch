@@ -243,10 +243,10 @@ function build_refel(dimension, order, nfaces, nodetype)
         refel = build_regular_refel( refel, quadratureOrder, nfaces, nodetype, Np, Nfp, dimension )
     end
 
-    println( "refel.Q is "* string( refel.Q ) * "\n" )
-    println( "refel.Qr is "* string( refel.Qr ) * "\n" )
-    println( "refel.Qs is "* string( refel.Qs ) * "\n" )
-    println( "refel.g is "* string( refel.g ) * "\n" )
+    # println( "refel.Q is "* string( refel.Q ) * "\n" )
+    # println( "refel.Qr is "* string( refel.Qr ) * "\n" )
+    # println( "refel.Qs is "* string( refel.Qs ) * "\n" )
+    # println( "refel.g is "* string( refel.g ) * "\n" )
     
     return refel;
 end

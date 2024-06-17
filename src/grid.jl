@@ -124,6 +124,8 @@ function grid_from_mesh(mesh::MeshData; grid_type=CG, order=1, mixed=false)
                     push!(etype_order_pairs, (mesh.etypes[i], order[i]));
                     npairs += 1;
                     refel_ind[i] = npairs;
+
+                    println( mesh.etypes[i], npairs )
                 end
             end
         end
@@ -2138,18 +2140,32 @@ function pyramid_refel_to_xyz!(rst::Matrix, v::Matrix, x::Vector, y::Vector, z::
     V = zeros( 5, size( rst, 1 ) );
     tol = 1e-10;
     V[ :, 1 ] = .25 * ( 1 .- rst[:, 1:1] .- rst[:, 2:2] .- rst[:, 3:3] .+ rst[:, 1:1].*rst[:, 2:2]./(1 .- rst[:, 3:3] .+ tol) );
-    V[ :, 2 ] = .25 * ( 1 .+ rst[:, 1:1] .- rst[:, 2:2] .- rst[:, 3:3] .- rst[:, 1:1].*rst[:, 2:2]./(1 .- rst[:, 3:3] .+ tol) );
-    V[ :, 3 ] = .25 * ( 1 .+ rst[:, 1:1] .+ rst[:, 2:2] .- rst[:, 3:3] .+ rst[:, 1:1].*rst[:, 2:2]./(1 .- rst[:, 3:3] .+ tol) );
-    V[ :, 4 ] = .25 * ( 1 .- rst[:, 1:1] .+ rst[:, 2:2] .- rst[:, 3:3] .- rst[:, 1:1].*rst[:, 2:2]./(1 .- rst[:, 3:3] .+ tol) );
+    V[ :, 2 ] = .25 * ( 1 .- rst[:, 1:1] .+ rst[:, 2:2] .- rst[:, 3:3] .- rst[:, 1:1].*rst[:, 2:2]./(1 .- rst[:, 3:3] .+ tol) );
+    V[ :, 3 ] = .25 * ( 1 .+ rst[:, 1:1] .- rst[:, 2:2] .- rst[:, 3:3] .- rst[:, 1:1].*rst[:, 2:2]./(1 .- rst[:, 3:3] .+ tol) );
+    V[ :, 4 ] = .25 * ( 1 .+ rst[:, 1:1] .+ rst[:, 2:2] .- rst[:, 3:3] .+ rst[:, 1:1].*rst[:, 2:2]./(1 .- rst[:, 3:3] .+ tol) );
     V[ :, 5 ] = rst[:, 3:3];
 
     np = size(rst,1);
+
+    # println(V)
     
+    # println("Start1")
+    # println( p1[1], "\t", p1[2], "\t", p1[3] )
+    # println( p2[1], "\t", p2[2], "\t", p2[3] )
+    # println( p3[1], "\t", p3[2], "\t", p3[3] )
+    # println( p4[1], "\t", p4[2], "\t", p4[3] )
+    # println( p5[1], "\t", p5[2], "\t", p5[3] )
+    # println("End1")
+
+    # println("Start2")
     for i = 1:np
         x[i] = V[i, 1] * p1[1] + V[i, 2] * p2[1] + V[i, 3] * p3[1] + V[i, 4] * p4[1] + V[i, 5] * p5[1]
         y[i] = V[i, 1] * p1[2] + V[i, 2] * p2[2] + V[i, 3] * p3[2] + V[i, 4] * p4[2] + V[i, 5] * p5[2]
         z[i] = V[i, 1] * p1[3] + V[i, 2] * p2[3] + V[i, 3] * p3[3] + V[i, 4] * p4[3] + V[i, 5] * p5[3]
+
+        # println( x[i], "\t", y[i], "\t", z[i] )
     end
+    # println("End2")
 
 end
 # Returns true if the nodes are within tol of each other.

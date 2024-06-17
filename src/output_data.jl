@@ -134,7 +134,7 @@ function output_values_vtk(vars, file, ascii)
     elseif config.dimension == 2
         np_to_type = Dict([(3,5),(4,9)]); # triangle, quad
     else
-        np_to_type = Dict([(4,10),(8,12)]); # tet, hex
+        np_to_type = Dict([(4,10),(5,14),(8,12)]); # tet, hex
     end
     
     cells = Array{WriteVTK.MeshCell,1}(undef, nel);
@@ -313,6 +313,8 @@ function output_values_myvtu(var, file, ascii)
                 cell_types[ci] = 10;
             elseif nodes_per_element == 8
                 cell_types[ci] = 12;
+            elseif nodes_per_element == 5
+                cell_types[ci] = 14;
             end
         end
     end

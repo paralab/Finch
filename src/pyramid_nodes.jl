@@ -32,6 +32,10 @@ function pyramid_refel_nodes!(refel)
 
     r = rst[ :, 1 ]; s = rst[ :, 2 ]; t = rst[ :, 3 ];
     
+    # println(r)
+    # println(s)
+    # println(t)
+
     refel.r = zeros( refel.Np, 3 );
     refel.wr = zeros( refel.Np );
     
@@ -40,7 +44,7 @@ function pyramid_refel_nodes!(refel)
     refel.r[:,3] = t;
     
     # quadrature nodes/weights from a table
-    xyzw = pyramid_quadrature_nodes_weights( refel.N + 1 );
+    xyzw = pyramid_quadrature_nodes_weights( refel.N + 2 );
     refel.g = xyzw[ :, 1:3 ];
     refel.wg = xyzw[ :, 4 ];
     

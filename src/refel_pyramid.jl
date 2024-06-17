@@ -21,6 +21,19 @@ function build_pyramid_refel(refel)
     refel.Ddr = refel.Dr*refel.invV;
     refel.Dds = refel.Ds*refel.invV;
     refel.Ddt = refel.Dt*refel.invV;
+
+    println("Start")
+    println("Q")
+    println(refel.Q)
+    println("Qr")
+    println(refel.Qr)
+    println("Qs")
+    println(refel.Qs)
+    println("Qt")
+    println(refel.Qt)
+    println("End")
+
+    # println(refel.r)
     
     return refel;
 end
@@ -37,18 +50,27 @@ function pyramid_vandermonds(refel, r)
     a = zeros(Nrp); 
     b = zeros(Nrp);
     for ni=1:Nrp  
-        if 1 - r[ni,3] != 0
+        if abs( r[ni,3] - 1 ) > 1e-6
             a[ni] = ( r[ni,1] )/( 1 - r[ ni, 3 ] );
         else
-            a[ni] = -1;
+            a[ni] = 0;
         end
-        if r[ni,3] != 1
+        if abs( r[ni,3] - 1 ) > 1e-6
             b[ni] = ( r[ni,2] )/( 1 - r[ni,3] );
         else
-            b[ni] = -1;
+            b[ni] = 0;
         end
     end
     c = 2 * r[:,3] .- 1;
+    
+    # println( "a is ")
+    # println( a )
+
+    # println( "b is ")
+    # println( b )
+
+    # println( "c is ")
+    # println( c )
     
     # build the Vandermonde and gradVandermond matrix
     sk = 1;
@@ -85,16 +107,16 @@ function pyramid_vandermonds(refel, r)
                 # t-derivative
                 tmp = 0
 
-                if muij > 1
-                    tmp = tmp .+ dfa .* h2 .* h3 .* a .* ( 1 .- c ) ./ 2
-                    tmp = tmp .+ h1 .* dgb .* h3 .* b .* (1 .- c)./2
-                    tmp = tmp .* ( 0.5 * (1 .- c ) ) .^ (muij - 2)
+                if muij > 0
+                    tmp = tmp .+ dfa .* h2 .* h3 .* a
+                    tmp = tmp .+ h1 .* dgb .* h3 .* b
+                    tmp = tmp .* ( 0.5 * (1 .- c ) ) .^ (muij - 1)
                 end
 
                 tmp = tmp .+ 2 * h1 .* h2 .* dhc .* ( (0.5 * (1 .- c)) .^ muij )
 
                 if muij > 0
-                    tmp = tmp .+ muij .* h1 .* h2 .* h3 .* ( (0.5 * (1 .- c)) .^ (muij - 1) )
+                    tmp = tmp .- muij .* h1 .* h2 .* h3 .* ( (0.5 * (1 .- c)) .^ (muij - 1) )
                 end
 
                 dmodedt = tmp;
@@ -112,6 +134,16 @@ function pyramid_vandermonds(refel, r)
             end
         end
     end
-    
+   
+    # println("GRAD VR")
+    # println( gradVr )
+
+    # println("GRAD VS")
+    # println( gradVs )
+
+    # println("GRAD VT")
+    # println( gradVt )
+    # println("END")
+
     return (V, gradVr, gradVs, gradVt);
 end
