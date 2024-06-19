@@ -103,6 +103,15 @@ function read_msh_v2(file)
                         for j=1:nv[i]
                             elements[j,i] = parse_check(Int, vals[offset + j], line_number);
                         end
+
+                        if nv[i] == 5
+
+                            tmp = elements[ 4, i ];
+                            elements[ 4, i ] = elements[ 3, i ];
+                            elements[3, i] = tmp;
+
+                        end
+
                         i += 1;
                     end
                     

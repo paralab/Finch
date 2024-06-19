@@ -198,19 +198,19 @@ function build_faces( nel::Int, elements::Matrix{Int}, etypes::Vector{Int}, ismi
 
         elseif etypes[ei] == 7 # 5-pyramid
 
-            vertexVals = elements[[1, 4, 3, 2], ei];
+            vertexVals = elements[[1, 3, 4, 2], ei];
             nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 1 );
 
             vertexVals = elements[[1, 2, 5], ei];
             nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 2 );
 
-            vertexVals = elements[[3, 4, 5], ei];
+            vertexVals = elements[[4, 3, 5], ei];
             nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 3 );
 
-            vertexVals = elements[[2, 3, 5], ei];
+            vertexVals = elements[[2, 4, 5], ei];
             nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 4 );
 
-            vertexVals = elements[[4, 1, 5], ei];
+            vertexVals = elements[[3, 1, 5], ei];
             nFaces = updateMaps( vertexVals, dictVal, nFaces, ei, face2e, e2face, face2v, face2nvtx, 5 );
         end
 

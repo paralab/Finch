@@ -98,8 +98,6 @@ function build_geometric_factors(refel, grid::Grid; do_face_detj::Bool=true,
     end
     
     #
-    xe = zeros(dim, nodes_per_element);
-    ve = zeros(dim, size(grid.glbvertex, 1));
     
     # loop over elements to build their geo facs
     for e=1:nel
@@ -115,6 +113,10 @@ function build_geometric_factors(refel, grid::Grid; do_face_detj::Bool=true,
                     break;
                 end
             end
+
+            xe = zeros( dim, nodes_per_element );
+            ve = zeros( dim, nvertex );
+
             etype = 1;
             if dim == 1
                 etype = 2;
@@ -169,6 +171,7 @@ function build_geometric_factors(refel, grid::Grid; do_face_detj::Bool=true,
                     volume[e] = element_volume(etype, ve);
                 end
             else
+                # println( etype )
                 volume[e] = element_volume(etype, ve);
             end
         end
@@ -406,20 +409,77 @@ function geometric_factors(refel::Refel, pts::Matrix; constantJ::Bool=false, do_
             end
         else
             detJ = abs.(xr.*(ys.*zt-zs.*yt) - yr.*(xs.*zt-zs.*xt) + zr.*(xs.*yt-ys.*xt));
+
+            # For determinant bug identification
+            # sizeDetJ = length(detJ);
+            # filename = "bugGeofacs.txt"
+            # fileHandle = open( filename, "a" )
+
+            # for idx = 1:sizeDetJ
+
+            #     if abs( detJ[idx] ) < 1e-6
+
+            #         println( fileHandle, "Starting Element" )
+            #         println( fileHandle, "Np = ", np)
+            #         println( fileHandle, "Starting Pt Vals" )
+            #         println( fileHandle, pts[:, :] )
+            #         println( fileHandle, "Ending Pt Vals" )
+
+            #         println( fileHandle, "Starting xr Vals" )
+            #         println( fileHandle, xr[idx] )
+            #         println( fileHandle, "Ending xr Vals" )
+
+            #         println( fileHandle, "Starting xs Vals" )
+            #         println( fileHandle, xs[idx] )
+            #         println( fileHandle, "Ending xs Vals" )
+
+            #         println( fileHandle, "Starting xt Vals" )
+            #         println( fileHandle, xt[idx] )
+            #         println( fileHandle, "Ending xt Vals" )
+
+            #         println( fileHandle, "Starting yr Vals" )
+            #         println( fileHandle, yr[idx] )
+            #         println( fileHandle, "Ending yr Vals" )
+
+            #         println( fileHandle, "Starting ys Vals" )
+            #         println( fileHandle, ys[idx] )
+            #         println( fileHandle, "Ending ys Vals" )
+
+            #         println( fileHandle, "Starting yt Vals" )
+            #         println( fileHandle, yt[idx] )
+            #         println( fileHandle, "Ending yt Vals" )
+
+            #         println( fileHandle, "Starting zr Vals" )
+            #         println( fileHandle, zr[idx] )
+            #         println( fileHandle, "Ending zr Vals" )
+
+            #         println( fileHandle, "Starting zs Vals" )
+            #         println( fileHandle, zs[idx] )
+            #         println( fileHandle, "Ending zs Vals" )
+
+            #         println( fileHandle, "Starting zt Vals" )
+            #         println( fileHandle, zt[idx] )
+            #         println( fileHandle, "Ending zt Vals" )
+
+            #         println( fileHandle, "Ending Element" )
+                    
+            #     end
+
+            # end
         end
         
         if do_J
-            rx =  (ys.*zt - zs.*yt)./detJ;
-            ry = -(xs.*zt - zs.*xt)./detJ;
-            rz =  (xs.*yt - ys.*xt)./detJ;
-            
-            sx = -(yr.*zt - zr.*yt)./detJ;
-            sy =  (xr.*zt - zr.*xt)./detJ;
-            sz = -(xr.*yt - yr.*xt)./detJ;
-            
-            tx =  (yr.*zs - zr.*ys)./detJ;
-            ty = -(xr.*zs - zr.*xs)./detJ;
-            tz =  (xr.*ys - yr.*xs)./detJ;
+
+            rx =  (ys .* zt .- zs .* yt ) ./ detJ;
+            ry = -(xs .* zt .- zs .* xt ) ./ detJ;
+            rz =  (xs .* yt .- ys .* xt ) ./ detJ;  
+            sx = -(yr .* zt .- zr .* yt ) ./ detJ;
+            sy =  (xr .* zt .- zr .* xt ) ./ detJ;
+            sz = -(xr .* yt .- yr .* xt ) ./ detJ;  
+            tx =  (yr .* zs .- zr .* ys ) ./ detJ;
+            ty = -(xr .* zs .- zr .* xs ) ./ detJ;
+            tz =  (xr .* ys .- yr .* xs ) ./ detJ;
+
             J = Jacobian(rx,ry,rz,sx,sy,sz,tx,ty,tz);
         end
     end
@@ -645,6 +705,15 @@ function element_volume(etype::Int, pts::Matrix{FT}) where FT<:AbstractFloat
         c = [pts[ i, 4 ] - pts[ i, 5 ] for i = 1:3];
         axb = [a[2]*b[3] - a[3]*b[2], a[3]*b[1] - a[1]*b[3], a[1]*b[2] - a[2]*b[1]];
         vol = vol + abs( axb[1] * c[1] + axb[2] * c[2] + axb[3] * c[3] )/6;
+
+        # println( "Start " )
+        # [ println( pts[ i, 1 ] for i = 1:3 ) ]
+        # [ println( pts[ i, 2 ] for i = 1:3 ) ]
+        # [ println( pts[ i, 3 ] for i = 1:3 ) ]
+        # [ println( pts[ i, 4 ] for i = 1:3 ) ]
+        # [ println( pts[ i, 5 ] for i = 1:3 ) ]
+        # println("volume = ", vol)
+        # println( "End" )
 
         return vol;
             
