@@ -37,7 +37,7 @@ macro import_finch_symbols()
         :build_local_patch,
         
         # Packages? should this be done here?
-        :LinearMaps, :IterativeSolvers, :AlgebraicMultigrid, :IncompleteLU, :MPI, :TimerOutputs, :Zygote
+        :LinearMaps, :IterativeSolvers, :AlgebraicMultigrid, :IncompleteLU, :MPI, :TimerOutputs, :Zygote, :OrderedDict,
     ];
     
     

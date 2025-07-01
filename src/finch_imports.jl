@@ -314,3 +314,12 @@ catch e
     Pkg.add("AbstractTrees")
     using AbstractTrees
 end
+
+try
+    using OrderedCollections
+catch e
+    println("OrderedCollections package is not yet installed. Installing now.");
+    using Pkg
+    Pkg.add("OrderedCollections")
+    using OrderedCollections
+end
