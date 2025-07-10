@@ -200,6 +200,7 @@ mutable struct Indexer
     value::Int       # Current value
     tag::Int         # This indexer's position in the array of indexers?
 end
+Indexer(symbol::String, range::Vector{Int}=Int[], tag::Int=0) = Indexer(Symbol(symbol), range, range[1], tag)
 
 """
     Variable{T<:AbstractFloat}
@@ -675,6 +676,7 @@ mutable struct FinchState{T<:AbstractFloat}
     config::FinchConfig
     project_name::String
     output_dir::String
+    included_files::Vector{String} # List of files included in the generated code.
     
     # Log
     use_log::Bool
@@ -746,6 +748,7 @@ mutable struct FinchState{T<:AbstractFloat}
         FinchConfig(),
         name,
         pwd(),
+        [],
         
         false,
         2,

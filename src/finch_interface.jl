@@ -14,7 +14,8 @@ export initFinch, generateFor, useLog, indexDataType, floatDataType,
         solve, cachesimSolve, 
         finalizeFinch, cachesim, outputValues,
         mortonNodes, hilbertNodes, tiledNodes, mortonElements, hilbertElements, 
-        tiledElements, elementFirstNodes, randomNodes, randomElements
+        tiledElements, elementFirstNodes, randomNodes, randomElements,
+        includeFile
 
 # Begin configuration setting functions
 
@@ -941,6 +942,7 @@ function callbackFunction(fun; name="", args=[], body="")
     add_callback_function(finch_state, CallbackFunction(name, args, body, fun));
     
     log_entry("Added callback function: "*name, 2);
+    log_entry("with arguments: $args\n", 3);
     return fun;
 end
 
@@ -1952,5 +1954,26 @@ function randomElements(seed = 17)
     finch_state.grid_data.elemental_order = random_order(size(finch_state.grid_data.loc2glb,2), seed);
     log_entry("Reordered elements to random.", 2);
     random_nodes(seed);
+    nothing;
+end
+
+"""
+Specify a file to be included in the code generated.
+"""
+function includeFile(filename::String)
+    Main.include(filename)
+    push!(finch_state.included_files, filename);
+end
+
+"""
+Set a post step function to be called after the solve step.
+"""
+function postStepFunction(func_call::String, indexers=Vector{Indexer}(undef,0))
+    ex = Meta.parse(func_call);
+    ex = replace_symbols_in_conditions(ex);
+    new_exp = string(ex);
+    makeFunctions(new_exp);
+    
+    finch_state.prob.post_step_function = (finch_state.genfunctions[end], indexers)
     nothing;
 end
