@@ -2101,7 +2101,9 @@ function generate_time_stepping_loop_fvm(stepper, assembly, prob)
     else
         pre_step_call = IR_comment_node("No pre-step function specified");
     end
-    if !(prob.post_step_function === nothing)
+    if finch_state.prob.post_step_function isa Tuple && finch_state.config.use_gpu
+        post_step_call = IR_comment_node("#post-step kernel")
+    elseif !(prob.post_step_function === nothing)
         post_step_call = IR_operation_node(IRtypes.function_op, [:post_step_function]);
     else
         post_step_call = IR_comment_node("No post-step function specified");
