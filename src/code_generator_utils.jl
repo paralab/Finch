@@ -625,7 +625,8 @@ function remove_duplicate_lines(code::String)
     for i=1:nlines
         new = true;
         for j=1:nunique
-            if lines[i] == unique_lines[j]
+            if strip(lines[i], [' ', ';']) == strip(unique_lines[j], [' ', ';'])
+                log_entry("Duplicate line found: " * lines[i], 3);
                 new = false;
                 break;
             end
