@@ -13,11 +13,89 @@ The GPU version creates:
 # This creates the full code string including support code.
 # If desired this can make the code as a complete, stand-alone function
 # or as just the body of a function that will be generated(default).
+
+bc_kernel_calls::String = ""
+post_step_kernel_call::String = ""
+
 function generate_code_layer_julia_gpu(var::Vector{Variable{FT}}, IR::IR_part, solver, wrap_in_function=true) where FT<:AbstractFloat
     # This will hold the code string to be returned
     codes =fill("", length(var));
     code ="";
     aux_code ="";
+
+    for filename in finch_state.included_files
+        aux_code *= "include(\"$(filename)\")\n"
+    end
+    aux_code *= "\n"
+
+    # generate callback function kernel
+    global bc_kernel_calls
+    bc_kernel_calls = ""
+    for var_id in 1:size(finch_state.prob.bc_func, 1)
+        for bid in 1:size(finch_state.prob.bc_func, 2)
+            if !isempty(finch_state.prob.bc_func[var_id, bid])
+                bc_expr = finch_state.prob.bc_func[var_id, bid][1]
+                if bc_expr isa GenFunction
+                    # Get the callback function
+                    callback_fun = Main.eval(bc_expr.expr.args[1].args[1])
+                    # process the callback function
+                    args_to_tokens, args_to_expr, indexers = process_bc_args(callback_fun, bc_expr, bid, var_id)
+                    log_entry("Callback function for boundary $(bid) and variable $(var_id): $(callback_fun.name) with info:", 2)
+                    log_entry("  args_to_tokens: $(args_to_tokens)", 2)
+                    log_entry("  args_to_expr: $(args_to_expr)", 2)
+                    log_entry("  indexers: $(indexers)", 2)
+
+                    # Generate the kernel code for this callback function
+                    kernel_code = gen_bc_kernel(callback_fun, bid, var_id, args_to_tokens, args_to_expr, indexers)
+                    log_entry("Generated kernel code for boundary $(bid) and variable $(var_id):\n$(kernel_code)", 2)
+
+                    call_code = gen_bc_kernel_call(callback_fun, bid, var_id, args_to_tokens, indexers)
+                    bc_kernel_calls *= call_code * "\n"
+                    log_entry("Generated kernel call for boundary $(bid) and variable $(var_id):\n$(call_code)", 2)
+
+                    aux_code *= kernel_code
+                end
+            end
+        end
+    end
+
+    # generate post step kernel
+    global post_step_kernel_call
+    post_step_kernel_call = ""
+    post_step_fun = finch_state.prob.post_step_function;
+    if post_step_fun isa Tuple
+        # Get the callback function
+        callback_fun = Main.eval(post_step_fun[1].expr.args[1].args[1])
+        args_to_tokens, variables, indexers = process_pre_post_args(callback_fun, post_step_fun[1], post_step_fun[2])
+        log_entry("Post step function: $(callback_fun.name) with info:", 2)
+        log_entry("  args_to_tokens: $(args_to_tokens)", 2)
+        log_entry("  variables: $(variables)", 2)
+        log_entry("  indexers: $(indexers)", 2)
+
+        # Generate the kernel code for this callback function
+        kernel_code = gen_pre_post_kernel(callback_fun, args_to_tokens, indexers)
+        log_entry("Generated post step kernel code:\n$(kernel_code)", 2)
+
+        call_code = gen_pre_post_kernel_call(callback_fun, args_to_tokens, variables, indexers)
+        post_step_kernel_call *= call_code * "\n";
+        log_entry("Generated post step kernel call:\n$(call_code)", 2)
+
+        aux_code *= kernel_code;
+    end
+
+    # updating kernel after boundary condition
+    aux_code *=
+    """
+function gpu_update_sol_kernel(solution, global_vector, dt, fv_dofs_partition)
+    thread_id = threadIdx().x + (blockIdx().x - 1) * blockDim().x
+    if thread_id < fv_dofs_partition
+        solution[thread_id] = solution[thread_id] + (dt * global_vector[thread_id])
+    end
+
+    return nothing
+end
+
+    """
     
     # Set up useful numbers
     # Count variables, dofs, and store offsets
@@ -85,8 +163,8 @@ boundary_dof_index = zeros(Int64, num_bdry_faces * dofs_per_node);
         for i=1:nc
             if typeof(c.value[i]) == GenFunction
                 already_included = false;
-                for j=1:length(genfunction_list)
-                    if c.value[i].name == genfunction_list[j]
+                for j=1:length(genfunction_names)
+                    if c.value[i].name == genfunction_names[j]
                         already_included = true;
                         break;
                     end
@@ -122,6 +200,8 @@ boundary_dof_index = zeros(Int64, num_bdry_faces * dofs_per_node);
     index_bound_array *= "]";
     if length(index_bounds) > 1
         index_bounds *= "tmp_index_ranges = $index_bound_array;\n";
+    else
+        index_bounds = "tmp_index_ranges = [1];\n"; # no indexers, so just 1
     end
     
     code *="
@@ -183,19 +263,46 @@ end
     # Allocate GPU storage based on needs of assembly block
     assembly_block = extract_specified_block(IR, "assembly");
     gpu_allocate = get_gpu_allocations(assembly_block, IR_entry_types());
+
     gpu_allocate *= "global_vector_gpu = CuArray(global_vector);\n"
+
+    # Allocate for boundary conditions
+    for i in 1:length(finch_state.variables)
+        gpu_allocate *= "variables_$(i)_values_gpu = CuArray(variables[$(i)].values)\n";
+    end
+    for i in 1:length(finch_state.coefficients)
+        gpu_allocate *= "coefficients_$(i)_value_gpu = CuArray(Array{Float64}(coefficients[$(i)].value))\n";
+    end
+    for i in 1:size(finch_state.prob.bc_func, 2)
+        gpu_allocate *= "mesh_bdryface_$(i)_gpu = CuArray(mesh.bdryface[$(i)])\n";
+    end
+    gpu_allocate *=
+"""
+mesh_facenormals_gpu = CuArray(mesh.facenormals)
+mesh_face2element_gpu = CuArray(mesh.face2element)
+mesh_bids_gpu = CuArray(mesh.bids)
+geometric_factors_volume_gpu = CuArray(geometric_factors.volume)
+geometric_factors_area_gpu = CuArray(geometric_factors.area)
+boundary_flux_gpu = CuArray(boundary_flux)
+boundary_dof_index_gpu = CuArray(boundary_dof_index)
+fv_info_faceCenters_gpu = CuArray(fv_info.faceCenters)
+"""
     
     # Remove duplicates
     gpu_allocate = remove_duplicate_lines(gpu_allocate);
     # Add all allocated things to the list of args
     kernel_args = get_args_from_allocations(gpu_allocate);
+    push!(kernel_args, "t");
     push!(kernel_args, "dofs_global");
     push!(kernel_args, "faces_per_element");
     push!(kernel_args, "index_ranges");
+    for genfunction_name in genfunction_names
+        push!(kernel_args, genfunction_name);
+    end
     # push!(kernel_args, "global_vector_gpu");
     
     # Generate GPU kernel code
-    aux_code = generate_gpu_kernel(var, kernel_args, IR);
+    aux_code *= generate_gpu_kernel(var, kernel_args, IR);
     
     # Do CPU allocations first
     allocation_block = IR.parts[1];
@@ -811,7 +918,10 @@ function generate_from_IR_gpu_assembly(IR, IRtypes::Union{IR_entry_types, Nothin
         
     elseif node_type == IR_comment_node
         code = "#= " * IR.string * " =#\n";
-        
+        if IR.string == "#post-step kernel"
+            global post_step_kernel_call
+            code *= post_step_kernel_call * "\n"
+        end
     elseif node_type <: IR_part
         code = IR_string(IR);
         
@@ -1090,6 +1200,57 @@ function generate_from_IR_julia_gpu(IR, kernel_args, IRtypes::Union{IR_entry_typ
             end
             var_update *= "CUDA.synchronize();\n"
 
+#             code *="
+
+# $(var_update)
+
+# # This is done on gpu
+# @cuda threads=256 blocks=min(4096,ceil(Int, dofs_global/256)) gpu_assembly_kernel$(args_str)
+
+# # Asynchronously compute boundary values on cpu
+# @timeit timer_output \"bdry_vals\" begin
+# next_bdry_index = 1;
+# for bi=1:nbids
+# nfaces = length(mesh.bdryface[bi]);
+# for fi=1:nfaces
+# fid = mesh.bdryface[bi][fi];
+# eid = mesh.face2element[1,fid];
+# fbid = mesh.bids[bi];
+# volume = geometric_factors.volume[eid]
+# area = geometric_factors.area[fid]
+# area_over_volume = (area / volume)
+
+# $(index_loops)
+# $(index_values)
+# index_offset = $(index_offset)
+
+# row_index = index_offset + 1 + dofs_per_node * (eid - 1);
+
+# apply_boundary_conditions_face_rhs(var, eid, fid, fbid, mesh, refel, geometric_factors, fv_info, prob, 
+#                                     t, dt, flux_tmp, bdry_done, index_offset, index_values)
+# #
+# # store it
+# boundary_flux[next_bdry_index] = flux_tmp[1] * area_over_volume;
+# boundary_dof_index[next_bdry_index] = row_index;
+# next_bdry_index += 1;
+# $(index_loop_ends)
+# end
+# end
+# end # timer bdry_vals
+
+# # Then get global_vector from gpu
+# CUDA.synchronize()
+# copyto!(global_vector, global_vector_gpu)
+# CUDA.synchronize()
+
+# # And add BCs to global vector
+# for update_i = 1:(num_bdry_faces * dofs_per_node)
+# row_index = boundary_dof_index[update_i]
+# global_vector[row_index] = global_vector[row_index] + boundary_flux[update_i];
+# end
+
+# "
+            global bc_kernel_calls
             code *="
 
 $(var_update)
@@ -1099,46 +1260,8 @@ $(var_update)
 
 # Asynchronously compute boundary values on cpu
 @timeit timer_output \"bdry_vals\" begin
-next_bdry_index = 1;
-for bi=1:nbids
-nfaces = length(mesh.bdryface[bi]);
-for fi=1:nfaces
-fid = mesh.bdryface[bi][fi];
-eid = mesh.face2element[1,fid];
-fbid = mesh.bids[bi];
-volume = geometric_factors.volume[eid]
-area = geometric_factors.area[fid]
-area_over_volume = (area / volume)
-
-$(index_loops)
-$(index_values)
-index_offset = $(index_offset)
-
-row_index = index_offset + 1 + dofs_per_node * (eid - 1);
-
-apply_boundary_conditions_face_rhs(var, eid, fid, fbid, mesh, refel, geometric_factors, fv_info, prob, 
-                                    t, dt, flux_tmp, bdry_done, index_offset, index_values)
-#
-# store it
-boundary_flux[next_bdry_index] = flux_tmp[1] * area_over_volume;
-boundary_dof_index[next_bdry_index] = row_index;
-next_bdry_index += 1;
-$(index_loop_ends)
-end
-end
+$(bc_kernel_calls)
 end # timer bdry_vals
-
-# Then get global_vector from gpu
-CUDA.synchronize()
-copyto!(global_vector, global_vector_gpu)
-CUDA.synchronize()
-
-# And add BCs to global vector
-for update_i = 1:(num_bdry_faces * dofs_per_node)
-row_index = boundary_dof_index[update_i]
-global_vector[row_index] = global_vector[row_index] + boundary_flux[update_i];
-end
-
 "
             
         else
@@ -1185,6 +1308,10 @@ end
         
     elseif node_type == IR_comment_node
         code = "#= " * IR.string * " =#\n";
+        if IR.string == "#post-step kernel"
+            global post_step_kernel_call
+            code *= post_step_kernel_call * "\n"
+        end
         
     elseif node_type <: IR_part
         code = IR_string(IR);
@@ -1248,7 +1375,7 @@ function generate_named_op_gpu(IR::IR_operation_node, kernel_args, IRtypes::Unio
                     code = type_name*"("*string(val)*")";
                     use_eval = false;
                 elseif typeof(val) == GenFunction
-                    code = type_name*"("*val.name * "(x,y,z,t,"*string(IR.args[8])*", "*string(IR.args[9])*", index_values))";
+                    code = type_name*"($(val.str))";
                     use_eval = false;
                 end
             else
@@ -1278,9 +1405,23 @@ function generate_named_op_gpu(IR::IR_operation_node, kernel_args, IRtypes::Unio
         
     elseif op === :TIMER
         # A timer has two more args, the label and the content
-        code = "@timeit timer_output \""*string(IR.args[2])*"\" begin\n";
-        code *= generate_from_IR_julia_gpu(IR.args[3], kernel_args, IRtypes);
-        code *= "\n" * "end # timer:"*string(IR.args[2])*"\n";
+        if string(IR.args[2]) == "time_steps"
+            code = "solution_gpu = CuArray(solution)\n"
+        else
+            code = ""
+        end
+        code *= "@timeit timer_output \""*string(IR.args[2])*"\" begin\n";
+        if string(IR.args[2]) == "update_sol"
+            code *=
+            """
+            CUDA.@sync @cuda threads = 256 blocks = ceil(Int, fv_dofs_partition / 256) gpu_update_sol_kernel(solution_gpu, global_vector_gpu, dt, fv_dofs_partition)
+            """
+            code *= "\n" * "end # timer:"*string(IR.args[2])*"\n"
+            code *= "copyto!(solution, solution_gpu)\n"
+        else
+            code *= generate_from_IR_julia_gpu(IR.args[3], kernel_args, IRtypes);
+            code *= "\n" * "end # timer:"*string(IR.args[2])*"\n";
+        end
         
     elseif op === :FILL_ARRAY
         # args[2] is the array, args[3] is the value
@@ -1585,7 +1726,7 @@ function generate_named_op_gpu_kernel(IR::IR_operation_node, IRtypes::Union{IR_e
                     code = type_name*"("*string(val)*")";
                     use_eval = false;
                 elseif typeof(val) == GenFunction
-                    code = type_name*"("*val.name * "(x,y,z,t,"*string(IR.args[8])*", "*string(IR.args[9])*", index_values))";
+                    code = type_name*"($(val.str))"
                     use_eval = false;
                 end
             else
