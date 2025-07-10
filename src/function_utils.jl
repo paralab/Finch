@@ -34,7 +34,10 @@ end
 # Adds the GenFunction to a global array of generated functions
 function add_genfunction(genfun)
     push!(finch_state.genfunctions, genfun);
-    log_entry("Generated function: "*genfun.name);
+    genfun_expr_args = [string(arg) for arg in genfun.expr.args[2:end]]; # skip the first arg which is the function name
+    var_coeff_index_matches = [match(r"^.*(variables|coefficients|indices)\[(\d+)\].*$", arg) for arg in genfun_expr_args];
+    log_entry("Generated function: "*string(var_coeff_index_matches)*"\n  with name: "*genfun.name*
+        "\n  and args: "*string(genfun.expr.args[2:end]), 2);
 end
 
 # Makes either: a constant number, a genfunction, or an array of genfunctions
