@@ -56,6 +56,7 @@ include("generate_code_layer.jl");
 include("generate_code_layer_julia.jl");
 include("generate_bc_gpu.jl")
 include("generate_pre_post_step_gpu.jl")
+include("generate_copy_vals_vec_gpu.jl");
 include("generate_code_layer_julia_gpu.jl");
 
 # # target specific code gen functions

@@ -65,15 +65,15 @@ function gen_pre_post_kernel_call(
     call *= join(args, ", ") * ")\n"
 
     # include copying variables to and from GPU
-    copytogpu = ""
-    for var in variables.keys
-        copytogpu *= "copyto!($(variables[var]), $(string(var)))\n"
-    end
-    copyfromgpu = ""
-    for var in variables.keys
-        copyfromgpu *= "copyto!($(string(var)), $(variables[var]))\n"
-    end
-    call = copytogpu * "\n" * call * "\n" * copyfromgpu
+    # copytogpu = ""
+    # for var in variables.keys
+    #     copytogpu *= "copyto!($(variables[var]), $(string(var)))\n"
+    # end
+    # copyfromgpu = ""
+    # for var in variables.keys
+    #     copyfromgpu *= "copyto!($(string(var)), $(variables[var]))\n"
+    # end
+    # call = copytogpu * "\n" * call * "\n" * copyfromgpu
 
     return call
 end

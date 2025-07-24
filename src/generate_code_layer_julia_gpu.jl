@@ -28,6 +28,10 @@ function generate_code_layer_julia_gpu(var::Vector{Variable{FT}}, IR::IR_part, s
     end
     aux_code *= "\n"
 
+    aux_code *= CodeGenerator.copy_bdry_vals_to_vec_kernel
+    aux_code *= "\n"
+    aux_code *= CodeGenerator.place_vector_in_var_kernel
+
     # generate callback function kernel
     global bc_kernel_calls
     bc_kernel_calls = ""
@@ -1192,69 +1196,8 @@ function generate_from_IR_julia_gpu(IR, kernel_args, IRtypes::Union{IR_entry_typ
             end
             args_str *= ")\n";
             
-            # update the variables on the gpu
-            var_update = "# Send needed values back to gpu\n";
-            for i=1:length(variable_args)
-                vind = parse(Int, variable_args[i][11]);
-                var_update *= "copyto!($(variable_args[i]), variables[$(vind)].values);\n"
-            end
-            var_update *= "CUDA.synchronize();\n"
-
-#             code *="
-
-# $(var_update)
-
-# # This is done on gpu
-# @cuda threads=256 blocks=min(4096,ceil(Int, dofs_global/256)) gpu_assembly_kernel$(args_str)
-
-# # Asynchronously compute boundary values on cpu
-# @timeit timer_output \"bdry_vals\" begin
-# next_bdry_index = 1;
-# for bi=1:nbids
-# nfaces = length(mesh.bdryface[bi]);
-# for fi=1:nfaces
-# fid = mesh.bdryface[bi][fi];
-# eid = mesh.face2element[1,fid];
-# fbid = mesh.bids[bi];
-# volume = geometric_factors.volume[eid]
-# area = geometric_factors.area[fid]
-# area_over_volume = (area / volume)
-
-# $(index_loops)
-# $(index_values)
-# index_offset = $(index_offset)
-
-# row_index = index_offset + 1 + dofs_per_node * (eid - 1);
-
-# apply_boundary_conditions_face_rhs(var, eid, fid, fbid, mesh, refel, geometric_factors, fv_info, prob, 
-#                                     t, dt, flux_tmp, bdry_done, index_offset, index_values)
-# #
-# # store it
-# boundary_flux[next_bdry_index] = flux_tmp[1] * area_over_volume;
-# boundary_dof_index[next_bdry_index] = row_index;
-# next_bdry_index += 1;
-# $(index_loop_ends)
-# end
-# end
-# end # timer bdry_vals
-
-# # Then get global_vector from gpu
-# CUDA.synchronize()
-# copyto!(global_vector, global_vector_gpu)
-# CUDA.synchronize()
-
-# # And add BCs to global vector
-# for update_i = 1:(num_bdry_faces * dofs_per_node)
-# row_index = boundary_dof_index[update_i]
-# global_vector[row_index] = global_vector[row_index] + boundary_flux[update_i];
-# end
-
-# "
             global bc_kernel_calls
             code *="
-
-$(var_update)
-
 # This is done on gpu
 @cuda threads=256 blocks=min(4096,ceil(Int, dofs_global/256)) gpu_assembly_kernel$(args_str)
 
@@ -1417,10 +1360,15 @@ function generate_named_op_gpu(IR::IR_operation_node, kernel_args, IRtypes::Unio
             CUDA.@sync @cuda threads = 256 blocks = ceil(Int, fv_dofs_partition / 256) gpu_update_sol_kernel(solution_gpu, global_vector_gpu, dt, fv_dofs_partition)
             """
             code *= "\n" * "end # timer:"*string(IR.args[2])*"\n"
-            code *= "copyto!(solution, solution_gpu)\n"
         else
             code *= generate_from_IR_julia_gpu(IR.args[3], kernel_args, IRtypes);
             code *= "\n" * "end # timer:"*string(IR.args[2])*"\n";
+        end
+
+        if string(IR.args[2]) == "time_steps"
+            for i = 1:length(finch_state.variables)
+                code *= "copyto!(variables[$(i)].values, variables_$(i)_values_gpu)\n"
+            end
         end
         
     elseif op === :FILL_ARRAY
@@ -1493,12 +1441,13 @@ function generate_named_op_gpu(IR::IR_operation_node, kernel_args, IRtypes::Unio
         
     elseif op === :BDRY_TO_VECTOR
         # FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node, prob);
-        if length(IR.args) < 3
-            code = "copy_bdry_vals_to_vector(var, "* generate_from_IR_julia_gpu(IR.args[2], kernel_args, IRtypes) *", mesh, dofs_per_node, prob);";
-        else
-            code = "copy_bdry_vals_to_vector("* generate_from_IR_julia_gpu(IR.args[3], kernel_args, IRtypes) *", "* 
-                            generate_from_IR_julia_gpu(IR.args[2], kernel_args, IRtypes) *", mesh, dofs_per_node, prob);";
-        end
+        code = gen_copy_bdry_vals_to_vec_calls()
+        # if length(IR.args) < 3
+        #     code = "copy_bdry_vals_to_vector(var, "* generate_from_IR_julia_gpu(IR.args[2], kernel_args, IRtypes) *", mesh, dofs_per_node, prob);";
+        # else
+        #     code = "copy_bdry_vals_to_vector("* generate_from_IR_julia_gpu(IR.args[3], kernel_args, IRtypes) *", "* 
+        #                     generate_from_IR_julia_gpu(IR.args[2], kernel_args, IRtypes) *", mesh, dofs_per_node, prob);";
+        # end
         
     elseif op === :BDRY_TO_VAR
         # copy_bdry_vals_to_variables(var, solution, mesh, dofs_per_node, prob, true)
@@ -1513,12 +1462,13 @@ function generate_named_op_gpu(IR::IR_operation_node, kernel_args, IRtypes::Unio
         
     elseif op === :SCATTER_VARS
         # place global vector in variable arrays
-        if length(IR.args) < 3
-            code = "place_vector_in_vars(var, "* generate_from_IR_julia_gpu(IR.args[2], kernel_args, IRtypes) *");";
-        else
-            code = "place_vector_in_vars("* generate_from_IR_julia_gpu(IR.args[3], kernel_args, IRtypes) *", "* 
-                            generate_from_IR_julia_gpu(IR.args[2], IRtypes) *");";
-        end
+        code = gen_place_vector_in_var_calls()
+        # if length(IR.args) < 3
+        #     code = "place_vector_in_vars(var, "* generate_from_IR_julia_gpu(IR.args[2], kernel_args, IRtypes) *");";
+        # else
+        #     code = "place_vector_in_vars("* generate_from_IR_julia_gpu(IR.args[3], kernel_args, IRtypes) *", "* 
+        #                     generate_from_IR_julia_gpu(IR.args[2], IRtypes) *");";
+        # end
         
     elseif op === :LOCAL2GLOBAL
         # put elemental matrix and vector in global system
@@ -1833,12 +1783,13 @@ function generate_named_op_gpu_kernel(IR::IR_operation_node, IRtypes::Union{IR_e
         
     elseif op === :BDRY_TO_VECTOR
         # FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node, prob);
-        if length(IR.args) < 3
-            code = "copy_bdry_vals_to_vector(var, "* generate_from_IR_gpu_assembly(IR.args[2], IRtypes) *", mesh, dofs_per_node, prob);";
-        else
-            code = "copy_bdry_vals_to_vector("* generate_from_IR_gpu_assembly(IR.args[3], IRtypes) *", "* 
-                            generate_from_IR_gpu_assembly(IR.args[2], IRtypes) *", mesh, dofs_per_node, prob);";
-        end
+        code = gen_copy_bdry_vals_to_vec_calls()
+        # if length(IR.args) < 3
+        #     code = "copy_bdry_vals_to_vector(var, "* generate_from_IR_gpu_assembly(IR.args[2], IRtypes) *", mesh, dofs_per_node, prob);";
+        # else
+        #     code = "copy_bdry_vals_to_vector("* generate_from_IR_gpu_assembly(IR.args[3], IRtypes) *", "* 
+        #                     generate_from_IR_gpu_assembly(IR.args[2], IRtypes) *", mesh, dofs_per_node, prob);";
+        # end
         
     elseif op === :BDRY_TO_VAR
         # copy_bdry_vals_to_variables(var, solution, mesh, dofs_per_node, prob, true)
@@ -1853,12 +1804,13 @@ function generate_named_op_gpu_kernel(IR::IR_operation_node, IRtypes::Union{IR_e
         
     elseif op === :SCATTER_VARS
         # place global vector in variable arrays
-        if length(IR.args) < 3
-            code = "place_vector_in_vars(var, "* generate_from_IR_gpu_assembly(IR.args[2], IRtypes) *");";
-        else
-            code = "place_vector_in_vars("* generate_from_IR_gpu_assembly(IR.args[3], IRtypes) *", "* 
-                            generate_from_IR_gpu_assembly(IR.args[2], IRtypes) *");";
-        end
+        code = gen_place_vector_in_var_calls()
+        # if length(IR.args) < 3
+        #     code = "place_vector_in_vars(var, "* generate_from_IR_gpu_assembly(IR.args[2], IRtypes) *");";
+        # else
+        #     code = "place_vector_in_vars("* generate_from_IR_gpu_assembly(IR.args[3], IRtypes) *", "* 
+        #                     generate_from_IR_gpu_assembly(IR.args[2], IRtypes) *");";
+        # end
         
     elseif op === :LOCAL2GLOBAL
         # put elemental matrix and vector in global system
