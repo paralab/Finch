@@ -16,12 +16,16 @@ The GPU version creates:
 
 bc_kernel_calls::String = ""
 post_step_kernel_call::String = ""
+place_vector_in_var_calls::String = ""
 
 function generate_code_layer_julia_gpu(var::Vector{Variable{FT}}, IR::IR_part, solver, wrap_in_function=true) where FT<:AbstractFloat
     # This will hold the code string to be returned
     codes =fill("", length(var));
     code ="";
     aux_code ="";
+
+    global place_vector_in_var_calls
+    place_vector_in_var_calls = gen_place_vector_in_var_calls(var)
 
     for filename in finch_state.included_files
         aux_code *= "include(\"$(filename)\")\n"
@@ -1441,7 +1445,7 @@ function generate_named_op_gpu(IR::IR_operation_node, kernel_args, IRtypes::Unio
         
     elseif op === :BDRY_TO_VECTOR
         # FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node, prob);
-        code = gen_copy_bdry_vals_to_vec_calls()
+        # code = gen_copy_bdry_vals_to_vec_calls()
         # if length(IR.args) < 3
         #     code = "copy_bdry_vals_to_vector(var, "* generate_from_IR_julia_gpu(IR.args[2], kernel_args, IRtypes) *", mesh, dofs_per_node, prob);";
         # else
@@ -1462,7 +1466,7 @@ function generate_named_op_gpu(IR::IR_operation_node, kernel_args, IRtypes::Unio
         
     elseif op === :SCATTER_VARS
         # place global vector in variable arrays
-        code = gen_place_vector_in_var_calls()
+        code = place_vector_in_var_calls
         # if length(IR.args) < 3
         #     code = "place_vector_in_vars(var, "* generate_from_IR_julia_gpu(IR.args[2], kernel_args, IRtypes) *");";
         # else
@@ -1783,7 +1787,7 @@ function generate_named_op_gpu_kernel(IR::IR_operation_node, IRtypes::Union{IR_e
         
     elseif op === :BDRY_TO_VECTOR
         # FV_copy_bdry_vals_to_vector(var, sol, grid, dofs_per_node, prob);
-        code = gen_copy_bdry_vals_to_vec_calls()
+        # code = gen_copy_bdry_vals_to_vec_calls()
         # if length(IR.args) < 3
         #     code = "copy_bdry_vals_to_vector(var, "* generate_from_IR_gpu_assembly(IR.args[2], IRtypes) *", mesh, dofs_per_node, prob);";
         # else
@@ -1804,7 +1808,7 @@ function generate_named_op_gpu_kernel(IR::IR_operation_node, IRtypes::Union{IR_e
         
     elseif op === :SCATTER_VARS
         # place global vector in variable arrays
-        code = gen_place_vector_in_var_calls()
+        code = place_vector_in_var_calls
         # if length(IR.args) < 3
         #     code = "place_vector_in_vars(var, "* generate_from_IR_gpu_assembly(IR.args[2], IRtypes) *");";
         # else
