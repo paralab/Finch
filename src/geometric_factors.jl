@@ -102,6 +102,7 @@ function build_geometric_factors(refel, grid::Grid; do_face_detj::Bool=true,
     ve = zeros(dim, size(grid.glbvertex, 1));
     
     # loop over elements to build their geo facs
+    refeli = nothing
     for e=1:nel
         # it's possible to have different element types with different refels
         if typeof(refel) <: Array
